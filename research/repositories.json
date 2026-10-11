@@ -1,0 +1,90 @@
+{
+  "schemaVersion": 1,
+  "repositories": [
+    {
+      "repository": "MafiaHub/awesome-mafia",
+      "url": "https://github.com/MafiaHub/awesome-mafia",
+      "localSnapshot": "../.editor-references/MafiaHub__awesome-mafia"
+    },
+    {
+      "repository": "st0rm94/mafia-reverse-engineering-export",
+      "url": "https://github.com/st0rm94/mafia-reverse-engineering-export",
+      "localSnapshot": "../.editor-references/st0rm94__mafia-reverse-engineering-export"
+    },
+    {
+      "repository": "Richard01CZ/Mafia_DTAExtractor",
+      "url": "https://github.com/Richard01CZ/Mafia_DTAExtractor",
+      "localSnapshot": "../.editor-references/Richard01CZ__Mafia_DTAExtractor"
+    },
+    {
+      "repository": "Richard01CZ/Mafia4Blender_4ds",
+      "url": "https://github.com/Richard01CZ/Mafia4Blender_4ds",
+      "localSnapshot": "../.editor-references/Richard01CZ__Mafia4Blender_4ds"
+    },
+    {
+      "repository": "Richard01CZ/Mafia4Blender_5ds",
+      "url": "https://github.com/Richard01CZ/Mafia4Blender_5ds",
+      "localSnapshot": "../.editor-references/Richard01CZ__Mafia4Blender_5ds"
+    },
+    {
+      "repository": "Richard01CZ/mEdit",
+      "url": "https://github.com/Richard01CZ/mEdit",
+      "localSnapshot": "../.editor-references/Richard01CZ__mEdit"
+    },
+    {
+      "repository": "Richard01CZ/DCED_misc",
+      "url": "https://github.com/Richard01CZ/DCED_misc",
+      "localSnapshot": "../.editor-references/Richard01CZ__DCED_misc"
+    },
+    {
+      "repository": "Richard01CZ/mLib",
+      "url": "https://github.com/Richard01CZ/mLib",
+      "localSnapshot": "../.editor-references/Richard01CZ__mLib"
+    },
+    {
+      "repository": "Richard01CZ/DCED2",
+      "url": "https://github.com/Richard01CZ/DCED2",
+      "localSnapshot": "../.editor-references/Richard01CZ__DCED2"
+    },
+    {
+      "repository": "Sanderfol/Cutscene-Tools-",
+      "url": "https://github.com/Sanderfol/Cutscene-Tools-",
+      "localSnapshot": "../.editor-references/Sanderfol__Cutscene-Tools-"
+    },
+    {
+      "repository": "b4rtt/mafia-nodejs-extractor",
+      "url": "https://github.com/b4rtt/mafia-nodejs-extractor",
+      "localSnapshot": "../.editor-references/b4rtt__mafia-nodejs-extractor"
+    },
+    {
+      "repository": "b4rtt/mafia-webgl-renderer",
+      "url": "https://github.com/b4rtt/mafia-webgl-renderer",
+      "localSnapshot": "../.editor-references/b4rtt__mafia-webgl-renderer"
+    },
+    {
+      "repository": "Marvisak/mafia-re",
+      "url": "https://github.com/Marvisak/mafia-re",
+      "localSnapshot": "../.editor-references/Marvisak__mafia-re"
+    },
+    {
+      "repository": "RoadTrain/mafia-formats",
+      "url": "https://github.com/RoadTrain/mafia-formats",
+      "localSnapshot": "../.editor-references/RoadTrain__mafia-formats"
+    },
+    {
+      "repository": "b4rtt/mafia-editor",
+      "url": "https://github.com/b4rtt/mafia-editor",
+      "localSnapshot": "../.editor-references/b4rtt__mafia-editor"
+    },
+    {
+      "repository": "MafiaHub/MafiaFormats",
+      "url": "https://github.com/MafiaHub/MafiaFormats",
+      "localSnapshot": "../.editor-references/MafiaHub__MafiaFormats"
+    }
+  ],
+  "notes": [
+    "MafiaHub/awesome-mafia was supplied twice; one entry is retained.",
+    "The incomplete https://github.com/M was followed by MafiaHub/MafiaFormats.",
+    "The unlinked mafia-editor name was followed by b4rtt/mafia-editor."
+  ]
+}

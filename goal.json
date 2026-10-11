@@ -1,0 +1,19 @@
+{
+  "title": "Komplexní editor Mafia 1 CZ (2002)",
+  "prerequisite": "Funkční spuštění původní hry na Macu. Hra nyní spouští videa a menu; test první mise čeká na systémové potvrzení Touch ID.",
+  "objective": "Vytvořit komplexní editor celé hry, ideálně v Electronu, pro maximální modifikaci všech částí hry. Rozbalit data a vycházet z dodaných repozitářů a zdokumentovaných formátů, nepracovat naslepo.",
+  "requirements": [
+    "Uložit všech 16 unikátních dodaných repozitářů a vyhodnotit jejich formáty, implementace a licence.",
+    "Procházet, extrahovat, editovat a aplikovat herní data; zahrnout scény a mapy, modely 4DS, animace 5DS, mise a skripty, tabulky, texty, textury, zvuky a cutscény.",
+    "Podporovat maximální modifikovatelnost; nepodporované formáty viditelně přiznat a postupně doplnit, nikoli označit komplexní editor za hotový na základě samotného prohlížeče.",
+    "Zachovat původní data a umožnit zálohování, vrácení úprav, projekty modů a ověření modifikací v reálné hře.",
+    "Pracovat především v tomto adresáři; nepoškodit macOS.",
+    "Vytvořit veřejné repo editoru na GitHubu b4rtt a průběžně commitovat a pushovat smysluplné dokončené změny. Do repozitáře neukládat herní data, instalátory, runtime Wine, přístupové údaje ani soukromé snapshoty referencí."
+  ],
+  "validation": [
+    "Ověřit extrakci na lokálních DTA archivech.",
+    "Ověřit zpětné čtení a zápis podporovaných formátů a zachování neznámých dat.",
+    "Ověřit UI editoru a reálné načtení upravených dat ve hře."
+  ],
+  "goalRunnerStatus": "Čeká: v tomto chatu je zatím aktivní nedokončený goal spuštění hry a nástroj druhý goal odmítl."
+}
