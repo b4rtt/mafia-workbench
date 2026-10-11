@@ -4,82 +4,114 @@
     {
       "repository": "MafiaHub/awesome-mafia",
       "url": "https://github.com/MafiaHub/awesome-mafia",
-      "localSnapshot": "../.editor-references/MafiaHub__awesome-mafia"
+      "localSnapshot": "../.editor-references/MafiaHub__awesome-mafia",
+      "snapshotCommit": "4f6eda8703c0d73f1c3019a42e9cb376eaf49b8e",
+      "snapshotStatus": "saved"
     },
     {
       "repository": "st0rm94/mafia-reverse-engineering-export",
       "url": "https://github.com/st0rm94/mafia-reverse-engineering-export",
-      "localSnapshot": "../.editor-references/st0rm94__mafia-reverse-engineering-export"
+      "localSnapshot": "../.editor-references/st0rm94__mafia-reverse-engineering-export",
+      "snapshotCommit": "eb4eaabf718bf9a879f1721e9231ff359871fb47",
+      "snapshotStatus": "saved"
     },
     {
       "repository": "Richard01CZ/Mafia_DTAExtractor",
       "url": "https://github.com/Richard01CZ/Mafia_DTAExtractor",
-      "localSnapshot": "../.editor-references/Richard01CZ__Mafia_DTAExtractor"
+      "localSnapshot": "../.editor-references/Richard01CZ__Mafia_DTAExtractor",
+      "snapshotCommit": "0ef44a52cc4a8bb3b5e905dc4f0eb541b4310bdd",
+      "snapshotStatus": "saved"
     },
     {
       "repository": "Richard01CZ/Mafia4Blender_4ds",
       "url": "https://github.com/Richard01CZ/Mafia4Blender_4ds",
-      "localSnapshot": "../.editor-references/Richard01CZ__Mafia4Blender_4ds"
+      "localSnapshot": "../.editor-references/Richard01CZ__Mafia4Blender_4ds",
+      "snapshotCommit": "08fc24f473537b8b11c24a3cbc2c0fa1b3e26192",
+      "snapshotStatus": "saved"
     },
     {
       "repository": "Richard01CZ/Mafia4Blender_5ds",
       "url": "https://github.com/Richard01CZ/Mafia4Blender_5ds",
-      "localSnapshot": "../.editor-references/Richard01CZ__Mafia4Blender_5ds"
+      "localSnapshot": "../.editor-references/Richard01CZ__Mafia4Blender_5ds",
+      "snapshotCommit": "d3c8ce8f6a5543d14978b4f26914615e53c0909a",
+      "snapshotStatus": "saved"
     },
     {
       "repository": "Richard01CZ/mEdit",
       "url": "https://github.com/Richard01CZ/mEdit",
-      "localSnapshot": "../.editor-references/Richard01CZ__mEdit"
+      "localSnapshot": "../.editor-references/Richard01CZ__mEdit",
+      "snapshotCommit": "6f6f9cb134b6016f1b323b9293b24f41cb4bc5f3",
+      "snapshotStatus": "saved"
     },
     {
       "repository": "Richard01CZ/DCED_misc",
       "url": "https://github.com/Richard01CZ/DCED_misc",
-      "localSnapshot": "../.editor-references/Richard01CZ__DCED_misc"
+      "localSnapshot": "../.editor-references/Richard01CZ__DCED_misc",
+      "snapshotCommit": "42740ccec5317c6fd04bcf6a096fe40005d947a1",
+      "snapshotStatus": "saved"
     },
     {
       "repository": "Richard01CZ/mLib",
       "url": "https://github.com/Richard01CZ/mLib",
-      "localSnapshot": "../.editor-references/Richard01CZ__mLib"
+      "localSnapshot": "../.editor-references/Richard01CZ__mLib",
+      "snapshotCommit": "b10cbd136eac074fb6a98d9186a1d01d2a8be084",
+      "snapshotStatus": "saved"
     },
     {
       "repository": "Richard01CZ/DCED2",
       "url": "https://github.com/Richard01CZ/DCED2",
-      "localSnapshot": "../.editor-references/Richard01CZ__DCED2"
+      "localSnapshot": "../.editor-references/Richard01CZ__DCED2",
+      "snapshotCommit": "d09d611ba1a0bee8646c359b818594457c8ea481",
+      "snapshotStatus": "saved"
     },
     {
       "repository": "Sanderfol/Cutscene-Tools-",
       "url": "https://github.com/Sanderfol/Cutscene-Tools-",
-      "localSnapshot": "../.editor-references/Sanderfol__Cutscene-Tools-"
+      "localSnapshot": "../.editor-references/Sanderfol__Cutscene-Tools-",
+      "snapshotCommit": "539fe8654cbd0b17b2aec0cb341dbdb9ad3388b5",
+      "snapshotStatus": "saved"
     },
     {
       "repository": "b4rtt/mafia-nodejs-extractor",
       "url": "https://github.com/b4rtt/mafia-nodejs-extractor",
-      "localSnapshot": "../.editor-references/b4rtt__mafia-nodejs-extractor"
+      "localSnapshot": "../.editor-references/b4rtt__mafia-nodejs-extractor",
+      "snapshotCommit": "e8e7f5e8c95fdacbfc1666e98d84bbe4e46825e5",
+      "snapshotStatus": "saved"
     },
     {
       "repository": "b4rtt/mafia-webgl-renderer",
       "url": "https://github.com/b4rtt/mafia-webgl-renderer",
-      "localSnapshot": "../.editor-references/b4rtt__mafia-webgl-renderer"
+      "localSnapshot": "../.editor-references/b4rtt__mafia-webgl-renderer",
+      "snapshotCommit": "cd38bb260087d3d4f5b0a394fbcb35ff553288a7",
+      "snapshotStatus": "saved"
     },
     {
       "repository": "Marvisak/mafia-re",
       "url": "https://github.com/Marvisak/mafia-re",
-      "localSnapshot": "../.editor-references/Marvisak__mafia-re"
+      "localSnapshot": "../.editor-references/Marvisak__mafia-re",
+      "snapshotCommit": "96a191035e57d712a82a2cf9752bf8f14314db50",
+      "snapshotStatus": "saved"
     },
     {
       "repository": "RoadTrain/mafia-formats",
       "url": "https://github.com/RoadTrain/mafia-formats",
-      "localSnapshot": "../.editor-references/RoadTrain__mafia-formats"
+      "localSnapshot": "../.editor-references/RoadTrain__mafia-formats",
+      "snapshotCommit": "13d2ff8b4d58a098438a0b300129d9e7c574e783",
+      "snapshotStatus": "saved"
     },
     {
       "repository": "b4rtt/mafia-editor",
       "url": "https://github.com/b4rtt/mafia-editor",
-      "localSnapshot": "../.editor-references/b4rtt__mafia-editor"
+      "localSnapshot": "../.editor-references/b4rtt__mafia-editor",
+      "snapshotCommit": "dc498e19a13b330ee0d17037bd69e4aea0234bc9",
+      "snapshotStatus": "saved"
     },
     {
       "repository": "MafiaHub/MafiaFormats",
       "url": "https://github.com/MafiaHub/MafiaFormats",
-      "localSnapshot": "../.editor-references/MafiaHub__MafiaFormats"
+      "localSnapshot": "../.editor-references/MafiaHub__MafiaFormats",
+      "snapshotCommit": "ce8df7e47d7dd90fe6a25a06f84e480c3cfc585f",
+      "snapshotStatus": "saved"
     }
   ],
   "notes": [

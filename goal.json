@@ -14,6 +14,5 @@
     "Ověřit extrakci na lokálních DTA archivech.",
     "Ověřit zpětné čtení a zápis podporovaných formátů a zachování neznámých dat.",
     "Ověřit UI editoru a reálné načtení upravených dat ve hře."
-  ],
-  "goalRunnerStatus": "Čeká: v tomto chatu je zatím aktivní nedokončený goal spuštění hry a nástroj druhý goal odmítl."
+  ]
 }
