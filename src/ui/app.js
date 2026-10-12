@@ -1,6 +1,8 @@
 import { categories, groupAssets } from '../shared/categories.js';
 import { Viewport } from './viewport.js';
 import { AnimationPreview } from './animation.js';
+import { NavigationViewport } from './navigation.js';
+import { Group } from 'three';
 const api = window.workbench;
 const $ = id => document.getElementById(id);
 const state = { project: null, file: null, category: 'levels', texts: new Map(), textIndex: 0, busy: false, viewport: null };
@@ -76,7 +78,7 @@ function renderDetail() {
   state.viewport?.dispose(); state.viewport = null;
   for (const audio of $('detail').querySelectorAll('audio')) { audio.pause(); audio.removeAttribute('src'); audio.load(); }
   const main = $('detail'); main.replaceChildren();
-  const badges = { items: 'PŘEDMĚTY · ZBRANĚ', textdb: 'TEXTDB · EDITACE', scene: 'SCÉNA · EDITACE', cache: 'CACHE · STATICKÉ MODELY', map: 'MAPA · 3D EDITACE', model: '4DS · 3D EDITACE', animation: '5DS · ANIMACE', image: 'OBRÁZEK · NÁHLED', audio: 'ZVUK · PŘEHRÁVAČ' };
+  const badges = { navigation: 'CHECK · NAVIGACE', items: 'PŘEDMĚTY · ZBRANĚ', textdb: 'TEXTDB · EDITACE', scene: 'SCÉNA · EDITACE', cache: 'CACHE · STATICKÉ MODELY', map: 'MAPA · 3D EDITACE', model: '4DS · 3D EDITACE', animation: '5DS · ANIMACE', image: 'OBRÁZEK · NÁHLED', audio: 'ZVUK · PŘEHRÁVAČ' };
   const head = element('div', undefined, 'file-header'); head.append(element('h2', file.path), element('span', badges[file.type] ?? 'BINÁRNÍ SOUBOR', 'badge')); main.append(head);
   const source = state.project.assets.find(a => a.path === file.path);
   main.append(element('div', `${file.size.toLocaleString('cs')} bajtů · ${source?.archive} · ${source?.variants ?? 1} variant archivů`, 'file-meta'));
@@ -100,6 +102,7 @@ function renderDetail() {
   }
   if (file.type === 'textdb') renderTexts(main, file);
   else if (file.type === 'items') renderItems(main, file);
+  else if (file.type === 'navigation') renderNavigation(main, file);
   else if (file.type === 'scene') renderProperties(main, file, api.saveScene);
   else if (file.type === 'cache') renderCache(main, file);
   else if (file.type === 'model') renderModel(main, file);
@@ -116,6 +119,50 @@ function renderDetail() {
     }
     main.append(element('pre', rows, 'binary'));
   }
+}
+function renderNavigation(main, file) {
+  main.append(element('p', `${file.points.length.toLocaleString('cs')} bodů · ${file.linkCount.toLocaleString('cs')} směrovaných vazeb. Číslo bodu je jeho pořadí od nuly, uložené ID se může opakovat. Modrá: chodci, žlutá: AI, oranžová: vozidla, fialová: zastávky.`, 'notice'));
+  for (const warning of file.warnings.slice(0,10)) main.append(element('p',warning,'notice'));
+  const layout = element('div', undefined, 'model-workspace'), center = element('section', undefined, 'model-center'), inspector = element('section', undefined, 'model-inspector'); layout.append(center, inspector); main.append(layout);
+  const tools = element('div', undefined, 'tools'), number = element('input'), jump = element('button', 'Vybrat bod'), fit = element('button', 'Zarámovat síť'), focus = element('button', 'Přiblížit bod'), background = element('button', 'Zobrazit geometrii mise'), viewport = element('div', undefined, 'viewport');
+  number.type = 'number'; number.min = '0'; number.max = String(Math.max(0,file.points.length-1)); number.step = '1'; number.value = '0'; number.setAttribute('aria-label','Číslo navigačního bodu'); focus.disabled = !file.points.length;
+  tools.append(number,jump,fit,focus,background); center.append(tools,viewport);
+  let properties;
+  function entries(point) {
+    const context = `Bod ${point.index} · uložené ID ${point.id}`;
+    const result = [['position','Pozice XYZ','vec3'],['type','Typ / příznaky','uint16'],['id','Uložené ID','uint16'],['areaSize','Velikost oblasti (raw)','uint16']].map(([key,label,kind])=>({id:`points/${point.index}/${key}`,context,label,kind,value:point[key]}));
+    for (const link of point.links) for (const [key,label] of [['target','Cílový bod (pořadí)'],['type','Typ vazby / příznaky']]) result.push({id:`links/${link.index}/${key}`,context:`Bod ${point.index} → ${link.target} · vazba ${link.index}`,label,kind:'uint16',value:link[key]});
+    return result;
+  }
+  const view = new NavigationViewport(viewport, frame => {
+    const point = file.points[frame.navigationIndex]; number.value = String(point.index); state.navigationIndex = point.index; inspector.replaceChildren();
+    properties = renderProperties(inspector,{...file,entries:entries(point)},api.saveNavigation,(entry,value)=>{
+      const [section,index,key] = entry.id.split('/');
+      if (section === 'points' && key === 'position' && Array.isArray(value) && value.length === 3 && value.every(n=>typeof n==='number'&&Number.isFinite(n))) view.updatePoint(Number(index),value);
+      if (section === 'points' && key === 'type' && Number.isInteger(value) && value>=0 && value<=65535) view.setType(Number(index),value);
+      if (section === 'links' && key === 'target' && Number.isInteger(value) && value>=0 && value<file.points.length) view.updateTarget(Number(index),value);
+    });
+  }, (frame,values) => {
+    const id = `points/${frame.navigationIndex}/position`, original = file.points[frame.navigationIndex].position;
+    if (JSON.stringify(values.position) === JSON.stringify(original)) state.texts.delete(id); else state.texts.set(id,values.position);
+    view.updatePoint(frame.navigationIndex,values.position); properties?.select(id); status('Posun navigačního bodu je rozepsaný; uložte změny.');
+  });
+  state.viewport = view; view.loadNavigation(file);
+  jump.onclick = () => { const index = Number(number.value); if (number.value !== '' && Number.isInteger(index) && index>=0 && index<file.points.length) view.select(String(index)); else status('Číslo bodu je mimo rozsah.',true); };
+  fit.onclick = () => view.fit(view.markers); focus.onclick = () => { if (view.selectedPoint !== null) view.fit(view.proxy); };
+  let geometry;
+  background.onclick = () => run(async()=>{
+    if (geometry) { geometry.visible = !geometry.visible; background.textContent = geometry.visible ? 'Skrýt geometrii mise' : 'Zobrazit geometrii mise'; return; }
+    const model = await api.inspect(file.path.replace(/check\.bin$/i,'scene.4ds')); if (state.file !== file) return;
+    if (model.type !== 'model') throw new Error(model.warning ?? 'Geometrii mise zatím nelze načíst.');
+    geometry = new Group(); view.root.add(geometry);
+    for (const object of view.addModel(model,geometry,'nav-context/').values()) object.userData.frame.editable = false;
+    geometry.traverse(object=>{object.raycast=()=>{};});
+    await view.loadTextures(async texture=>{const path=texture.replaceAll('\\','/').toLowerCase(),asset=state.project.assets.find(a=>a.path.toLowerCase()===`maps/${path}`||a.path.toLowerCase()===path);return asset?api.media(asset.path):null;});
+    background.textContent = 'Skrýt geometrii mise';
+  });
+  if (file.points.length) view.select(String(Math.min(state.navigationIndex ?? 0,file.points.length-1)));
+  else inspector.append(element('p','Tato mise nemá navigační body.','notice'));
 }
 function renderItems(main, file) {
   main.append(element('p', `${file.records.length} předmětů · ID odpovídá pořadí záznamu ve hře. Změny se ukládají do modu; neznámé parametry a pořadí zůstávají zachované.`, 'notice'));

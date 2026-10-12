@@ -33,6 +33,7 @@ export class Viewport {
       this.raycaster.setFromCamera(new THREE.Vector2((event.clientX - rect.left) / rect.width * 2 - 1, 1 - (event.clientY - rect.top) / rect.height * 2), this.camera);
       const hit = this.raycaster.intersectObjects(this.root.children, true).find(hit => { for (let o = hit.object; o; o = o.parent) if (!o.visible) return false; return true; });
       if (!hit) return;
+      if (hit.object.userData.navigation && hit.instanceId !== undefined) { this.select(String(hit.instanceId)); return; }
       let object = hit.object; while (object && !object.userData.frame) object = object.parent;
       if (object) this.select(object.userData.frame.ownerId ?? object.userData.frame.id);
     };
@@ -115,7 +116,8 @@ export class Viewport {
     // Hidden backdrop geometry must not expand the map bounds or enclose its camera.
     const visit = node => {
       if (!node.visible || node.userData.backdrop) return;
-      if (node.geometry) { node.geometry.computeBoundingBox(); box.union(node.geometry.boundingBox.clone().applyMatrix4(node.matrixWorld)); }
+      if (node.isInstancedMesh) { node.computeBoundingBox(); box.union(node.boundingBox.clone().applyMatrix4(node.matrixWorld)); }
+      else if (node.geometry) { node.geometry.computeBoundingBox(); box.union(node.geometry.boundingBox.clone().applyMatrix4(node.matrixWorld)); }
       for (const child of node.children) visit(child);
     };
     visit(object);
