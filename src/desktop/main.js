@@ -123,6 +123,7 @@ app.whenReady().then(async () => {
   handle('asset:items', (name, changes, expectedHash) => operation(async () => { await current().saveItems(name, changes, expectedHash); return current().inspect(name); }));
   handle('asset:navigation', (name, changes, expectedHash) => operation(async () => { await current().saveNavigation(name, changes, expectedHash); return current().inspect(name); }));
   handle('asset:track', (name, changes, expectedHash) => operation(async () => { await current().saveTrack(name, changes, expectedHash); return current().inspect(name); }));
+  handle('asset:difference', (name, changes, expectedHash) => operation(async () => { await current().saveDifference(name, changes, expectedHash); return current().inspect(name); }));
   handle('project:loose', () => operation(async () => { await current().importLoose(p => window.webContents.send('extraction:progress', p)); return current().list(); }));
   handle('mission:template', () => operation(async () => {
     const active = current();

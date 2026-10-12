@@ -18,9 +18,9 @@ Rozcestník: [MafiaHub/awesome-mafia](https://github.com/MafiaHub/awesome-mafia/
 | BMP | Textury; materiály 4DS mohou odkazovat na diffuse, alpha a environment mapy | Texture Resizer, 4ds Texture Manager |
 | WAV/OGG | Zvuky, dialogy a hudba; archiv může obsahovat DPCM bloky | Sound Maker; samotný archiv A0 nemusí být přítomný v každé distribuci |
 | TCK | Pohybové stopy; ověřené čtení enginu v mafia-reverse-engineering-export | Editor klíčů a lineární 3D náhled v4 |
-| CHG / REP | Objekty cutscény / časová osa herního záznamu; Cutscene-Tools-, reverse engineering | CHG/REP nástroje; specializovaný editor se připravuje |
+| CHG / REP | Objekty cutscény / časová osa herního záznamu; Cutscene-Tools-, reverse engineering | CHG transformace a skripty; REP nástroje, časová osa se připravuje |
 | BIK/AVI | Předrenderované video | Přehrávání ve hře ověřeno; náhled v editoru zatím není implementovaný |
-| rmorf.bin/CHG/DNC/GMF | Zbývající specializovaná data; DCED_misc, DCED2, mLib | Rmorf.bin Editor, DNC Extractor, CHG Editor, GmfRE |
+| rmorf.bin/DNC/GMF | Zbývající specializovaná data; DCED_misc, DCED2, mLib | Rmorf.bin Editor, DNC Extractor, GmfRE |
 
 ## Náhled rotací a animací
 
@@ -81,3 +81,10 @@ Specifikace `MafiaHub/MafiaFormats/docs/checkbin.md` a její generovaný parser 
 Vlastní parser a writer vycházejí z čtení `recorder_load_tck` (VA 0x00544210) a `anim_machine_load_track` (VA 0x005aab30) v uloženém exportu st0rm94. Soubor obsahuje uint32 verzi 4, dvě trojice float32 na offsetech 4 a 16, uint32 délku v ms na 28, uint32 krok v ms na 32, uint32 počet poloh na 36, od 40 polohy float32 XYZ, dále uint32 počet druhého pole a jeho trojice float32. Funkce `anim_machine_get_track_end_point` vrací poslední polohový klíč; `anim_machine_get_track_mixing_point` používá délku a krok pro výběr klíče 250 ms před koncem. Přesná funkce vektorů hlavičky ani všech koncových dat není odhadovaná. Druhé pole může ovlivňovat natočení, ale v tomto editoru je označené raw a neinterpretuje se jako quaternion nebo Eulerovy úhly.
 
 Všech 283 skutečných souborů v4 má nenulový krok (5, 10, 20 nebo 40 ms), délku `(počet−1) × krok` a druhé pole prázdné nebo stejně dlouhé jako první. Deset jiných variant se odmítá. 59 stop má další koncové bajty, které doložené loadery již nečtou; writer je zachovává. Zápis mění pouze komponenty vybraných vektorů v původním bufferu, nemění délku, počty ani časování. Náhled lineárně interpoluje první pole pod společným převodem souřadnic LS3D. Nesimuluje stroj animací, skládání stop, kostru, natočení ani cutscénovou časovou osu CHG/REP.
+
+
+## Rozdíly scény CHG
+
+Vlastní parser vychází z `game_load_differences` (VA 0x005ea0c0), `program_load_source_code` a §4b `structs/chunk.md` uloženého exportu st0rm94; dokumentace Cutscene-Tools- slouží k porovnání. Kořen je uint16 **1234**, nikoli 1, a uint32 délka včetně šestibajtové hlavičky. Každý přímý podblok má stejnou hlavičku type/length. Blok 100 začíná uint32 typem rámce, float32 XYZ polohou, XYZ měřítkem a WXYZ quaternionem, dále názvem a rodičem jako uint32 délka + Windows-1250 bajty. Typy 9 a 4 dále obsahují jméno zdroje. Specializované konce světel/zvuků a popisy aktérů 200 zůstávají nerozpoznané. Blok 400 obsahuje délku, jméno a teprve potom typ aktéra; pořadí v dokumentaci Cutscene-Tools- neodpovídá enginu. Blok 500 obsahuje za sebou serializované skripty: u8 prefix, u32 délka jména, jméno, u32 délka kódu a kód.
+
+Editor umožňuje měnit pouze transformace a existující skripty. Názvy objektů, rodiče, zdroje, typy a vazby jsou ke čtení, takže se neodhadují závislosti při přejmenování nebo přidávání. Rotace se zobrazuje v původním pořadí bez převodu na Eulerovy úhly. Writer přepisuje pouze změněné komponenty transformací, zachovává znaménko původní nuly a při změně skriptu zachovává prefix i nezměněný textový segment. Délky upraveného bloku a kořene se přepočítají, ostatní bloky zůstanou přesně shodné. V místní hře prošlo 78 z 92 souborů (3 478 rámců, 825 skriptů); zbývajících 14 má v hlavičce kratší kořen než skutečnou délku a zůstává v binárním zobrazení. Automatická oprava těchto variant ani interpretace příslušných koncových dat se neprovádí.

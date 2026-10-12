@@ -79,7 +79,7 @@ function renderDetail() {
   state.viewport?.dispose(); state.viewport = null;
   for (const audio of $('detail').querySelectorAll('audio')) { audio.pause(); audio.removeAttribute('src'); audio.load(); }
   const main = $('detail'); main.replaceChildren();
-  const badges = { track: 'TCK · POHYBOVÁ STOPA', navigation: 'CHECK · NAVIGACE', items: 'PŘEDMĚTY · ZBRANĚ', textdb: 'TEXTDB · EDITACE', scene: 'SCÉNA · EDITACE', cache: 'CACHE · STATICKÉ MODELY', map: 'MAPA · 3D EDITACE', model: '4DS · 3D EDITACE', animation: '5DS · ANIMACE', image: 'OBRÁZEK · NÁHLED', audio: 'ZVUK · PŘEHRÁVAČ' };
+  const badges = { difference: 'CHG · OBJEKTY A SKRIPTY', track: 'TCK · POHYBOVÁ STOPA', navigation: 'CHECK · NAVIGACE', items: 'PŘEDMĚTY · ZBRANĚ', textdb: 'TEXTDB · EDITACE', scene: 'SCÉNA · EDITACE', cache: 'CACHE · STATICKÉ MODELY', map: 'MAPA · 3D EDITACE', model: '4DS · 3D EDITACE', animation: '5DS · ANIMACE', image: 'OBRÁZEK · NÁHLED', audio: 'ZVUK · PŘEHRÁVAČ' };
   const head = element('div', undefined, 'file-header'); head.append(element('h2', file.path), element('span', badges[file.type] ?? 'BINÁRNÍ SOUBOR', 'badge')); main.append(head);
   const source = state.project.assets.find(a => a.path === file.path);
   main.append(element('div', `${file.size.toLocaleString('cs')} bajtů · ${source?.archive} · ${source?.variants ?? 1} variant archivů`, 'file-meta'));
@@ -105,6 +105,7 @@ function renderDetail() {
   else if (file.type === 'items') renderItems(main, file);
   else if (file.type === 'navigation') renderNavigation(main, file);
   else if (file.type === 'track') renderTrack(main, file);
+  else if (file.type === 'difference') renderDifference(main, file);
   else if (file.type === 'scene') renderProperties(main, file, api.saveScene);
   else if (file.type === 'cache') renderCache(main, file);
   else if (file.type === 'model') renderModel(main, file);
@@ -121,6 +122,14 @@ function renderDetail() {
     }
     main.append(element('pre', rows, 'binary'));
   }
+}
+function renderDifference(main, file) {
+  main.append(element('p', `${file.blocks} bloků · ${file.objects.length} objektů · ${file.actors.length} popisů aktérů · ${file.bindings.length} vazeb. Lze upravit transformace a existující skripty. Přidávání objektů, data aktérů a přehrávání celé cutscény zatím nejsou podporované.`, 'notice'));
+  const summary = element('details'), title = element('summary','Objekty a vazby (jen ke čtení)'); summary.append(title);
+  for (const object of file.objects) summary.append(element('p',`${object.index}: ${object.name} · typ ${object.frameType} · rodič ${object.parent || '—'}${object.resource ? ` · zdroj ${object.resource}` : ''}`));
+  for (const binding of file.bindings) summary.append(element('p',`${binding.index}: vazba na ${binding.name} · typ aktéra ${binding.kind}`));
+  main.append(summary,element('p',`${file.opaqueBytes.toLocaleString('cs')} nerozpoznaných bajtů se při uložení zachová přesně. Jména a vazby se zobrazují pro orientaci; rotace se upravuje v původním pořadí W, X, Y, Z.`, 'muted'));
+  renderProperties(main,file,api.saveDifference);
 }
 function renderTrack(main, file) {
   main.append(element('p', `TCK verze 4 · ${file.positions.length.toLocaleString('cs')} polohových klíčů · ${file.secondary.length.toLocaleString('cs')} doplňkových vektorů · ${file.duration} ms · krok ${file.step} ms. Náhled lineárně interpoluje dráhu; kostru postavy ani celou cutscénu nepřehrává.`, 'notice'));

@@ -11,6 +11,7 @@ import { inspectCache, editCache } from './cache.js';
 import { parseItems, editItems } from './items.js';
 import { parseNavigation, editNavigation } from './navigation.js';
 import { parseTrack, editTrack } from './track.js';
+import { inspectDifference, editDifference } from './difference.js';
 import { assetCategory } from '../shared/categories.js';
 import { readEmptyMissionZip, configureEmptyMission, missionName } from './mission.js';
 
@@ -240,6 +241,10 @@ export class ModProject {
       try { return { type: 'track', ...common, ...parseTrack(bytes) }; }
       catch (error) { warning = error.message; }
     }
+    if (/\.chg$/i.test(name)) {
+      try { return { type: 'difference', ...common, ...inspectDifference(bytes) }; }
+      catch (error) { warning = error.message; }
+    }
     if (/^missions\/[^/]+\/check\.bin$/i.test(name)) {
       try { return { type: 'navigation', ...common, ...parseNavigation(bytes) }; }
       catch (error) { warning = error.message; }
@@ -291,6 +296,13 @@ export class ModProject {
       if (expectedHash !== hash(before)) throw new Error('Soubor se od otevření změnil. Otevřete jej znovu.');
       return editTrack(before, changes);
     }, 'Úprava pohybové stopy TCK');
+  }
+  async saveDifference(name, changes, expectedHash) {
+    if (!/\.chg$/i.test(name)) throw new Error('Soubor není CHG rozdíl scény.');
+    await this.change(name, before => {
+      if (expectedHash !== hash(before)) throw new Error('Soubor se od otevření změnil. Otevřete jej znovu.');
+      return editDifference(before, changes);
+    }, 'Úprava objektů a skriptů CHG');
   }
   async saveAnimation(name, changes, expectedHash) {
     if (!/\.5ds$/i.test(name)) throw new Error('Soubor není 5DS animace.');
