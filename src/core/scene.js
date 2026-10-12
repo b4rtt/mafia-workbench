@@ -3,6 +3,7 @@ import { humanFields } from '../shared/human-parameters.js';
 import { inspectDoor, editDoor, createDoor } from './doors.js';
 import { sceneSectors, validateNewLight } from '../shared/lights.js';
 import { validateNewSound } from '../shared/sounds.js';
+import { inspectPhysical, editPhysical } from './physical.js';
 const containers = new Set([0x4c53, 0x4000, 0x4010, 0x4020, 0x4040, 0x4060, 0xae20, 0xae21, 0xae50]);
 const names = new Map([[0x4c53, 'Scéna'], [0x4000, 'Objekty'], [0x4010, 'Objekt'], [0x4020, 'Rodič'], [0x4040, 'Světlo'], [0x4060, 'Zvuk'], [0xae20, 'Aktéři'], [0xae21, 'Aktér'], [0xae50, 'Skripty'], [0xae51, 'Skript']]);
 const fields = new Map([
@@ -112,6 +113,10 @@ export function inspectScene(source) {
         const data = node.children.find(n => n.type === 0xae24)?.payload;
         const name = node.children.find(n => n.type === 0xae23)?.payload;
         const actorKind = kind?.length >= 4 ? kind.readUInt32LE(0) : null;
+        if(name&&actorKind===35)for(const field of inspectPhysical(data)){
+          const nodeId=node.children.find(n=>n.type===0xae24).id;
+          entries.push({...field,id:`${nodeId}:physical.${field.key}`,nodeId,physicalParameter:true,actorKind,context:`${context} / ${string(name)}`.replace(/^ \/ /,'')});
+        }
         if(name&&actorKind===6)for(const field of inspectDoor(data)){
           const nodeId=node.children.find(n=>n.type===0xae24).id;
           entries.push({...field,id:`${nodeId}:door.${field.key}`,nodeId,doorParameter:true,actorKind,context:`${context} / ${string(name)}`.replace(/^ \/ /,'')});
@@ -155,6 +160,7 @@ export function editScene(source, id, value) {
   const humanParameter=scene.entries.find(entry=>entry.id===id&&entry.humanParameter);
   const doorParameter=scene.entries.find(entry=>entry.id===id&&entry.doorParameter);
   const soundParameter=scene.entries.find(entry=>entry.id===id&&entry.soundParameter);
+  const physicalParameter=scene.entries.find(entry=>entry.id===id&&entry.physicalParameter);
   let found = false;
   function write(node) {
     let payload;
@@ -165,6 +171,9 @@ export function editScene(source, id, value) {
       if(value){const header=Buffer.alloc(6);header.writeUInt16LE(0x4066);header.writeUInt32LE(6,2);children.push(header);}
       payload=Buffer.concat(children);
     }else if (node.children) payload = Buffer.concat(node.children.map(write));
+    else if(physicalParameter&&node.id===physicalParameter.nodeId){
+      found=true;payload=editPhysical(node.payload,physicalParameter.key,value);
+    }
     else if(doorParameter&&node.id===doorParameter.nodeId){
       found=true;payload=editDoor(node.payload,doorParameter.key,value);
     }
