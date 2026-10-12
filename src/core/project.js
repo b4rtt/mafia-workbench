@@ -254,9 +254,12 @@ export class ModProject {
   }
   async saveScene(name, changes, expectedHash) {
     if (!/scene2\.bin$/i.test(name) || !Array.isArray(changes) || changes.length > 1024) throw new Error('Neplatná úprava scény.');
+    // Removing a loop chunk shifts the IDs of later sound properties. Apply
+    // structural loop toggles after all fields referenced by the original IDs.
+    const ordered=changes.filter(change=>!change.id?.endsWith(':sound.loop')).concat(changes.filter(change=>change.id?.endsWith(':sound.loop')));
     if(collisionOwnership(this.manifest,name).length){
       const before=await this.read(name);if(hash(before)!==expectedHash)throw new Error('Soubor se od otevření změnil. Otevřete jej znovu.');
-      let after=before;for(const {id,value} of changes)after=editScene(after,id,value);
+      let after=before;for(const {id,value} of ordered)after=editScene(after,id,value);
       const oldScene=inspectScene(before),newScene=inspectScene(after),renames=new Map();
       for(const object of oldScene.objects){const current=newScene.objects.find(o=>o.id===object.id);if(current&&current.name!==object.name)renames.set(object.name,current.name);}
       const collision=await prepareSceneCollision(this,name,before,after,{renames});
@@ -265,7 +268,7 @@ export class ModProject {
     await this.change(name, before => {
       if (expectedHash !== hash(before)) throw new Error('Soubor se od otevření změnil. Otevřete jej znovu.');
       let result = before;
-      for (const { id, value } of changes) result = editScene(result, id, value);
+      for (const { id, value } of ordered) result = editScene(result, id, value);
       return result;
     }, 'Úprava scény a skriptů');
   }
@@ -276,7 +279,15 @@ export class ModProject {
     const folder = this.asset(name).path.slice(0, this.asset(name).path.lastIndexOf('/'));
     const geometryPath=`${folder}/scene.4ds`,geometryBytes=await this.read(geometryPath),geometry = parseFourDs(geometryBytes);
     let request = operation;const dependencies=[];
-    if(operation?.kind==='add-light')dependencies.push({path:geometryPath,data:geometryBytes,expectedHash:hash(geometryBytes)});
+    if(['add-light','add-sound'].includes(operation?.kind))dependencies.push({path:geometryPath,data:geometryBytes,expectedHash:hash(geometryBytes)});
+    if(operation?.kind==='add-sound'){
+      const soundPath=relativeAssetPath(operation.sound);
+      if(!/^sounds\/.+\.wav$/i.test(soundPath))throw new Error('Vyberte WAV ze složky sounds.');
+      const asset=this.asset(soundPath),bytes=await this.read(asset.path);
+      if(bytes.length<12||bytes.toString('ascii',0,4)!=='RIFF'||bytes.toString('ascii',8,12)!=='WAVE')throw new Error('Zvuk nemá WAV hlavičku.');
+      dependencies.push({path:asset.path,data:bytes,expectedHash:hash(bytes)});
+      request={...operation,parameters:{...operation.parameters,file:asset.path.slice(7).replaceAll('/','\\')}};
+    }
     if(operation?.kind==='attach-door'){
       dependencies.push({path:geometryPath,data:geometryBytes,expectedHash:hash(geometryBytes)});
       const object=inspectScene(before).objects.find(object=>key(object.name)===key(operation.target));
@@ -312,7 +323,7 @@ export class ModProject {
       if(owned){const klz=parseCollision(await this.read(`${folder}/tree.klz`)),record=ownedCollisionRecords(klz,[owned])[0];requests.push({name:operation.name,kind:'aabb',material:record.material});}
     }
     const collision=await prepareSceneCollision(this,name,before,after,{requests,expectedHash:operation?.collisionHash});
-    const label={ 'add-model': 'Vložení modelu do mise', 'add-human':'Vložení postavy a jejího skriptu','add-car':'Vložení automobilu a jeho aktéra','add-light':'Vložení světla do mise','attach-door':'Vytvoření dveřního aktéra', duplicate: 'Duplikace objektu mise', delete: 'Odstranění objektu mise',collision:'Generování kolize modelu' }[operation?.kind]??'Úprava objektů mise';
+    const label={ 'add-model': 'Vložení modelu do mise', 'add-human':'Vložení postavy a jejího skriptu','add-car':'Vložení automobilu a jeho aktéra','add-light':'Vložení světla do mise','add-sound':'Vložení prostorového zvuku do mise','attach-door':'Vytvoření dveřního aktéra', duplicate: 'Duplikace objektu mise', delete: 'Odstranění objektu mise',collision:'Generování kolize modelu' }[operation?.kind]??'Úprava objektů mise';
     const files=new Map([{path:name,data:after,expectedHash},...dependencies,...(collision?.files??[])].map(file=>[key(file.path),file]));
     await this.changeBatch([...files.values()],label,collision?.ownership);
   }

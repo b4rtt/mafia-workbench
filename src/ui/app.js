@@ -3,6 +3,7 @@ import { groupSceneProperties } from '../shared/scene-properties.js';
 import { humanFields } from '../shared/human-parameters.js';
 import { doorFields } from '../shared/door-parameters.js';
 import { lightTypes, lightDefaults, sceneSectors } from '../shared/lights.js';
+import { soundTypes, soundDefaults } from '../shared/sounds.js';
 import { roadGraph, roadEntries, roadReference } from '../shared/roads.js';
 import { Viewport } from './viewport.js';
 import { AnimationPreview } from './animation.js';
@@ -440,14 +441,15 @@ function renderProperties(main, file, saveAPI, onEdit = () => {}) {
     selected = entry.id; markSelection();
     form.replaceChildren();
     const label = element('label', `${entry.context} / ${entry.label}`); label.htmlFor = 'scene-value';
-    const input = element(entry.doorParameter ? 'input' : 'textarea'); input.id = 'scene-value';
+    const input = element(entry.doorParameter || entry.soundParameter ? 'input' : 'textarea'); input.id = 'scene-value';
     const draft = state.texts.get(entry.id) ?? entry.value;
     const isString = ['string', 'string8'].includes(entry.kind);
     if(entry.doorParameter){input.type=entry.kind==='boolean'?'checkbox':isString?'text':'number';if(input.type==='number'){input.step='any';input.min='0';if(entry.max!==undefined)input.max=String(entry.max);}if(isString)input.maxLength=15;if(entry.kind==='boolean')input.checked=draft;}
+    if(entry.soundParameter){input.type='checkbox';input.checked=draft;}
     input.value = draft?.invalid ? draft.raw : entry.kind === 'script' ? draft.code : isString ? draft : JSON.stringify(draft);
     const name = element('input'); name.setAttribute('aria-label', 'Název skriptu'); name.value = entry.kind === 'script' ? draft.name : '';
     name.disabled = Boolean(entry.actorScript);
-    function value() { return entry.doorParameter&&entry.kind==='boolean' ? input.checked : entry.kind === 'script' ? { name: name.value, code: input.value } : isString ? input.value : JSON.parse(input.value); }
+    function value() { return (entry.doorParameter||entry.soundParameter)&&entry.kind==='boolean' ? input.checked : entry.kind === 'script' ? { name: name.value, code: input.value } : isString ? input.value : JSON.parse(input.value); }
     function track() {
       try { const next = value(); if (JSON.stringify(next) === JSON.stringify(entry.value)) state.texts.delete(entry.id); else state.texts.set(entry.id, next); save.disabled = !state.texts.size; save.textContent = `Uložit změny (${state.texts.size})`; onEdit(entry, next); status('Rozepsaná úprava.'); }
       catch { state.texts.set(entry.id, { invalid: true, raw: input.value }); save.disabled = false; status('Číselné hodnoty zapisujte jako číslo nebo pole, např. [1, 2, 3].', true); }
@@ -460,7 +462,7 @@ function renderProperties(main, file, saveAPI, onEdit = () => {}) {
       if(state.file.type==='navigation'&&state.file.navigationMapping)state.navigationIndex=state.file.navigationMapping[state.navigationIndex??0]??0;
       state.texts.clear(); await refresh(); renderDetail(); status('Změny uložené do modu se zálohou.');
     });
-    form.append(label); if (entry.kind === 'script') form.append(name); form.append(input, element('p', entry.doorParameter ? 'Nastavení dveří se projeví při novém načtení mise. Úhel je ve stupních, rychlosti ve stupních za sekundu. Otevírání na obě strany volí směr podle postavy, která dveře použije. Název zvuku může být prázdný nebo mít nejvýše 15 bajtů. Závěs, ostatní příznaky a další data zůstanou zachované.' : entry.humanParameter ? `${entry.kind==='byte'?'Celé číslo 0–255.':entry.humanMaximum?'Základní/maximální hodnota vlastnosti. Skripty human_getproperty a human_setproperty pracují s procenty tohoto maxima; např. plné zdraví se ve hře ukáže jako 100 i při jiném maximu.':'Uložený doplňkový parametr chování.'} Ostatní parametry, horní bajty příznaků a skript zůstanou zachované. Změna se projeví při novém načtení mise.` : entry.kind === 'script' ? entry.actorScript ? 'Zdroj skriptového aktéra. Hlavička a další nerozpoznaná data zůstanou zachovaná. Název je svázaný s aktérem; zde se upravuje pouze kód. Změny se projeví při novém načtení mise.' : 'Zdroj skriptu mise. První bajt a další nerozpoznaná data zůstanou zachovaná.' : `Typ: ${entry.kind}. Souřadnice: X, Y, Z; rotace: W, X, Y, Z. Ostatní vlastnosti zůstanou zachované.`), save);
+    form.append(label); if (entry.kind === 'script') form.append(name); form.append(input, element('p', entry.soundParameter ? 'Opakování se projeví při novém načtení mise. Bez opakování se nahrávka přehraje jednou.' : entry.label==='Dosah zvuku' && entry.kind==='vec4' ? 'Pořadí: [vnitřní poloměr, vnější poloměr, vnitřní útlum, vnější útlum]. Poloměry jsou v herních jednotkách; útlumy zpravidla v rozsahu 0–1.' : entry.doorParameter ? 'Nastavení dveří se projeví při novém načtení mise. Úhel je ve stupních, rychlosti ve stupních za sekundu. Otevírání na obě strany volí směr podle postavy, která dveře použije. Název zvuku může být prázdný nebo mít nejvýše 15 bajtů. Závěs, ostatní příznaky a další data zůstanou zachované.' : entry.humanParameter ? `${entry.kind==='byte'?'Celé číslo 0–255.':entry.humanMaximum?'Základní/maximální hodnota vlastnosti. Skripty human_getproperty a human_setproperty pracují s procenty tohoto maxima; např. plné zdraví se ve hře ukáže jako 100 i při jiném maximu.':'Uložený doplňkový parametr chování.'} Ostatní parametry, horní bajty příznaků a skript zůstanou zachované. Změna se projeví při novém načtení mise.` : entry.kind === 'script' ? entry.actorScript ? 'Zdroj skriptového aktéra. Hlavička a další nerozpoznaná data zůstanou zachovaná. Název je svázaný s aktérem; zde se upravuje pouze kód. Změny se projeví při novém načtení mise.' : 'Zdroj skriptu mise. První bajt a další nerozpoznaná data zůstanou zachovaná.' : `Typ: ${entry.kind}. Souřadnice: X, Y, Z; rotace: W, X, Y, Z. Ostatní vlastnosti zůstanou zachované.`), save);
   }
   function fill() {
     const query = search.value.toLowerCase(), fragment = document.createDocumentFragment();
@@ -597,7 +599,7 @@ function renderMap(main, file, previous = null) {
   let properties, selectedObject, selectedId, selectedFrame;
   const add = element('button', 'Vložit model…'), addHuman=element('button','Přidat postavu…'), addCar=element('button','Přidat auto…'), duplicate = element('button', 'Duplikovat…'), remove = element('button', 'Odstranit…'), focus = element('button', 'Zarámovat objekt'), collision=element('button','Kolize modelu…');
   duplicate.disabled = remove.disabled = focus.disabled = collision.disabled = true;
-  const addDoor=element('button','Vytvořit dveře…'),addLight=element('button','Přidat světlo…');addDoor.disabled=true;
+  const addDoor=element('button','Vytvořit dveře…'),addLight=element('button','Přidat světlo…'),addSound=element('button','Přidat zvuk…');addDoor.disabled=true;
   const view = new Viewport(viewport, frame => {
     const object = frame.sceneObject; selected.textContent = object ? object.name : `${frame.name} · geometrie ve scene.4ds`;
     selectedObject = object;
@@ -605,7 +607,7 @@ function renderMap(main, file, previous = null) {
     selectedId = frame.id;
     cameraMoved = true;
     view.selectedName = object?.name ?? frame.name;
-    const independent = object && [2,6,9].includes(object.frameType) && !object.actorBound && !file.geometry.meshes.some(mesh => mesh.name.toLowerCase() === object.name.toLowerCase());
+    const independent = object && [2,4,6,9].includes(object.frameType) && !object.actorBound && !file.geometry.meshes.some(mesh => mesh.name.toLowerCase() === object.name.toLowerCase());
     duplicate.disabled = remove.disabled = !independent; focus.disabled = false;
     collision.disabled=!independent||object.frameType!==9||!file.collision||Boolean(file.collision.warning);
     const actorBound=file.entries.some(entry=>entry.label==='Název aktéra'&&entry.value.toLowerCase()===(object?.name??frame.name).toLowerCase());
@@ -681,11 +683,46 @@ function renderMap(main, file, previous = null) {
     });
     addDoor.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před vytvořením dveří uložte rozepsané vlastnosti.');if(!selectedFrame)throw new Error('Nejdřív vyberte křídlo dveří.');doorActorDialog(file,selectedFrame);});
     addLight.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před vložením světla uložte rozepsané vlastnosti.');lightDialog(file,selectedObject?.position);});
-    tools.append(add, addHuman, addCar, addDoor, addLight, duplicate, remove,collision);
+    addSound.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před vložením zvuku uložte rozepsané vlastnosti.');soundDialog(file,selectedObject?.position);});
+    tools.append(add, addHuman, addCar, addDoor, addLight, addSound, duplicate, remove,collision);
   }
   view.loadTextures(resolveTexture);
   properties = renderProperties(inspector, file, file.cacheSource ? api.saveCache : async (...args) => { await api.saveScene(...args); return api.map(file.path); }, (entry, value) => { const field = byField.get(entry.id); if (field && ['position','rotation','scale'].includes(field.kind)) view.update(field.id, { [field.kind]: value }); });
   center.append(element('p', file.cacheSource ? 'Statické modely vybrané části cache.bin. Transformace se ukládají do samostatného modu; oranžové body označují chybějící modely.' : 'Geometrie scene.4ds a objekty scene2.bin. Modré body označují objekty bez modelu; oranžové body chybějící model. Generované kolizní boxy se přepočítají při uložení transformace a vracejí se společně s objektem.', 'notice'));
+}
+function soundDialog(file,position=[0,0,0]){
+  const assets=state.project.assets.filter(asset=>/^sounds\/.+\.wav$/i.test(asset.path));
+  if(!assets.length)throw new Error('Projekt nemá WAV nahrávky ve složce sounds.');
+  const dialog=element('dialog',undefined,'sound-dialog'),form=element('form',undefined,'mission-form'),fields=element('div',undefined,'mission-fields');
+  dialog.append(element('h2','Přidat prostorový zvuk'),element('p','Zvukový objekt se uloží do samostatného modu. Vložení lze vrátit jedním krokem.'),form);
+  function field(label,input){const row=element('label',label);input.setAttribute('aria-label',label);row.append(input);fields.append(row);return input;}
+  function number(label,value,min,max){const input=element('input');input.type='number';input.step='any';input.required=true;input.value=String(value);if(min!==undefined)input.min=String(min);if(max!==undefined)input.max=String(max);return field(label,input);}
+  const name=field('Jedinečný název zvuku',element('input'));name.required=true;name.maxLength=63;name.value='WB_SOUND';
+  const type=field('Typ prostorového zvuku',element('select'));for(const item of soundTypes){const option=element('option',item.label);option.value=String(item.value);type.append(option);}
+  const search=field('Hledat nahrávku',element('input'));search.type='search';
+  const recording=field('Nahrávka WAV',element('select'));recording.required=true;
+  const media=element('audio'),caption=element('p','','notice');media.controls=true;media.preload='metadata';media.setAttribute('aria-label','Náhled vybrané nahrávky');
+  let mediaVersion=0;
+  function preview(){const version=++mediaVersion;media.pause();media.removeAttribute('src');media.load();caption.textContent=recording.value?'Načítám náhled…':'Žádná odpovídající nahrávka.';if(!recording.value)return;api.media(recording.value).then(url=>{if(dialog.isConnected&&version===mediaVersion)media.src=url;}).catch(error=>{if(version===mediaVersion)caption.textContent=error.message;});}
+  media.onloadedmetadata=()=>{caption.textContent=`${media.duration.toFixed(1)} s · Náhled se spouští tlačítkem a nepoužívá prostorový útlum.`;};media.onerror=()=>{caption.textContent='Nahrávku nelze v editoru přehrát. Původní WAV zůstává zachovaný.';};
+  function fill(){const previous=recording.value,query=search.value.normalize('NFC').toLowerCase();recording.replaceChildren(...assets.filter(asset=>asset.path.normalize('NFC').toLowerCase().includes(query)).map(asset=>{const option=element('option',asset.path.slice(7));option.value=asset.path;return option;}));if([...recording.options].some(option=>option.value===previous))recording.value=previous;if(recording.value!==previous)preview();}
+  search.oninput=fill;recording.onchange=preview;
+  const coordinates=['X','Y','Z'].map((axis,i)=>number(`Pozice zvuku ${axis}`,position[i]));
+  const heading=number('Natočení zvuku kolem Y (stupně)',0),pitch=number('Náklon zvuku kolem X (stupně)',0);
+  const volume=number('Hlasitost zvuku (0–1)',soundDefaults.volume,0,1),outVolume=number('Vnější hlasitost zvuku (0–1)',soundDefaults.outVolume,0,1);
+  const range=['Vnitřní poloměr zvuku','Vnější poloměr zvuku','Vnitřní útlum zvuku (0–1)','Vnější útlum zvuku (0–1)'].map((label,i)=>number(label,soundDefaults.range[i],0,i>=2?1:undefined));
+  const inner=number('Vnitřní kužel zvuku (stupně)',soundDefaults.cone[0],0,360),outer=number('Vnější kužel zvuku (stupně)',soundDefaults.cone[1],0,360);
+  const loop=field('Opakovat zvuk',element('input'));loop.type='checkbox';loop.checked=soundDefaults.loop;
+  const sectors=element('fieldset',undefined,'sound-sectors'),sectorInputs=[];sectors.append(element('legend','Sektory zvuku'));
+  for(const sector of sceneSectors(file.objects,file.geometry.meshes)){const input=element('input'),row=element('label',sector);input.type='checkbox';input.checked=sector==='Primary sector';input.setAttribute('aria-label',`Sektor zvuku ${sector}`);row.append(input);sectors.append(row);sectorInputs.push({name:sector,input});}
+  const hint=element('p','','notice');const explain=()=>{hint.textContent=`${Number(type.value)===2?'Směrový zvuk míří podél lokální osy +Z. ':''}${Number(type.value)>=4?'Tento typ je definovaný v LS3D; jeho účinek v naší instalaci hry ještě není ověřený. ':''}Poloměry používají herní jednotky. Kužel a útlum závisí na typu zvuku. Po načtení mise se zvuk zapne; bez opakování se přehraje jednou. 3D náhled mapy zvukové objekty nepřehrává.`;};type.onchange=explain;explain();
+  const message=element('p','','notice'),actions=element('div',undefined,'tools'),cancel=element('button','Zrušit'),submit=element('button','Vložit zvuk','primary');cancel.type='button';cancel.onclick=()=>dialog.close();submit.type='submit';actions.append(cancel,submit);form.append(fields,media,caption,sectors,hint,message,actions);
+  form.onsubmit=event=>{event.preventDefault();if(!form.reportValidity()||state.busy)return;run(async()=>{submit.disabled=cancel.disabled=true;try{
+    const yaw=Number(heading.value)%360*Math.PI/360,x=Number(pitch.value)%360*Math.PI/360;
+    const request={kind:'add-sound',name:name.value,sound:recording.value,position:coordinates.map(input=>Number(input.value)),rotation:[Math.cos(yaw)*Math.cos(x),Math.cos(yaw)*Math.sin(x),Math.sin(yaw)*Math.cos(x),-Math.sin(yaw)*Math.sin(x)],parameters:{type:Number(type.value),volume:Number(volume.value),outVolume:Number(outVolume.value),range:range.map(input=>Number(input.value)),cone:[Number(inner.value),Number(outer.value)],loop:loop.checked,sectors:sectorInputs.filter(s=>s.input.checked).map(s=>s.name)}};
+    state.file=await api.changeSceneObject(file.path,request,file.sha256);state.selectSceneName=name.value;dialog.close();await refresh();renderDetail();status('Prostorový zvuk vložený do modu se zálohou.');
+  }catch(error){message.textContent=error.message;throw error;}finally{submit.disabled=cancel.disabled=false;}});};
+  dialog.addEventListener('cancel',event=>{if(state.busy)event.preventDefault();});dialog.addEventListener('close',()=>{mediaVersion++;media.pause();media.removeAttribute('src');media.load();dialog.remove();},{once:true});document.body.append(dialog);fill();dialog.showModal();name.select();
 }
 function lightDialog(file,position=[0,0,0]){
   const dialog=element('dialog',undefined,'light-dialog'),form=element('form',undefined,'mission-form'),fields=element('div',undefined,'mission-fields');
