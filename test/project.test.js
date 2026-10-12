@@ -5,6 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { ModProject } from '../src/core/project.js';
 import { hash, writeSafe, readSafe } from '../src/core/files.js';
+import { inspectScene } from '../src/core/scene.js';
 async function setup(t) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'mafia-workbench-test-'));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
@@ -89,4 +90,23 @@ test('batch creation rejects collisions and rolls back failed manifest writes; u
   project.saveManifest = save;
   await writeSafe(root,'mods/missions/NEW/tree.klz',Buffer.from('external'));
   await assert.rejects(project.undo(),/neodpovídá/); assert.deepEqual(await readSafe(root,'mods/'+file.path),file.data); assert.equal(project.manifest.assets.length,3);
+});
+test('scene object operations save with hash guards, export and undo, preserving original scene and rejecting missing models', async t => {
+  const {root,project} = await setup(t);
+  const chunk = (type,payload) => {const header=Buffer.alloc(6);header.writeUInt16LE(type);header.writeUInt32LE(payload.length+6,2);return Buffer.concat([header,payload]);};
+  const scene = chunk(0x4c53,Buffer.concat([chunk(0x4000,Buffer.alloc(0)),chunk(0xbeef,Buffer.from('opaque'))]));
+  const geometry = Buffer.alloc(19); geometry.write('4DS\0'); geometry.writeUInt16LE(29,4); geometry[18]=1;
+  await project.createFiles([{path:'missions/NEW/scene2.bin',data:scene},{path:'missions/NEW/scene.4ds',data:geometry},{path:'models/CRATE.4ds',data:geometry}]);
+  const operation={kind:'add-model',name:'WB_CRATE',model:'models/crate.4ds',position:[10,20,30],rotation:[1,0,0,0],scale:[1,1,1]}, name='missions/NEW/scene2.bin';
+  await assert.rejects(project.changeSceneObject(name,operation,'stale'),/změnil/);
+  await assert.rejects(project.changeSceneObject(name,{...operation,model:'models/missing.4ds'},hash(scene)),/není|neexistuje/);
+  assert.deepEqual(await project.read(name),scene);
+  await project.changeSceneObject(name,operation,hash(scene));
+  const added=await project.read(name), object=inspectScene(added).objects[0]; assert.equal(object.model,'CRATE.i3d');
+  await project.changeSceneObject(name,{kind:'duplicate',id:object.id,name:'COPY'},hash(added));
+  assert.equal((await project.inspectMap(name)).objects.length,2); await project.undo(); assert.deepEqual(await project.read(name),added);
+  const destination=path.join(root,'scene-export'); await project.export(destination); assert.deepEqual(await fs.readFile(path.join(destination,name)),added);
+  await project.changeSceneObject(name,{kind:'delete',id:object.id},hash(added)); assert.deepEqual(await project.read(name),scene);
+  await project.undo(); assert.deepEqual(await project.read(name),added); await project.undo(); assert.deepEqual(await project.read(name),scene);
+  assert.deepEqual(await project.original(project.asset(name)),scene);
 });

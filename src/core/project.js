@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { DtaArchive, relativeAssetPath } from './dta.js';
 import { hash, safePath, readSafe, writeSafe } from './files.js';
 import { parseTextDb, editTextDb } from './textdb.js';
-import { inspectScene, editScene } from './scene.js';
+import { inspectScene, editScene, changeSceneObject } from './scene.js';
 import { parseFourDs, editFourDs } from './fourds.js';
 import { parseFiveDs, editFiveDs } from './fiveds.js';
 import { inspectCache, editCache } from './cache.js';
@@ -211,6 +211,21 @@ export class ModProject {
       for (const { id, value } of changes) result = editScene(result, id, value);
       return result;
     }, 'Úprava scény a skriptů');
+  }
+  async changeSceneObject(name, operation, expectedHash) {
+    if (!/^missions\/[^/]+\/scene2\.bin$/i.test(name)) throw new Error('Vyberte scene2.bin mise.');
+    await this.change(name, async before => {
+      if (expectedHash !== hash(before)) throw new Error('Soubor se od otevření změnil. Otevřete jej znovu.');
+      const folder = this.asset(name).path.slice(0, this.asset(name).path.lastIndexOf('/'));
+      const geometry = parseFourDs(await this.read(`${folder}/scene.4ds`));
+      let request = operation;
+      if (operation?.kind === 'add-model') {
+        if (typeof operation.model !== 'string' || !/^models\/[^/\\]+\.4ds$/i.test(operation.model)) throw new Error('Vyberte model z hlavní složky models.');
+        parseFourDs(await this.read(operation.model), true);
+        request = { ...operation, model: this.asset(operation.model).path.slice(7).replace(/\.4ds$/i, '.i3d') };
+      }
+      return changeSceneObject(before, request, geometry.meshes.map(mesh => mesh.name));
+    }, { 'add-model': 'Vložení modelu do mise', duplicate: 'Duplikace objektu mise', delete: 'Odstranění objektu mise' }[operation?.kind] ?? 'Úprava objektů mise');
   }
   async inspect(name) {
     const asset = this.asset(name), bytes = await this.read(name);

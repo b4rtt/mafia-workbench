@@ -283,9 +283,15 @@ function renderCache(main, file) {
 function renderMap(main, file) {
   const layout = element('div', undefined, 'model-workspace'), center = element('section', undefined, 'model-center'), inspector = element('section', undefined, 'model-inspector'); layout.append(center, inspector); main.append(layout);
   const tools = element('div', undefined, 'tools'), viewport = element('div', undefined, 'viewport'), selected = element('p', 'Vyberte objekt mapy.'), objects = element('select'); objects.setAttribute('aria-label', 'Objekt mapy'); objects.append(element('option', 'Vyberte objekt…')); center.append(tools, objects, selected, viewport);
-  let properties;
+  let properties, selectedObject, selectedId;
+  const add = element('button', 'Vložit model…'), duplicate = element('button', 'Duplikovat…'), remove = element('button', 'Odstranit…'), focus = element('button', 'Zarámovat objekt');
+  duplicate.disabled = remove.disabled = focus.disabled = true;
   const view = new Viewport(viewport, frame => {
     const object = frame.sceneObject; selected.textContent = object ? object.name : `${frame.name} · geometrie ve scene.4ds`;
+    selectedObject = object;
+    selectedId = frame.id;
+    const independent = object && [6,9].includes(object.frameType) && !object.actorBound && !file.geometry.meshes.some(mesh => mesh.name.toLowerCase() === object.name.toLowerCase());
+    duplicate.disabled = remove.disabled = !independent; focus.disabled = false;
     if (object) { objects.value = String(frame.id); properties?.select(object.fields.position ?? object.fields.name); }
   }, (frame, values, mode) => {
     const field = { translate: 'position', rotate: 'rotation', scale: 'scale' }[mode], id = frame.sceneObject?.fields[field];
@@ -322,6 +328,11 @@ function renderMap(main, file) {
       const id = view.addSceneObject(object, model); addOption(id, object);
     }
     const warnings = view.linkScene(); view.fit();
+    if (state.selectSceneName) {
+      const object = [...view.frames.values()].find(o => o.userData.frame.sceneObject?.name === state.selectSceneName && !o.userData.frame.ownerId);
+      if (object) { view.select(object.userData.frame.id); view.fit(object); }
+      state.selectSceneName = null;
+    }
     view.loadTextures(resolveTexture); status(warnings.length ? `3D mapa načtená; ${warnings.length} vazeb má chybějícího nebo nejednoznačného rodiče.` : '3D mapa: geometrie a dostupné objekty načtené.');
   }
   addObjects().catch(error => status(error.message, true));
@@ -329,9 +340,60 @@ function renderMap(main, file) {
   const fit = element('button', 'Zarámovat mapu'); fit.onclick = () => view.fit();
   const sky = element('button', 'Obloha'); let showSky = false; sky.setAttribute('aria-pressed', 'false'); sky.onclick = () => { showSky = !showSky; view.showBackdrop(showSky); sky.setAttribute('aria-pressed', String(showSky)); };
   tools.append(fit, sky); objects.onchange = () => view.select(objects.value);
+  focus.onclick = () => { const object = view.frames.get(selectedId); if (object) view.fit(object); };
+  tools.append(focus);
+  if (!file.cacheSource) {
+    for (const [button, kind] of [[add, 'add-model'], [duplicate, 'duplicate'], [remove, 'delete']]) button.onclick = () => run(async () => {
+      if (state.texts.size) throw new Error('Před změnou seznamu objektů uložte rozepsané vlastnosti.');
+      sceneObjectDialog(file, kind, selectedObject);
+    });
+    tools.append(add, duplicate, remove);
+  }
   view.loadTextures(resolveTexture);
   properties = renderProperties(inspector, file, file.cacheSource ? api.saveCache : async (...args) => { await api.saveScene(...args); return api.map(file.path); }, (entry, value) => { const field = byField.get(entry.id); if (field && ['position','rotation','scale'].includes(field.kind)) view.update(field.id, { [field.kind]: value }); });
   center.append(element('p', file.cacheSource ? 'Statické modely vybrané části cache.bin. Transformace se ukládají do samostatného modu; oranžové body označují chybějící modely.' : 'Geometrie scene.4ds a objekty scene2.bin. Modré body označují světla, zvuky a další objekty bez modelu; oranžové body chybějící model. Statické modely lze upravit otevřením cache.bin; kolize a navigace se ještě doplňují.', 'notice'));
+}
+function sceneObjectDialog(file, kind, object) {
+  if (kind !== 'add-model' && !object) throw new Error('Nejdřív vyberte samostatný objekt mapy.');
+  const dialog = element('dialog'), form = element('form', undefined, 'mission-form'), fields = element('div', undefined, 'mission-fields');
+  const labels = { 'add-model': 'Vložit model do mise', duplicate: 'Duplikovat objekt', delete: 'Odstranit objekt' };
+  dialog.append(element('h2', labels[kind]), element('p', kind === 'delete' ? `Odstranit ${object.name}? Změnu lze vrátit tlačítkem Vrátit změnu.` : 'Objekt se uloží do samostatného modu. Uložení lze vrátit jedním krokem.'), form);
+  function field(label, input) { const row = element('label', label); row.append(input); fields.append(row); return input; }
+  function number(label, value) { const input = element('input'); input.type = 'number'; input.step = 'any'; input.required = true; input.value = String(value); return field(label, input); }
+  const name = element('input'); name.required = true; name.maxLength = 63;
+  name.value = kind === 'duplicate' ? `${object.name.slice(0,55)}_copy` : 'WB_MODEL';
+  if (kind !== 'delete') field('Jedinečný název objektu', name);
+  let model, position, heading, scale;
+  if (kind === 'add-model') {
+    const search = element('input'); search.type = 'search'; search.placeholder = 'Hledat model…'; search.setAttribute('aria-label', 'Hledat vkládaný model'); field('Hledat model', search);
+    model = element('select'); model.required = true; model.setAttribute('aria-label', 'Vkládaný model'); field('Model 4DS', model);
+    const assets = state.project.assets.filter(a => /^models\/[^/]+\.4ds$/i.test(a.path));
+    function fillModels() { const previous = model.value; model.replaceChildren(...assets.filter(a => a.path.toLowerCase().includes(search.value.toLowerCase())).slice(0,300).map(asset => { const option = element('option', asset.path.slice(7)); option.value = asset.path; return option; })); if ([...model.options].some(o => o.value === previous)) model.value = previous; }
+    search.oninput = fillModels; fillModels();
+    position = ['X','Y','Z'].map((axis,i) => number(`Pozice ${axis}`, object?.position?.[i] ?? 0));
+    heading = number('Natočení kolem Y (stupně)', 0); scale = ['X','Y','Z'].map(axis => number(`Měřítko ${axis}`, 1));
+    form.append(fields, element('p', 'Model se vloží do hlavního sektoru. Kolize v tree.klz ani aktéři a skripty se tím nevytvářejí.'));
+  } else { form.append(fields, element('p', kind === 'duplicate' ? 'Kopie zachová model, rodiče a transformace. Po vložení ji posuňte pomocí 3D nástroje.' : 'Skripty, aktéři a původní geometrie se automaticky nepřepisují. Objekty s rozpoznanými vazbami nelze odstranit.')); }
+  const message = element('p', '', 'notice'), actions = element('div', undefined, 'tools'), cancel = element('button', 'Zrušit'), submit = element('button', kind === 'delete' ? 'Odstranit z mise' : kind === 'duplicate' ? 'Duplikovat do modu' : 'Vložit do modu', 'primary');
+  cancel.type = 'button'; cancel.onclick = () => dialog.close(); submit.type = 'submit'; actions.append(cancel, submit); form.append(message, actions);
+  form.onsubmit = event => {
+    event.preventDefault(); if (!form.reportValidity() || state.busy) return;
+    run(async () => {
+      submit.disabled = cancel.disabled = true;
+      try {
+        let request = { kind, id: object?.id, name: name.value };
+        if (kind === 'add-model') {
+          const radians = Number(heading.value) % 360 * Math.PI / 180;
+          request = { kind, name: name.value, model: model.value, position: position.map(input => Number(input.value)), rotation: [Math.cos(radians/2),0,Math.sin(radians/2),0], scale: scale.map(input => Number(input.value)) };
+        }
+        state.file = await api.changeSceneObject(file.path, request, file.sha256); state.selectSceneName = kind === 'delete' ? null : name.value;
+        dialog.close(); await refresh(); renderDetail(); status(`${labels[kind]}: uloženo do modu se zálohou.`);
+      } catch (error) { message.textContent = error.message; throw error; }
+      finally { submit.disabled = cancel.disabled = false; }
+    });
+  };
+  dialog.addEventListener('cancel', event => { if (state.busy) event.preventDefault(); }); dialog.addEventListener('close', () => dialog.remove(), { once: true });
+  document.body.append(dialog); dialog.showModal(); if (kind !== 'delete') { name.focus(); name.select(); }
 }
 $('filter').oninput = renderFiles;
 $('tabs-left').onclick = () => $('categories').scrollBy({ left: -400, behavior: 'smooth' });

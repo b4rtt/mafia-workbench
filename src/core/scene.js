@@ -85,7 +85,7 @@ export function inspectScene(source) {
       if (node.type === 0x4010 && node.children) {
         const object = { id: node.id, fields: {} };
         for (const child of node.children) {
-          const field = new Map([[0x10, 'name'], [0x20, 'position'], [0x22, 'rotation'], [0x2d, 'scale'], [0x2012, 'model'], [0x2c, 'worldPosition']]).get(child.type);
+          const field = new Map([[0x10, 'name'], [0x20, 'position'], [0x22, 'rotation'], [0x2d, 'scale'], [0x2012, 'model'], [0x2c, 'worldPosition'], [0x4011, 'frameType']]).get(child.type);
           if (field) { object[field] = decodeField(fields.get(child.type)[1], child.payload); object.fields[field] = child.id; }
           if (child.type === 0x4020 && child.children) { const name = child.children.find(n => n.type === 0x10); if (name) object.parent = string(name.payload); }
         }
@@ -99,6 +99,8 @@ export function inspectScene(source) {
     }
   }
   visit(roots);
+  const actorNames = new Set(entries.filter(e => e.label === 'Název aktéra').map(e => e.value.normalize('NFC').toLowerCase()));
+  for (const object of objects) object.actorBound = actorNames.has(object.name.normalize('NFC').toLowerCase());
   return { entries, opaque, objects };
 }
 export function editScene(source, id, value) {
@@ -122,4 +124,61 @@ export function editScene(source, id, value) {
   if (!found) throw new Error('Scene: vlastnost neexistuje nebo není podporovaná.');
   inspectScene(result);
   return result;
+}
+
+// Structural edits affect a single modification chunk. Opaque actor data,
+// scripts, geometry overrides and sibling chunks are never reconstructed.
+export function changeSceneObject(source, operation, geometryNames = []) {
+  if (!operation || !['add-model', 'duplicate', 'delete'].includes(operation.kind)) throw new Error('Scene: neplatná operace s objektem.');
+  const scene = inspectScene(source), roots = tree(source), all = [];
+  function collect(nodes) { for (const node of nodes) { all.push(node); if (node.children) collect(node.children); } }
+  collect(roots);
+  const key = name => name.normalize('NFC').toLowerCase();
+  const chunk = (type, payload) => { const header = Buffer.alloc(6); header.writeUInt16LE(type); header.writeUInt32LE(payload.length + 6, 2); return Buffer.concat([header, payload]); };
+  const containers = all.filter(n => n.type === 0x4000);
+  if (containers.length !== 1) throw new Error('Scene: scéna nemá jednoznačný seznam objektů.');
+  const container = containers[0]; let added, removed;
+  if (operation.kind !== 'delete') {
+    const name = operation.name;
+    if (typeof name !== 'string' || name !== name.trim() || !/^[a-zA-Z0-9_#][a-zA-Z0-9_# -]{0,62}$/.test(name)) throw new Error('Název objektu: 1–63 znaků, písmena bez diakritiky, číslice, mezera, #, pomlčka nebo podtržítko.');
+    const used = [...scene.objects.map(o => o.name), ...geometryNames, ...scene.entries.filter(e => e.label === 'Název aktéra').map(e => e.value), 'Primary sector', 'Backdrop sector'];
+    if (used.some(value => key(value) === key(name))) throw new Error('Scene: název objektu již existuje ve scéně nebo geometrii.');
+  }
+  if (operation.kind === 'add-model') {
+    const { name, model, position, rotation, scale } = operation;
+    if (typeof model !== 'string' || !/\.i3d$/i.test(model) || model.length > 255 || /[\x00-\x1f/\\:*?"<>|]/.test(model)) throw new Error('Scene: neplatná cesta modelu.');
+    if (!Array.isArray(rotation) || rotation.length !== 4 || rotation.some(v => typeof v !== 'number' || !Number.isFinite(v)) || Math.abs(Math.hypot(...rotation) - 1) > .0001) throw new Error('Scene: rotace musí být jednotkový quaternion WXYZ.');
+    if (!Array.isArray(scale) || scale.some(v => typeof v !== 'number' || !Number.isFinite(v) || Math.abs(v) < .000001)) throw new Error('Scene: měřítko nesmí být nulové.');
+    const numeric = (type, kind, value, size) => chunk(type, encodeField(kind, value, Buffer.alloc(size)));
+    added = chunk(0x4010, Buffer.concat([
+      numeric(0x4011, 'uint', 9, 4), chunk(0x10, Buffer.concat([encode(name), Buffer.from([0])])),
+      numeric(0x20, 'vec3', position, 12), numeric(0x2c, 'vec3', position, 12),
+      numeric(0x22, 'quat', rotation, 16), numeric(0x2d, 'vec3', scale, 12),
+      chunk(0x4020, chunk(0x10, Buffer.from('Primary sector\0'))), chunk(0x2012, Buffer.concat([encode(model), Buffer.from([0])]))
+    ]));
+  } else {
+    const object = scene.objects.find(o => o.id === operation.id);
+    if (!object || ![6,9].includes(object.frameType) || object.actorBound || geometryNames.some(name => key(name) === key(object.name))) throw new Error('Scene: lze upravit pouze samostatný model nebo pomocný bod bez navázaného aktéra a původní geometrie.');
+    if (scene.objects.filter(o => key(o.name) === key(object.name)).length !== 1) throw new Error('Scene: název vybraného objektu není jednoznačný.');
+    const node = container.children.find(n => n.id === object.id);
+    if (!node) throw new Error('Scene: objekt není v hlavním seznamu.');
+    if (operation.kind === 'duplicate') {
+      // Rename a byte-preserving copy; its local transform and parent stay intact.
+      const renamed = tree(editScene(source, object.fields.name, operation.name));
+      function find(nodes) { for (const n of nodes) { if (n.id === object.id) return n; const found = n.children && find(n.children); if (found) return found; } }
+      added = find(renamed).raw;
+    } else {
+      if (scene.objects.some(o => o.parent && key(o.parent) === key(object.name))) throw new Error('Scene: objekt má potomky. Nejprve upravte jejich rodiče.');
+      if (scene.entries.some(e => e.kind === 'script' && e.value.code.toLowerCase().includes(object.name.toLowerCase()))) throw new Error('Scene: na objekt odkazuje skript. Nejprve upravte jeho odkaz.');
+      removed = node;
+    }
+  }
+  function write(node) {
+    if (!node.children) return node.raw;
+    const children = node.children.filter(child => child !== removed).map(write);
+    if (node === container && added) children.push(added);
+    const payload = Buffer.concat(children);
+    return payload.equals(node.payload) ? node.raw : chunk(node.type, payload);
+  }
+  const result = Buffer.concat(roots.map(write)); inspectScene(result); return result;
 }

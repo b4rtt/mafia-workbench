@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { inspectScene, editScene } from '../src/core/scene.js';
+import { inspectScene, editScene, changeSceneObject } from '../src/core/scene.js';
 function chunk(type, payload) { const header = Buffer.alloc(6); header.writeUInt16LE(type); header.writeUInt32LE(payload.length + 6, 2); return Buffer.concat([header, payload]); }
 function script(name, code) { const head = Buffer.alloc(5), length = Buffer.alloc(4); head[0] = 0x73; head.writeUInt32LE(name.length, 1); length.writeUInt32LE(code.length); return Buffer.concat([head, Buffer.from(name), length, Buffer.from(code), Buffer.from([0xde, 0xad])]); }
 function fixture() {
@@ -33,4 +33,46 @@ test('malformed chunks, missing properties and invalid values fail explicitly', 
   assert.throws(() => inspectScene(original.subarray(0, original.length - 1)), /překračuje/);
   assert.throws(() => editScene(original, 'no-such-id', 1), /neexistuje/);
   assert.throws(() => editScene(original, position.id, [NaN, 0, 0]), /hodnota/);
+});
+const modelOperation = { kind:'add-model', name:'WB_CRATE', model:'bedna02.i3d', position:[1,2,3], rotation:[Math.SQRT1_2,0,Math.SQRT1_2,0], scale:[1,2,3] };
+test('inserting and deleting a model recalculates sizes, preserves all original chunks and restores the exact scene', () => {
+  const source = fixture(), before = Buffer.from(source), added = changeSceneObject(source,modelOperation), scene = inspectScene(added), object = scene.objects.at(-1);
+  assert.equal(object.frameType,9); assert.equal(object.actorBound,false); assert.equal(object.name,'WB_CRATE'); assert.equal(object.model,'bedna02.i3d');
+  assert.equal(object.parent,'Primary sector'); assert.deepEqual(object.position,[1,2,3]); assert.deepEqual(object.worldPosition,[1,2,3]); assert.deepEqual(object.scale,[1,2,3]);
+  assert.ok(Math.abs(object.rotation[2]-Math.SQRT1_2)<1e-6); assert.equal(added.readUInt32LE(2),added.length);
+  assert.ok(added.includes(source.subarray(18,source.indexOf(Buffer.from('unknown-data'))+12))); assert.deepEqual(source,before);
+  assert.deepEqual(changeSceneObject(added,{kind:'delete',id:object.id}),source);
+  const punctuation = changeSceneObject(source,{...modelOperation,model:'!bedna (02).i3d'});
+  assert.equal(inspectScene(punctuation).objects.at(-1).model,'!bedna (02).i3d');
+});
+test('duplicating a standalone object preserves opaque bytes, parent and transform while giving the copy its own identity', () => {
+  let source = changeSceneObject(fixture(),modelOperation), original = inspectScene(source).objects.at(-1);
+  const tag = chunk(0xbeef,Buffer.from('copy-preserved-payload'));
+  // Attach an unknown child to the model without changing any known fields.
+  const start = source.indexOf(Buffer.from('WB_CRATE\0')) - 22, size = source.readUInt32LE(start+2);
+  assert.equal(source.readUInt16LE(start),0x4010);
+  const marked = Buffer.concat([source.subarray(0,start+size),tag,source.subarray(start+size)]);
+  marked.writeUInt32LE(size+tag.length,start+2); marked.writeUInt32LE(marked.length,2); marked.writeUInt32LE(source.readUInt32LE(8)+tag.length,8);
+  source = marked; original = inspectScene(source).objects.at(-1);
+  const result = changeSceneObject(source,{kind:'duplicate',id:original.id,name:'WB_COPY'}), objects = inspectScene(result).objects;
+  const copy = objects.at(-1); assert.notEqual(copy.id,original.id); assert.equal(copy.name,'WB_COPY');
+  for(const field of ['position','rotation','scale','worldPosition','model','parent','frameType']) assert.deepEqual(copy[field],original[field]);
+  assert.equal(result.toString('latin1').split('copy-preserved-payload').length-1,2);
+  assert.deepEqual(changeSceneObject(result,{kind:'delete',id:copy.id}),source);
+});
+test('structural changes reject collisions, actor and child references, geometry overrides and invalid transforms', () => {
+  const source = fixture();
+  for(const change of [{name:'FRAME'},{name:'Primary sector'},{name:'../bad'},{model:'../model.i3d'},{rotation:[0,0,0,0]},{position:[NaN,0,0]},{scale:[1,0,1]}]) assert.throws(()=>changeSceneObject(source,{...modelOperation,...change}));
+  assert.throws(()=>changeSceneObject(source,modelOperation,['wb_crate']),/existuje/);
+  assert.throws(()=>changeSceneObject(source,{kind:'delete',id:inspectScene(source).objects[0].id}),/samostatný/);
+  const added = changeSceneObject(source,modelOperation), object = inspectScene(added).objects.at(-1);
+  assert.throws(()=>changeSceneObject(added,{kind:'delete',id:object.id},['WB_CRATE']),/geometrie/);
+  const extend = extra => { const result=Buffer.concat([added,extra]); result.writeUInt32LE(result.length,2); return result; };
+  const actor = extend(chunk(0xae20,chunk(0xae21,chunk(0xae23,Buffer.from('wb_crate\0')))));
+  assert.equal(inspectScene(actor).objects.at(-1).actorBound,true); assert.throws(()=>changeSceneObject(actor,{kind:'duplicate',id:object.id,name:'COPY'}),/aktéra/);
+  const child = extend(chunk(0x4010,Buffer.concat([chunk(0x10,Buffer.from('child\0')),chunk(0x4020,chunk(0x10,Buffer.from('wb_crate\0')))])));
+  assert.throws(()=>changeSceneObject(child,{kind:'delete',id:object.id}),/potomky/);
+  const referenced = extend(chunk(0xae50,chunk(0xae51,script('Reference','findframe 0, "WB_CRATE"'))));
+  assert.throws(()=>changeSceneObject(referenced,{kind:'delete',id:object.id}),/skript/);
+  assert.throws(()=>changeSceneObject(added,{kind:'delete',id:'missing'}),/samostatný/);
 });

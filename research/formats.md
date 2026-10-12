@@ -37,6 +37,12 @@ Soukromá místní kopie obsahuje osm souborů: cache.bin, car_table.dat, check.
 
 Licence herní šablony není doložená; archiv ani jeho soubory se nevkládají do veřejného repozitáře. Editor musí při importu použít vlastní místní kopii uživatele.
 
+## Vytváření objektů scene2.bin
+
+Reference mEdit `SceneEditor::WriteFrame` a načítání `CT_MODIFICATION` v `SceneEditor.cpp` rozlišuje úpravu existujícího frame a jeho vytvoření: chunk `0x4011` (FRAME_TYPE) předchází názvu při tvorbě. Enum LS3D uvádí model = 9 a dummy = 6. Nový model obsahuje typ, jméno, lokální i světovou pozici, quaternion WXYZ, měřítko, odkaz na Primary sector a jméno modelu `.i3d` v chunku `0x2012`; odpovídá také zápisu modelu v DCED2 `Scene2.cpp`. Herní asset zůstává `.4ds`, přípona `.i3d` je odkaz používaný enginem.
+
+Vlastní writer přidává nebo odstraňuje jediný chunk a přepočítá délky předků. Duplikace přejmenuje jeho přesnou kopii; sourozenci, neznámé bloky a aktérská data zůstávají zachované. Typ frame sám nestačí k rozpoznání bezpečně odstranitelného objektu: kontrolují se i názvy v geometrii scene.4ds, aktéři, rodičovské vazby a rozpoznané zdroje skriptů. Další skryté vazby v neznámých datech se automaticky nepřepisují. Kolize tree.klz se nemění. Nové operace ukládají celý upravený scene2.bin do samostatného modu přes existující zálohy a kontrolu hash otevřeného souboru.
+
 ## Spuštění levelu
 
 Export reverse engineeringu st0rm94 uvádí starší Game 1.0; jeho adresy nejsou použitelné bez ověření na jiném EXE. U místní GOG 1.2 byl v disassembly dohledán hlavní dispatcher menu a větev tréninku. Případný workaround musí nejdříve ověřit celý hash a konkrétní instrukce, upravovat pouze samostatnou kopii EXE a používat oddělená herní data i ukládání. Původní instalace se nesmí patchovat.
