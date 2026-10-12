@@ -19,6 +19,7 @@ import { assetCategory } from '../shared/categories.js';
 import { readEmptyMissionZip, configureEmptyMission, missionName } from './mission.js';
 import { parseCollision } from './collision.js';
 import { collisionOwnership, ownedCollisionRecords, prepareSceneCollision } from './scene-collision.js';
+import { parseVehicleTable, vehicleModelDefinition, validateVehicleModel } from './vehicles.js';
 
 const MANIFEST = 'workbench.json';
 const key = p => relativeAssetPath(p).normalize('NFC').toLowerCase();
@@ -274,11 +275,17 @@ export class ModProject {
     if (expectedHash !== hash(before)) throw new Error('Soubor se od otevření změnil. Otevřete jej znovu.');
     const folder = this.asset(name).path.slice(0, this.asset(name).path.lastIndexOf('/'));
     const geometry = parseFourDs(await this.read(`${folder}/scene.4ds`));
-    let request = operation;
-    if (['add-model','add-human'].includes(operation?.kind)) {
+    let request = operation;const dependencies=[];
+    if (['add-model','add-human','add-car'].includes(operation?.kind)) {
       if (typeof operation.model !== 'string' || !/^models\/[^/\\]+\.4ds$/i.test(operation.model)) throw new Error('Vyberte model z hlavní složky models.');
-      const model=parseFourDs(await this.read(operation.model), true);
+      const modelBytes=await this.read(operation.model),model=parseFourDs(modelBytes, true);
       if(operation.kind==='add-human'&&!model.meshes.some(mesh=>mesh.joint))throw new Error('Vyberte model postavy s kostrou.');
+      if(operation.kind==='add-car'){
+        const tablePath=this.asset('tables/vehicles.bin').path,tableBytes=await this.read(tablePath);
+        if(operation.vehicleTableHash!==undefined&&operation.vehicleTableHash!==hash(tableBytes))throw new Error('Tabulka aut se od otevření změnila. Otevřete dialog znovu.');
+        if(!vehicleModelDefinition(parseVehicleTable(tableBytes),operation.model))throw new Error('Vyberte automobilový model s odpovídající fyzikální tabulkou.');
+        validateVehicleModel(model);dependencies.push({path:tablePath,data:tableBytes,expectedHash:hash(tableBytes)},{path:this.asset(operation.model).path,data:modelBytes,expectedHash:hash(modelBytes)});
+      }
       request = { ...operation, model: this.asset(operation.model).path.slice(7).replace(/\.4ds$/i, '.i3d') };
     }
     const after=operation?.kind==='collision'?before:changeSceneObject(before, request, geometry.meshes.map(mesh => mesh.name));
@@ -294,8 +301,15 @@ export class ModProject {
       if(owned){const klz=parseCollision(await this.read(`${folder}/tree.klz`)),record=ownedCollisionRecords(klz,[owned])[0];requests.push({name:operation.name,kind:'aabb',material:record.material});}
     }
     const collision=await prepareSceneCollision(this,name,before,after,{requests,expectedHash:operation?.collisionHash});
-    const label={ 'add-model': 'Vložení modelu do mise', 'add-human':'Vložení postavy a jejího skriptu', duplicate: 'Duplikace objektu mise', delete: 'Odstranění objektu mise',collision:'Generování kolize modelu' }[operation?.kind]??'Úprava objektů mise';
-    await this.changeBatch([{path:name,data:after,expectedHash},...(collision?.files??[])],label,collision?.ownership);
+    const label={ 'add-model': 'Vložení modelu do mise', 'add-human':'Vložení postavy a jejího skriptu','add-car':'Vložení automobilu a jeho aktéra', duplicate: 'Duplikace objektu mise', delete: 'Odstranění objektu mise',collision:'Generování kolize modelu' }[operation?.kind]??'Úprava objektů mise';
+    const files=new Map([{path:name,data:after,expectedHash},...dependencies,...(collision?.files??[])].map(file=>[key(file.path),file]));
+    await this.changeBatch([...files.values()],label,collision?.ownership);
+  }
+  async carModels(){
+    const bytes=await this.read('tables/vehicles.bin'),table=parseVehicleTable(bytes),models=[];let rejected=0;
+    for(const asset of this.manifest.assets){const definition=vehicleModelDefinition(table,asset.path);if(!definition)continue;
+      try{validateVehicleModel(parseFourDs(await this.read(asset.path)));models.push(definition);}catch{rejected++;}}
+    return {models,sha256:hash(bytes),rejected};
   }
   async inspect(name) {
     const asset = this.asset(name), bytes = await this.read(name);

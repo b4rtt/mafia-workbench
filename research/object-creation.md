@@ -33,7 +33,17 @@ Další hodnoty aktérského enumu mEdit: skrytý objekt 1, objekt vily 9, most 
 
 ## Zjištěné rozdíly u aut
 
-mEdit `Car.h` pouze určuje typ 4 a dědí prázdný datový writer základního Actor. mLib přidává minimální aktérský blok s jednobajtovým AE24, ne celý uložený stav vozidla. Naproti tomu engine `car_load_data_chunk` čte čtyřbajtovou verzi, komprimovaný záznam a aplikuje CARINIT; modelové fyzikální tabulky načítá jiná cesta (`car_load_model_level_tables`). Tyto cesty se nesmějí zaměnit. Před implementací auta porovnat reálný aktér 4 v scene2.bin, jeho model, tabulky a cestu inicializace mise. Výsledek musí umožnit nastoupit a řídit, nejen zobrazit karoserii.
+mEdit `Car.h` pouze určuje typ 4 a dědí prázdný datový writer základního Actor. mLib přidává minimální aktérský blok s jednobajtovým AE24, ne celý uložený stav vozidla. Naproti tomu engine `car_load_data_chunk` čte čtyřbajtovou verzi, komprimovaný záznam a aplikuje CARINIT; modelové fyzikální tabulky načítá jiná cesta (`car_load_model_level_tables`). Tyto cesty se nesmějí zaměnit. Ověřená konstrukce nového auta je popsaná níže; výsledek musí umožnit nastoupit a řídit, nejen zobrazit karoserii.
+
+## Vkládání funkčních aut
+
+Audit 79 místních scén našel 285 aktérů typu 4 s uloženými daty různé délky. Nová auta ale uložený stav nepotřebují. Mission loader kolem řádku 416332 volá načtení AE24 jen tehdy, když blok existuje a má data. Při AE22 už volá Init(frame), přidá aktéra a pozdější GameInit (`car_game_init`, kolem 92340) načte fyzikální úrovně modelu. Nový vlastní writer proto zapisuje AE23 jméno a AE22 typ 4, bez neplatné jednobajtové náhražky uloženého stavu. Původní aktéři a jejich komprimovaná data se zachovávají.
+
+`vehicles.js` čte PC `tables/vehicles.bin` v1: verze, počet, záznamy s délkou payloadu, 32bajtovým názvem, počtem úrovní a jednotlivými délkovanými CARINIT payloady. Samotná fyzika zůstává opaque. Jméno rodiny odpovídá modelovému basename před posledními dvěma číslicemi varianty; porovnání je bez rozlišení velikosti písmen. Čtení místní tabulky ověřilo 89 rodin a přesné vyčerpání souboru. Katalog nabízí modely s jednoznačnými BODY, SEAT0, WHL0/WHR0/WHL1/WHR1 a dostupnými BODYCOL framy, bez lidské kostry. V místní instalaci prošlo 325 variant; dalších 15 kandidátů nesplnilo čtení nebo kontrolu částí. Tyto strukturální kontroly nejsou herním důkazem všech modelů.
+
+Dialog **Přidat auto…** vloží frame a aktéra v jedné historické změně. Kontroluje jedinečné jméno, transformaci, měřítko 1, odpovídající tabulku, části modelu a hash tabulky z otevřeného dialogu. Čtené modely/tabulka se znovu hashově ověřují před publikováním manifestu. Statická kolize se negeneruje; vozidlo používá vlastní dynamické části. Editor fyzikálních úrovní, uloženého stavu a specializovaných parametrů auta zůstává součástí dalšího rozvoje.
+
+V oddělené kopii prázdné mise bylo taxi00 vloženo přes UI. `iscarusable` potvrdilo použitelnost, `human_force_settocar` umístilo hráče za volant a `car_setspeed` rozhýbalo auto s rychloměrem. Druhý test běžného nástupu přes `enemy_move_to_car`/`enemy_usecar` a jízdy `enemy_car_moveto` k cíli skončil HUD 90. UI undo odstranilo přesně celý nově vložený model i aktéra; export scény odpovídal modu a KLZ zůstalo shodné. Ověření proběhlo na taxi00; ruční vstupy řidiče a ostatní varianty nejsou tímto testem doložené.
 
 ## Generování kolizí přidaných modelů
 

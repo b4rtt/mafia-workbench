@@ -183,7 +183,7 @@ export function editScene(source, id, value) {
 // Existing opaque actor data, scripts, geometry overrides and sibling chunks
 // remain intact. New human actors use the verified C_human v6 layout.
 export function changeSceneObject(source, operation, geometryNames = []) {
-  if (!operation || !['add-model', 'add-human', 'duplicate', 'delete'].includes(operation.kind)) throw new Error('Scene: neplatná operace s objektem.');
+  if (!operation || !['add-model', 'add-human', 'add-car', 'duplicate', 'delete'].includes(operation.kind)) throw new Error('Scene: neplatná operace s objektem.');
   const scene = inspectScene(source), roots = tree(source), all = [];
   function collect(nodes) { for (const node of nodes) { all.push(node); if (node.children) collect(node.children); } }
   collect(roots);
@@ -198,7 +198,7 @@ export function changeSceneObject(source, operation, geometryNames = []) {
     const used = [...scene.objects.map(o => o.name), ...geometryNames, ...scene.entries.filter(e => e.label === 'Název aktéra').map(e => e.value), 'Primary sector', 'Backdrop sector'];
     if (used.some(value => key(value) === key(name))) throw new Error('Scene: název objektu již existuje ve scéně nebo geometrii.');
   }
-  if (operation.kind === 'add-model' || operation.kind === 'add-human') {
+  if (['add-model','add-human','add-car'].includes(operation.kind)) {
     const { name, model, position, rotation, scale } = operation;
     if (typeof model !== 'string' || !/\.i3d$/i.test(model) || model.length > 255 || /[\x00-\x1f/\\:*?"<>|]/.test(model)) throw new Error('Scene: neplatná cesta modelu.');
     if (!Array.isArray(rotation) || rotation.length !== 4 || rotation.some(v => typeof v !== 'number' || !Number.isFinite(v)) || Math.abs(Math.hypot(...rotation) - 1) > .0001) throw new Error('Scene: rotace musí být jednotkový quaternion WXYZ.');
@@ -210,10 +210,17 @@ export function changeSceneObject(source, operation, geometryNames = []) {
       numeric(0x22, 'quat', rotation, 16), numeric(0x2d, 'vec3', scale, 12),
       chunk(0x4020, chunk(0x10, Buffer.from('Primary sector\0'))), chunk(0x2012, Buffer.concat([encode(model), Buffer.from([0])]))
     ]));
-    if(operation.kind==='add-human') {
+    if(operation.kind==='add-car'&&(!Array.isArray(scale)||scale.length!==3||scale.some(n=>n!==1)))throw new Error('Scene: auto používá měřítko 1, aby odpovídalo fyzice.');
+    if(['add-human','add-car'].includes(operation.kind)) {
       const actors=all.filter(node=>node.type===0xae20), sceneRoots=roots.filter(node=>node.type===0x4c53);
       if(actors.length>1||sceneRoots.length!==1)throw new Error('Scene: nejednoznačný seznam aktérů.');
       actorContainer=actors[0];
+      if(operation.kind==='add-car'){
+        const type=Buffer.alloc(4);type.writeUInt32LE(4);
+        // A new vehicle uses Init(frame) + GameInit/model CARINIT tables.
+        // AE24 is an optional saved state, not a mandatory initialiser.
+        actorAdded=chunk(0xae21,Buffer.concat([chunk(0xae23,Buffer.concat([encode(name),Buffer.from([0])])),chunk(0xae22,type)]));
+      }else{
       const parameters=operation.parameters;
       if(!parameters||typeof parameters!=='object'||Array.isArray(parameters)||Object.keys(parameters).some(key=>!humanFields.some(field=>field.key===key)))throw new Error('Scene: neplatné parametry nové postavy.');
       const data=Buffer.alloc(83);data[0]=6;data[73]=data[74]=1;
@@ -227,6 +234,7 @@ export function changeSceneObject(source, operation, geometryNames = []) {
       // The mission loader binds AE23 first, creates the actor at AE22, then
       // loads AE24. It does not revisit a type encountered before the name.
       actorAdded=chunk(0xae21,Buffer.concat([chunk(0xae23,Buffer.concat([encode(name),Buffer.from([0])])),chunk(0xae22,type),chunk(0xae24,Buffer.concat([data,code]))]));
+      }
     }
   } else {
     const object = scene.objects.find(o => o.id === operation.id);
