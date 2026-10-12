@@ -61,3 +61,18 @@ test('playtest reattaches a live owned session and refuses to overwrite it', asy
     assert.equal((await new Playtest({}).attach({ root })).running, false);
   } finally { await fs.rm(root, { recursive: true, force: true }); }
 });
+test('undo of new mission removes only tracked, unchanged files from the private playtest', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(),'mafia-created-sync-'));
+  try {
+    const game = path.join(root,'game'); await fs.mkdir(game);
+    const project = new ModProject(root,{format:'mafia-workbench',version:1,assets:[],history:[]});
+    await project.createFiles([{path:'missions/NEW/scene2.bin',data:Buffer.from('new scene')}]);
+    const sync = await synchronizeAssets(project,game); assert.equal(sync.files['missions/new/scene2.bin'].created,true);
+    await writeSafe(game,'missions/other/scene2.bin',Buffer.from('untracked')); await project.undo();
+    await writeSafe(game,'missions/new/scene2.bin',Buffer.from('external'));
+    await assert.rejects(synchronizeAssets(project,game,sync.files),/mimo editor/);
+    await writeSafe(game,'missions/new/scene2.bin',Buffer.from('new scene')); await synchronizeAssets(project,game,sync.files);
+    await assert.rejects(fs.access(path.join(game,'missions/new/scene2.bin')),/ENOENT/);
+    assert.equal(await fs.readFile(path.join(game,'missions/other/scene2.bin'),'utf8'),'untracked');
+  } finally { await fs.rm(root,{recursive:true,force:true}); }
+});

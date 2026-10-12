@@ -16,6 +16,8 @@ contextBridge.exposeInMainWorld('workbench', {
   stopLevel: () => invoke('playtest:stop'),
   onPlaytest: callback => ipcRenderer.on('playtest:state', (_event, state) => callback(state)),
   importLoose: () => invoke('project:loose'),
+  missionTemplate: () => invoke('mission:template'),
+  createMission: options => invoke('mission:create', options),
   saveTexts: (name, changes, expectedHash) => invoke('asset:texts', name, changes, expectedHash),
   saveScene: (name, changes, expectedHash) => invoke('asset:scene', name, changes, expectedHash),
   saveModel: (name, changes, expectedHash) => invoke('asset:model', name, changes, expectedHash),

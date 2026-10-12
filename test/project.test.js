@@ -60,3 +60,33 @@ test('undo rejects stale external writes and corrupted backups', async t => {
   await fs.writeFile(path.join(root, project.manifest.history[0].backup), 'corrupt');
   await assert.rejects(() => project.undo(), /neodpovídá/);
 });
+test('new file batches reopen, export unchanged creations, edit and undo together without touching originals', async t => {
+  const {root,project,asset,original} = await setup(t), files = [{path:'missions/NEW/scene2.bin',data:Buffer.from('scene')},{path:'missions/NEW/tree.klz',data:Buffer.from('collision')}];
+  await project.createFiles(files,'New mission');
+  assert.equal(project.manifest.history.length,1); assert.equal((await project.list()).assets.filter(a=>a.created&&a.modified).length,2);
+  let reopened = await ModProject.open(root);
+  const destination = path.join(root,'new-export'); assert.equal(await reopened.export(destination),2);
+  const exported = JSON.parse(await fs.readFile(path.join(destination,'mafia-mod.json'))).files;
+  assert.ok(exported.every(f=>f.created&&f.sourceSha256===null));
+  await reopened.change(files[0].path,Buffer.from('edited')); await reopened.undo(); assert.deepEqual(await reopened.read(files[0].path),files[0].data);
+  await reopened.undo(); assert.equal(reopened.manifest.history.length,0); assert.equal(reopened.manifest.assets.length,1);
+  await assert.rejects(fs.access(path.join(root,'mods',files[0].path)),/ENOENT/);
+  assert.throws(()=>reopened.asset(files[1].path)); assert.deepEqual(await reopened.original(asset),original);
+  reopened = await ModProject.open(root); assert.equal((await reopened.list()).assets.length,1);
+  await reopened.createFiles(files); assert.deepEqual(await reopened.read(files[0].path),files[0].data);
+});
+test('batch creation rejects collisions and rolls back failed manifest writes; undo validates all files before removal', async t => {
+  const {root,project} = await setup(t), file = {path:'missions/NEW/scene2.bin',data:Buffer.from('scene')};
+  await assert.rejects(project.createFiles([{...file,path:'MODELS/EXAMPLE.4DS'}]),/existuje/);
+  await assert.rejects(project.createFiles([file,{...file,path:'MISSIONS/new/SCENE2.BIN'}]),/existuje/);
+  await assert.rejects(project.createFiles([{...file,path:'../escape'}]),/cesta/);
+  const save = project.saveManifest; project.saveManifest = async()=>{throw new Error('simulated manifest failure');};
+  await assert.rejects(project.createFiles([file]),/simulated/); assert.equal(project.manifest.assets.length,1); assert.equal(project.manifest.history.length,0);
+  project.saveManifest = save; await project.createFiles([file,{path:'missions/NEW/tree.klz',data:Buffer.from('tree')}]);
+  await project.change(file.path,Buffer.from('edited')); await project.undo();
+  project.saveManifest = async()=>{throw new Error('simulated undo failure');};
+  await assert.rejects(project.undo(),/simulated/); assert.deepEqual(await project.read(file.path),file.data); assert.equal(project.manifest.history.length,1);
+  project.saveManifest = save;
+  await writeSafe(root,'mods/missions/NEW/tree.klz',Buffer.from('external'));
+  await assert.rejects(project.undo(),/neodpovídá/); assert.deepEqual(await readSafe(root,'mods/'+file.path),file.data); assert.equal(project.manifest.assets.length,3);
+});

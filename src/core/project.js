@@ -9,6 +9,7 @@ import { parseFourDs, editFourDs } from './fourds.js';
 import { parseFiveDs, editFiveDs } from './fiveds.js';
 import { inspectCache, editCache } from './cache.js';
 import { assetCategory } from '../shared/categories.js';
+import { readEmptyMissionZip, configureEmptyMission, missionName } from './mission.js';
 
 const MANIFEST = 'workbench.json';
 const key = p => relativeAssetPath(p).normalize('NFC').toLowerCase();
@@ -89,7 +90,7 @@ export class ModProject {
       let modified = false;
       try { modified = hash(await readSafe(this.root, `mods/${name}`)) !== asset.sha256; }
       catch (error) { if (error.code !== 'ENOENT') throw error; }
-      result.push({ path: name, size, archive, modified, category: assetCategory(name), variants: variants.length });
+      result.push({ path: name, size, archive, created: asset.created === true, modified: modified || asset.created === true, category: assetCategory(name), variants: variants.length });
     }
     return { name: this.manifest.name, root: this.root, assets: result, history: this.manifest.history.length };
   }
@@ -114,6 +115,48 @@ export class ModProject {
     } finally { this.busy = false; }
   }
   async saveManifest() { await writeSafe(this.root, MANIFEST, JSON.stringify(this.manifest, null, 2)); }
+  async createFiles(files, label = 'Přidání souborů') {
+    if (this.busy) throw new Error('Probíhá jiné ukládání.');
+    if (!Array.isArray(files) || !files.length || files.length > 64) throw new Error('Neplatné nové soubory.');
+    this.busy = true;
+    const previous = this.manifest.assets;
+    try {
+      const seen = new Set(), data = files.map(file => {
+        const name = relativeAssetPath(file.path), canonical = key(name);
+        if (this.index.has(canonical) || seen.has(canonical)) throw new Error(`Soubor již existuje: ${name}`);
+        seen.add(canonical); return { path: name, bytes: Buffer.from(file.data) };
+      });
+      if (data.reduce((sum, f) => sum + f.bytes.length, 0) > 64 * 1024 * 1024) throw new Error('Nové soubory jsou příliš velké.');
+      // Refuse unindexed overlays as well.
+      for (const file of data) {
+        try { await readSafe(this.root, `mods/${file.path}`); throw new Error(`Cílový mod soubor již existuje: ${file.path}`); }
+        catch (error) { if (error.code !== 'ENOENT') throw error; }
+      }
+      const id = randomUUID(), assets = [];
+      for (const file of data) {
+        const original = `originals/created/${id}/${file.path}`, sha256 = hash(file.bytes);
+        await writeSafe(this.root, original, file.bytes, true);
+        const variant = { original, sha256, size: file.bytes.length, archive: 'Nová mise' };
+        assets.push({ path: file.path, ...variant, created: true, creation: id, variants: [variant] });
+      }
+      const entry = { id, kind: 'create', files: assets.map(a => ({ path: a.path, sha256: a.sha256 })), label, date: new Date().toISOString() };
+      await writeSafe(this.root, `history/${id}.json`, JSON.stringify(entry), true);
+      this.manifest.assets = [...previous, ...assets].sort((a,b) => a.path.localeCompare(b.path));
+      this.manifest.history.push(entry);
+      try { await this.saveManifest(); }
+      catch (error) { this.manifest.assets = previous; this.manifest.history.pop(); throw error; }
+      this.index = new Map(this.manifest.assets.map(a => [key(a.path), a]));
+    } finally { this.busy = false; }
+  }
+  async createMission(zip, options) {
+    const name = missionName(options?.name), folder = `missions/${name}/`;
+    if (this.manifest.assets.some(a => key(a.path).startsWith(folder.toLowerCase()))) throw new Error('Mise tohoto názvu již existuje.');
+    const template = readEmptyMissionZip(zip), files = configureEmptyMission(template, options);
+    this.asset(options.model); // The player model must be supplied by this project.
+    if (!parseFourDs(await this.read(options.model)).meshes.some(m => m.type === 10)) throw new Error('Model hráče musí mít kostru (klouby typu 10).');
+    await this.createFiles([...files].map(([file, data]) => ({ path: folder + file, data })), `Nová mise ${name}`);
+    return folder + 'scene2.bin';
+  }
   async importLoose(progress = () => {}) {
     if (this.busy) throw new Error('Probíhá jiné ukládání.');
     if (!this.manifest.gameRoot) throw new Error('Projekt nemá zadaný zdroj hry.');
@@ -137,6 +180,7 @@ export class ModProject {
       const assets = new Map(this.index); let imported = 0;
       for (let i = 0; i < paths.length; i++) {
         const name = paths[i], canonical = key(name), existing = assets.get(canonical);
+        if (existing?.created) throw new Error(`Volný soubor koliduje s novou misí v modu: ${name}`);
         if (existing?.variants.some(v => v.archive === 'Volné soubory')) continue;
         const bytes = await readSafe(source, name);
         if (bytes.length > 1024 * 1024 * 1024) throw new Error(`Volný soubor je příliš velký: ${name}`);
@@ -222,6 +266,7 @@ export class ModProject {
   async undo() {
     const entry = this.manifest.history.at(-1);
     if (!entry) return;
+    if (entry.kind === 'create') return this.undoCreation(entry);
     if (!/^history\/[a-f0-9-]+\.snapshot$/.test(entry.backup)) throw new Error('Neplatná záloha historie.');
     const before = await readSafe(this.root, entry.backup);
     const after = await this.read(entry.path);
@@ -235,14 +280,42 @@ export class ModProject {
       catch (error) { this.manifest.history.push(entry); await writeSafe(this.root, `mods/${this.asset(entry.path).path}`, after); throw error; }
     } finally { this.busy = false; }
   }
+  async undoCreation(entry) {
+    if (this.busy) throw new Error('Probíhá jiné ukládání.');
+    if (!Array.isArray(entry.files) || !entry.files.length || entry.files.length > 64) throw new Error('Neplatná historie nových souborů.');
+    this.busy = true;
+    const previous = this.manifest.assets, overlays = [];
+    try {
+      const removed = new Set();
+      for (const file of entry.files) {
+        const asset = this.asset(file.path);
+        if (!asset.created || asset.creation !== entry.id || removed.has(key(file.path)) || hash(await this.read(file.path)) !== file.sha256) throw new Error('Historie neodpovídá aktuálním datům nové mise.');
+        await this.original(asset); removed.add(key(file.path));
+        try { overlays.push({ path: `mods/${asset.path}`, bytes: await readSafe(this.root, `mods/${asset.path}`) }); }
+        catch (error) { if (error.code !== 'ENOENT') throw error; }
+      }
+      // Remove only verified overlays, with rollback if publication fails.
+      try {
+        for (const overlay of overlays) await fs.unlink(await safePath(this.root, overlay.path));
+        this.manifest.assets = previous.filter(a => !removed.has(key(a.path))); this.manifest.history.pop();
+        await this.saveManifest();
+      } catch (error) {
+        this.manifest.assets = previous;
+        if (this.manifest.history.at(-1) !== entry) this.manifest.history.push(entry);
+        for (const overlay of overlays) await writeSafe(this.root, overlay.path, overlay.bytes);
+        throw error;
+      }
+      this.index = new Map(this.manifest.assets.map(a => [key(a.path), a]));
+    } finally { this.busy = false; }
+  }
   async export(destination) {
     await fs.mkdir(destination);
     const exported = [];
     for (const asset of this.manifest.assets) {
       const data = await this.read(asset.path);
-      if (hash(data) === asset.sha256) continue;
+      if (!asset.created && hash(data) === asset.sha256) continue;
       await writeSafe(destination, asset.path, data, true);
-      exported.push({ path: asset.path, sha256: hash(data), sourceSha256: asset.sha256 });
+      exported.push({ path: asset.path, sha256: hash(data), sourceSha256: asset.created ? null : asset.sha256, ...(asset.created ? { created: true } : {}) });
     }
     await writeSafe(destination, 'mafia-mod.json', JSON.stringify({ format: 'mafia-workbench-mod', version: 1, files: exported }, null, 2), true);
     return exported.length;

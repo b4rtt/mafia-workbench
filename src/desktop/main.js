@@ -7,6 +7,7 @@ import { ModProject } from '../core/project.js';
 import { parseTextDb } from '../core/textdb.js';
 import { randomUUID } from 'node:crypto';
 import { Playtest } from '../core/playtest.js';
+import { readEmptyMissionZip } from '../core/mission.js';
 const directory = path.dirname(fileURLToPath(import.meta.url));
 const uiRoot = path.resolve(directory, '../ui');
 const profileRoot = path.resolve(directory, '../../local/electron-profile');
@@ -14,7 +15,7 @@ await fs.mkdir(profileRoot, { recursive: true });
 app.setPath('userData', profileRoot);
 app.setPath('sessionData', profileRoot);
 protocol.registerSchemesAsPrivileged([{ scheme: 'workbench', privileges: { standard: true, secure: true, supportFetchAPI: true } }]);
-let window, project, busy = false;
+let window, project, missionTemplate, busy = false;
 // The user's verified runtime stays local, outside the public repository.
 const runtimeRoot = path.resolve(directory, '../../../.runtime');
 const playtest = new Playtest({ wine: path.join(runtimeRoot, 'wine-cx/wswine.bundle/bin/wine'), server: path.join(runtimeRoot, 'wine-cx/wswine.bundle/bin/wineserver'), dependencies: path.join(runtimeRoot, 'wine-cx/dependencies'), prefixTemplate: path.join(runtimeRoot, 'prefix-cx') });
@@ -119,6 +120,20 @@ app.whenReady().then(async () => {
   handle('asset:animation', (name, changes, expectedHash) => operation(async () => { await current().saveAnimation(name, changes, expectedHash); return current().inspect(name); }));
   handle('asset:cache', (name, changes, expectedHash) => operation(async () => { await current().saveCache(name, changes, expectedHash); return current().inspect(name); }));
   handle('project:loose', () => operation(async () => { await current().importLoose(p => window.webContents.send('extraction:progress', p)); return current().list(); }));
+  handle('mission:template', () => operation(async () => {
+    const active = current();
+    const result = await dialog.showOpenDialog(window, { title: 'Vyberte Empty_Mission.zip', properties: ['openFile'], filters: [{ name: 'Prázdná mise', extensions: ['zip'] }] });
+    if (result.canceled) return null;
+    const stat = await fs.stat(result.filePaths[0]); if (!stat.isFile() || stat.size > 8 * 1024 * 1024) throw new Error('Šablona je příliš velká.');
+    const bytes = await fs.readFile(result.filePaths[0]); readEmptyMissionZip(bytes);
+    missionTemplate = { project: active, bytes }; return { name: path.basename(result.filePaths[0]), files: 8 };
+  }));
+  handle('mission:create', options => operation(async () => {
+    const active = current();
+    if (!missionTemplate || missionTemplate.project !== active) throw new Error('Nejdřív vyberte šablonu mise pro tento projekt.');
+    const name = await active.createMission(missionTemplate.bytes, options); missionTemplate = null;
+    return { project: await active.list(), path: name };
+  }));
   handle('asset:restore', name => operation(async () => { await current().restore(name); return current().inspect(name); }));
   handle('project:undo', () => operation(async () => { await current().undo(); return current().list(); }));
   handle('asset:replace', name => operation(async () => {

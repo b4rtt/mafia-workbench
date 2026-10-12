@@ -74,6 +74,12 @@ async function inventory(root) {
 export async function synchronizeAssets(project, game, previous = {}, progress = () => {}) {
   const existing = await inventory(game), mods = await inventory(path.join(project.root, 'mods')), files = Object.create(null);
   const validHash = value => typeof value === 'string' && /^[0-9a-f]{64}$/.test(value);
+  const active = new Set(project.manifest.assets.map(asset => canonical(asset.path)));
+  // Undoing a newly created mission removes only its tracked private test copies.
+  for (const [name, old] of Object.entries(previous)) if (old.created === true && !active.has(name) && existing.has(name)) {
+    if (canonical(name) !== name || !validHash(old.applied) || hash(await readSafe(game, existing.get(name))) !== old.applied) throw new Error('Odstraněný soubor nové mise se v testovací kopii změnil mimo editor.');
+    await fs.unlink(await safePath(game, existing.get(name))); existing.delete(name);
+  }
   const pending = [];
   for (const asset of project.manifest.assets) {
     const target = canonical(asset.path), old = previous[target];
@@ -96,7 +102,7 @@ export async function synchronizeAssets(project, game, previous = {}, progress =
       }
       copied++;
     }
-    files[target] = { source: asset.sha256, applied };
+    files[target] = { source: asset.sha256, applied, ...(asset.created ? { created: true } : {}) };
     if (i % 500 === 0 || i === pending.length - 1) progress({ phase: 'playtest', current: i + 1, total: pending.length, files: copied });
   }
   return { files, checked: pending.length, copied };

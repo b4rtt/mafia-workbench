@@ -33,7 +33,7 @@ Uživatel dodal [Empty_Mission.zip](https://github.com/user-attachments/files/16
 
 `30e85b0f896de45945b445d83fe02a8f8405f832f4764c3cbb449ebe10e85e2e`
 
-Soukromá místní kopie obsahuje osm souborů: cache.bin, car_table.dat, check.bin, effects.bin, road.bin, scene.4ds, scene2.bin a tree.klz. Nebyla spuštěna žádná přiložená binárka. V scene2.bin jsou připravené objekty hráče Tommy, startovní pozice, obloha, světla, doprava a chodci. Konfigurovatelná tvorba mise se bude opírat o kopii této šablony a zachová neznámá data.
+Soukromá místní kopie obsahuje osm souborů: cache.bin, car_table.dat, check.bin, effects.bin, road.bin, scene.4ds, scene2.bin a tree.klz. V scene2.bin jsou připravené objekty hráče Tommy, startovní pozice, obloha, světla, doprava a chodci. Průvodce nové mise načítá tento přesný ZIP přímo do paměti po ověření SHA-256; nevykonává soubory z archivu. Konfigurace upraví rozpoznaná pole objektů Tommy/start a světel light_sun/light_ambient. Vynechání inicializace policie vyprázdní známý GameInitEnd, zachová jeho hlavičku a koncová data. Aktérské skripty a další nerozpoznané bloky zůstávají beze změny. Tvorba osmi souborů se publikuje jedním zápisem indexu projektu a vrací jedním krokem; nové assety mají vlastní výchozí kopii a exportují se vždy.
 
 Licence herní šablony není doložená; archiv ani jeho soubory se nevkládají do veřejného repozitáře. Editor musí při importu použít vlastní místní kopii uživatele.
 

@@ -15,6 +15,7 @@ function buttons() {
   for (const id of ['create', 'open']) $(id).disabled = state.busy;
   $('undo').disabled = state.busy || !state.project?.history;
   $('export').disabled = state.busy || !state.project;
+  $('new-mission').disabled = state.busy || !state.project;
   $('stop-level').disabled = state.busy;
 }
 async function run(action) {
@@ -80,8 +81,8 @@ function renderDetail() {
   const source = state.project.assets.find(a => a.path === file.path);
   main.append(element('div', `${file.size.toLocaleString('cs')} bajtů · ${source?.archive} · ${source?.variants ?? 1} variant archivů`, 'file-meta'));
   const toolbar = element('div', undefined, 'tools');
-  const restore = element('button', 'Obnovit originál');
-  restore.onclick = () => run(async () => { if (!await discard()) return; state.file = await api.restore(file.path); state.texts.clear(); await refresh(); renderDetail(); status('Originál obnoven; obnovení lze také vrátit.'); });
+  const restore = element('button', source?.created ? 'Obnovit výchozí verzi' : 'Obnovit originál');
+  restore.onclick = () => run(async () => { if (!await discard()) return; state.file = await api.restore(file.path); state.texts.clear(); await refresh(); renderDetail(); status(source?.created ? 'Výchozí verze obnovena; obnovení lze také vrátit.' : 'Originál obnoven; obnovení lze také vrátit.'); });
   const replace = element('button', 'Nahradit souborem…');
   replace.onclick = () => run(async () => { if (!await discard()) return; const replacement = await api.replace(file.path); if (!replacement) return; state.file = replacement; state.texts.clear(); await refresh(); renderDetail(); status('Soubor nahrazen se zálohou.'); });
   toolbar.append(restore, replace); main.append(toolbar);
@@ -344,7 +345,49 @@ for (const [id, action] of [['open', api.open], ['create', api.create]]) $(id).o
   state.texts.clear(); state.file = null; $('detail').replaceChildren(element('h2', 'Projekt je připravený'), element('p', 'Vyberte soubor vlevo. České texty najdete filtrem Texty.'));
   await refresh(project); status('Projekt otevřený; původní hra zůstala zachovaná.');
 });
-$('undo').onclick = () => run(async () => { if (!await discard()) return; const project = await api.undo(); state.texts.clear(); await refresh(project); if (state.file) await openFile(state.file.path); status('Poslední uložená změna vrácena.'); });
+$('undo').onclick = () => run(async () => {
+  if (!await discard()) return;
+  const project = await api.undo(); state.texts.clear(); await refresh(project);
+  if (state.file && project.assets.some(a => a.path === state.file.path)) await openFile(state.file.path);
+  else if (state.file) { state.viewport?.dispose(); state.viewport = null; state.file = null; $('detail').replaceChildren(element('h2', 'Vytvoření mise vráceno'), element('p', 'Vyberte soubor vlevo.')); }
+  status('Poslední uložená změna vrácena.');
+});
+$('new-mission').onclick = () => run(async () => {
+  if (state.texts.size) throw new Error('Před vytvořením nové mise uložte rozepsané změny.');
+  const template = await api.missionTemplate(); if (!template) return;
+  const dialog = element('dialog'), form = element('form', undefined, 'mission-form'), fields = element('div', undefined, 'mission-fields');
+  dialog.append(element('h2', 'Nová prázdná mise'), element('p', `${template.name} · ${template.files} souborů. Mise vznikne samostatně v modu; celé vytvoření lze vrátit jedním krokem.`), form);
+  function field(label, input) { const row = element('label', label); row.append(input); fields.append(row); return input; }
+  function number(label, value, limits = {}) {
+    const input = element('input'); input.type = 'number'; input.step = 'any'; input.value = String(value); input.required = true;
+    Object.assign(input, limits); return field(label, input);
+  }
+  const name = element('input'); name.value = 'MOJE_MISE'; name.required = true; name.maxLength = 48; name.pattern = '[a-zA-Z0-9](?:[a-zA-Z0-9_]|-){0,47}'; field('Název složky mise', name);
+  const model = element('select'); model.required = true;
+  for (const asset of state.project.assets.filter(a => /^models\/[^/]+\.4ds$/i.test(a.path))) { const option = element('option', asset.path.slice(7)); option.value = asset.path; model.append(option); }
+  const tommy = [...model.options].find(option => option.value.toLowerCase() === 'models/tommy.4ds'); if (tommy) model.value = tommy.value;
+  field('Model hráče (s kostrou)', model);
+  const x = number('Start X', 11), y = number('Start Y (výška)', 10), z = number('Start Z', 6), heading = number('Natočení ve stupních kolem Y', 0);
+  const sun = number('Síla slunečního světla', 2, { min: '0', max: '10' }), ambient = number('Síla okolního světla', .4, { min: '0', max: '10' });
+  const police = element('input'); police.type = 'checkbox'; police.checked = true; field('Inicializovat policii jako v šabloně', police);
+  const message = element('p', '', 'notice'), actions = element('div', undefined, 'tools'), cancel = element('button', 'Zrušit'), create = element('button', 'Vytvořit misi', 'primary');
+  cancel.type = 'button'; cancel.onclick = () => dialog.close(); create.type = 'submit'; actions.append(cancel, create);
+  form.append(fields, element('p', 'Šablona obsahuje rovnou plochu 500 × 500 m. Doprava, chodci a vybavení hráče se nyní převezmou ze šablony. Vypnutí volby policie vynechá její inicializační skript.'), message, actions);
+  form.onsubmit = event => {
+    event.preventDefault(); if (!form.reportValidity() || state.busy) return;
+    run(async () => {
+      create.disabled = true; cancel.disabled = true; message.textContent = 'Vytvářím soubory nové mise…';
+      try {
+        const result = await api.createMission({ name: name.value, model: model.value, position: [x,y,z].map(input => Number(input.value)), heading: Number(heading.value), sun: Number(sun.value), ambient: Number(ambient.value), initializePolice: police.checked });
+        dialog.close(); state.category = 'levels'; $('filter').value = `missions/${name.value}/`; await refresh(result.project); await openFile(result.path);
+        status(`Nová mise ${name.value} vytvořena. Otevřete 3D mapu nebo spusťte level; vytvoření lze vrátit.`);
+      } catch (error) { message.textContent = error.message; throw error; }
+      finally { create.disabled = false; cancel.disabled = false; }
+    });
+  };
+  dialog.addEventListener('cancel', event => { if (state.busy) event.preventDefault(); });
+  dialog.addEventListener('close', () => dialog.remove(), { once: true }); document.body.append(dialog); dialog.showModal(); name.focus(); name.select();
+});
 $('export').onclick = () => run(async () => {
   if (state.texts.size) throw new Error('Před exportem uložte rozepsané změny.');
   const result = await api.export(); if (result) status(`Export: ${result.files} souborů → ${result.destination}`);
