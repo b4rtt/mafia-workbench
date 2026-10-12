@@ -125,3 +125,19 @@ test('actor script saves guard stale data and retain opaque bytes through reopen
   const destination=path.join(root,'actor-export');await reopened.export(destination);assert.deepEqual(await fs.readFile(path.join(destination,name)),changed);
   await reopened.undo();assert.deepEqual(await reopened.read(name),scene);assert.deepEqual(await reopened.original(reopened.asset(name)),scene);
 });
+test('human creation saves frame and actor together and undo restores the complete mission',async t=>{
+  const {root,project}=await setup(t);
+  const chunk=(type,payload)=>{const h=Buffer.alloc(6);h.writeUInt16LE(type);h.writeUInt32LE(payload.length+6,2);return Buffer.concat([h,payload]);};
+  const scene=chunk(0x4c53,chunk(0x4000,Buffer.alloc(0))),name='missions/NEW/scene2.bin',geometry=Buffer.alloc(19);geometry.write('4DS\0');geometry.writeUInt16LE(29,4);geometry[18]=1;
+  const header=Buffer.from(geometry.subarray(0,14)),u16=value=>{const b=Buffer.alloc(2);b.writeUInt16LE(value);return b;},floats=values=>{const b=Buffer.alloc(values.length*4);values.forEach((v,i)=>b.writeFloatLE(v,i*4));return b;};
+  const transform=floats([0,0,0,1,1,1,1,0,0,0]),inverse=floats([1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]);
+  const model=Buffer.concat([header,u16(0),u16(1),Buffer.from([10]),u16(0),transform,Buffer.from([0,4]),Buffer.from('root'),Buffer.from([0]),inverse,Buffer.alloc(4),Buffer.from([1])]);
+  await project.createFiles([{path:name,data:scene},{path:'missions/NEW/scene.4ds',data:geometry},{path:'models/Human.4ds',data:model},{path:'models/Crate.4ds',data:geometry}]);
+  const operation={kind:'add-human',name:'NPC',model:'models/human.4ds',position:[1,2,3],rotation:[1,0,0,0],scale:[1,1,1],parameters:{stat7:1.5},code:'wait 1000'};
+  await assert.rejects(project.changeSceneObject(name,operation,'stale'),/změnil/);
+  await assert.rejects(project.changeSceneObject(name,{...operation,model:'models/Crate.4ds'},hash(scene)),/kostrou/);
+  assert.deepEqual(await project.read(name),scene);await project.changeSceneObject(name,operation,hash(scene));
+  const reopened=await ModProject.open(root),added=await reopened.read(name);assert.equal(reopened.manifest.history.length,2);assert.equal(inspectScene(added).objects[0].actorBound,true);assert.deepEqual(inspectScene(added).actorScripts,[{name:'NPC',code:operation.code}]);
+  const dest=path.join(root,'human-export');await reopened.export(dest);assert.deepEqual(await fs.readFile(path.join(dest,name)),added);
+  await reopened.undo();assert.equal(reopened.manifest.history.length,1);assert.deepEqual(await reopened.read(name),scene);assert.deepEqual(await reopened.original(reopened.asset(name)),scene);
+});

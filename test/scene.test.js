@@ -76,6 +76,21 @@ test('human v6 scripts preserve actor parameters, sibling data and trailing sour
   for(const length of [0,73,82,83,100])assert.deepEqual(inspectScene(scene(27,data.subarray(0,length))).actorScripts,[]);
 });
 const modelOperation = { kind:'add-model', name:'WB_CRATE', model:'bedna02.i3d', position:[1,2,3], rotation:[Math.SQRT1_2,0,Math.SQRT1_2,0], scale:[1,2,3] };
+test('new human insertion creates a linked frame, parameters and program without changing existing objects',()=>{
+  const base=fixture(),request={...modelOperation,kind:'add-human',name:'WB_HUMAN',model:'Tommy.i3d',parameters:{voice:12,reactionsMask:128,stat7:2},code:'wait 1000\r\n// český zdroj'},result=changeSceneObject(base,request),scene=inspectScene(result),object=scene.objects.at(-1);
+  assert.deepEqual(scene.objects.slice(0,-1),inspectScene(base).objects);assert.equal(object.name,request.name);assert.equal(object.model,request.model);assert.equal(object.actorBound,true);assert.deepEqual(object.position,request.position);
+  assert.deepEqual(scene.actorScripts,[{name:request.name,code:request.code}]);
+  const actorName=chunk(0xae23,Buffer.from(request.name+'\0')),nameOffset=result.indexOf(actorName);
+  assert.ok(nameOffset>=0);assert.equal(result.readUInt16LE(nameOffset+actorName.length),0xae22);assert.equal(result.readUInt16LE(nameOffset+actorName.length+10),0xae24); // engine loads name, type, data sequentially
+  const parameters=scene.entries.filter(entry=>entry.humanParameter);assert.equal(parameters.length,18);assert.equal(parameters.find(e=>e.label==='Hlas (ID)').value,12);assert.equal(parameters.find(e=>e.label==='Rychlost').value,2);assert.equal(parameters.find(e=>e.label==='Energie (maximum)').value,100);
+  const group=groupSceneProperties(scene).find(g=>g.name===request.name);assert.equal(group.entries.filter(e=>e.entry.humanParameter).length,18);assert.equal(group.entries.filter(e=>e.entry.actorScript).length,1);
+  const another=changeSceneObject(result,{...request,name:'WB_SECOND',code:'wait 123',parameters:{stat7:.5}}),two=inspectScene(another);
+  assert.deepEqual(two.objects.slice(0,-1),scene.objects);assert.deepEqual(two.actorScripts,[...scene.actorScripts,{name:'WB_SECOND',code:'wait 123'}]);
+  assert.ok(another.includes(Buffer.from('unknown-data')));assert.ok(another.includes(Buffer.from('suffix')));assert.deepEqual(base,fixture());
+  assert.throws(()=>changeSceneObject(result,request),/existuje/);
+  for(const parameters of [{stat7:NaN},{stat7:null},{voice:256},{voice:1.5},{other:1},[]])assert.throws(()=>changeSceneObject(base,{...request,parameters}),/parametr/);
+  assert.throws(()=>changeSceneObject(base,{...request,code:'😀'}),/Windows-1250/);
+});
 test('human parameter edits change only the selected bytes and keep programs and upper flags intact',()=>{
   const header=Buffer.alloc(83,0xee);header[0]=6;header[1]=32;header[5]=7;
   for(let i=0;i<16;i++)header.writeFloatLE(i+0.5,9+4*i);

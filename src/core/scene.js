@@ -1,4 +1,5 @@
 import iconv from 'iconv-lite';
+import { humanFields } from '../shared/human-parameters.js';
 const containers = new Set([0x4c53, 0x4000, 0x4010, 0x4020, 0x4040, 0x4060, 0xae20, 0xae21, 0xae50]);
 const names = new Map([[0x4c53, 'Scéna'], [0x4000, 'Objekty'], [0x4010, 'Objekt'], [0x4020, 'Rodič'], [0x4040, 'Světlo'], [0x4060, 'Zvuk'], [0xae20, 'Aktéři'], [0xae21, 'Aktér'], [0xae50, 'Skripty'], [0xae51, 'Skript']]);
 const fields = new Map([
@@ -88,11 +89,6 @@ function actorScriptLayout(kind, data) {
   const codeStart = lengthOffset + 4, length = data.readUInt32LE(lengthOffset);
   return length <= 1000000 && codeStart + length <= data.length ? { lengthOffset, codeStart, length } : null;
 }
-const humanFields = [
-  { key:'reactionsMask', label:'Reakce (dolní bajt příznaků)', kind:'byte', offset:1 },
-  { key:'voice', label:'Hlas (ID)', kind:'byte', offset:5 },
-  ...['Síla','Energie (maximum)','Energie levé ruky (maximum)','Energie pravé ruky (maximum)','Energie levé nohy (maximum)','Energie pravé nohy (maximum)','Reakce','Rychlost','Agresivita','Inteligence','Střelba','Zrak','Sluch','Řízení','Hmotnost','Doplňkový parametr chování'].map((label,index)=>({key:`stat${index}`,label,kind:'float',offset:9+4*index,maximum:index<15}))
-];
 function humanParameterLayout(kind, data) {
   // mLib CScene2 character/player parameters; C_human v6 reads this exact
   // 73-byte prefix. Upper flag/voice bytes and the entity program stay opaque.
@@ -184,10 +180,10 @@ export function editScene(source, id, value) {
   return result;
 }
 
-// Structural edits affect a single modification chunk. Opaque actor data,
-// scripts, geometry overrides and sibling chunks are never reconstructed.
+// Existing opaque actor data, scripts, geometry overrides and sibling chunks
+// remain intact. New human actors use the verified C_human v6 layout.
 export function changeSceneObject(source, operation, geometryNames = []) {
-  if (!operation || !['add-model', 'duplicate', 'delete'].includes(operation.kind)) throw new Error('Scene: neplatná operace s objektem.');
+  if (!operation || !['add-model', 'add-human', 'duplicate', 'delete'].includes(operation.kind)) throw new Error('Scene: neplatná operace s objektem.');
   const scene = inspectScene(source), roots = tree(source), all = [];
   function collect(nodes) { for (const node of nodes) { all.push(node); if (node.children) collect(node.children); } }
   collect(roots);
@@ -195,14 +191,14 @@ export function changeSceneObject(source, operation, geometryNames = []) {
   const chunk = (type, payload) => { const header = Buffer.alloc(6); header.writeUInt16LE(type); header.writeUInt32LE(payload.length + 6, 2); return Buffer.concat([header, payload]); };
   const containers = all.filter(n => n.type === 0x4000);
   if (containers.length !== 1) throw new Error('Scene: scéna nemá jednoznačný seznam objektů.');
-  const container = containers[0]; let added, removed;
+  const container = containers[0]; let added, removed, actorAdded, actorContainer;
   if (operation.kind !== 'delete') {
     const name = operation.name;
     if (typeof name !== 'string' || name !== name.trim() || !/^[a-zA-Z0-9_#][a-zA-Z0-9_# -]{0,62}$/.test(name)) throw new Error('Název objektu: 1–63 znaků, písmena bez diakritiky, číslice, mezera, #, pomlčka nebo podtržítko.');
     const used = [...scene.objects.map(o => o.name), ...geometryNames, ...scene.entries.filter(e => e.label === 'Název aktéra').map(e => e.value), 'Primary sector', 'Backdrop sector'];
     if (used.some(value => key(value) === key(name))) throw new Error('Scene: název objektu již existuje ve scéně nebo geometrii.');
   }
-  if (operation.kind === 'add-model') {
+  if (operation.kind === 'add-model' || operation.kind === 'add-human') {
     const { name, model, position, rotation, scale } = operation;
     if (typeof model !== 'string' || !/\.i3d$/i.test(model) || model.length > 255 || /[\x00-\x1f/\\:*?"<>|]/.test(model)) throw new Error('Scene: neplatná cesta modelu.');
     if (!Array.isArray(rotation) || rotation.length !== 4 || rotation.some(v => typeof v !== 'number' || !Number.isFinite(v)) || Math.abs(Math.hypot(...rotation) - 1) > .0001) throw new Error('Scene: rotace musí být jednotkový quaternion WXYZ.');
@@ -214,6 +210,24 @@ export function changeSceneObject(source, operation, geometryNames = []) {
       numeric(0x22, 'quat', rotation, 16), numeric(0x2d, 'vec3', scale, 12),
       chunk(0x4020, chunk(0x10, Buffer.from('Primary sector\0'))), chunk(0x2012, Buffer.concat([encode(model), Buffer.from([0])]))
     ]));
+    if(operation.kind==='add-human') {
+      const actors=all.filter(node=>node.type===0xae20), sceneRoots=roots.filter(node=>node.type===0x4c53);
+      if(actors.length>1||sceneRoots.length!==1)throw new Error('Scene: nejednoznačný seznam aktérů.');
+      actorContainer=actors[0];
+      const parameters=operation.parameters;
+      if(!parameters||typeof parameters!=='object'||Array.isArray(parameters)||Object.keys(parameters).some(key=>!humanFields.some(field=>field.key===key)))throw new Error('Scene: neplatné parametry nové postavy.');
+      const data=Buffer.alloc(83);data[0]=6;data[73]=data[74]=1;
+      for(const field of humanFields){
+        const value=Object.hasOwn(parameters,field.key)?parameters[field.key]:field.default;
+        if(typeof value!=='number'||!Number.isFinite(value)||(field.kind==='byte'?!Number.isInteger(value)||value<0||value>255:!Number.isFinite(Math.fround(value))))throw new Error('Scene: neplatný parametr nové postavy.');
+        if(field.kind==='byte')data[field.offset]=value;else data.writeFloatLE(value,field.offset);
+      }
+      const code=encode(operation.code);data.writeUInt32LE(code.length,79);
+      const type=Buffer.alloc(4);type.writeUInt32LE(27);
+      // The mission loader binds AE23 first, creates the actor at AE22, then
+      // loads AE24. It does not revisit a type encountered before the name.
+      actorAdded=chunk(0xae21,Buffer.concat([chunk(0xae23,Buffer.concat([encode(name),Buffer.from([0])])),chunk(0xae22,type),chunk(0xae24,Buffer.concat([data,code]))]));
+    }
   } else {
     const object = scene.objects.find(o => o.id === operation.id);
     if (!object || ![6,9].includes(object.frameType) || object.actorBound || geometryNames.some(name => key(name) === key(object.name))) throw new Error('Scene: lze upravit pouze samostatný model nebo pomocný bod bez navázaného aktéra a původní geometrie.');
@@ -235,6 +249,8 @@ export function changeSceneObject(source, operation, geometryNames = []) {
     if (!node.children) return node.raw;
     const children = node.children.filter(child => child !== removed).map(write);
     if (node === container && added) children.push(added);
+    if (actorAdded && node === actorContainer) children.push(actorAdded);
+    if (actorAdded && !actorContainer && node.type === 0x4c53) children.push(chunk(0xae20,actorAdded));
     const payload = Buffer.concat(children);
     return payload.equals(node.payload) ? node.raw : chunk(node.type, payload);
   }

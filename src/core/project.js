@@ -260,13 +260,14 @@ export class ModProject {
       const folder = this.asset(name).path.slice(0, this.asset(name).path.lastIndexOf('/'));
       const geometry = parseFourDs(await this.read(`${folder}/scene.4ds`));
       let request = operation;
-      if (operation?.kind === 'add-model') {
+      if (['add-model','add-human'].includes(operation?.kind)) {
         if (typeof operation.model !== 'string' || !/^models\/[^/\\]+\.4ds$/i.test(operation.model)) throw new Error('Vyberte model z hlavní složky models.');
-        parseFourDs(await this.read(operation.model), true);
+        const model=parseFourDs(await this.read(operation.model), true);
+        if(operation.kind==='add-human'&&!model.meshes.some(mesh=>mesh.joint))throw new Error('Vyberte model postavy s kostrou.');
         request = { ...operation, model: this.asset(operation.model).path.slice(7).replace(/\.4ds$/i, '.i3d') };
       }
       return changeSceneObject(before, request, geometry.meshes.map(mesh => mesh.name));
-    }, { 'add-model': 'Vložení modelu do mise', duplicate: 'Duplikace objektu mise', delete: 'Odstranění objektu mise' }[operation?.kind] ?? 'Úprava objektů mise');
+    }, { 'add-model': 'Vložení modelu do mise', 'add-human':'Vložení postavy a jejího skriptu', duplicate: 'Duplikace objektu mise', delete: 'Odstranění objektu mise' }[operation?.kind] ?? 'Úprava objektů mise');
   }
   async inspect(name) {
     const asset = this.asset(name), bytes = await this.read(name);

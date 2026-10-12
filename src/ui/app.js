@@ -1,5 +1,6 @@
 import { categories, groupAssets } from '../shared/categories.js';
 import { groupSceneProperties } from '../shared/scene-properties.js';
+import { humanFields } from '../shared/human-parameters.js';
 import { roadGraph, roadEntries, roadReference } from '../shared/roads.js';
 import { Viewport } from './viewport.js';
 import { AnimationPreview } from './animation.js';
@@ -591,7 +592,7 @@ function renderMap(main, file, previous = null) {
   const layout = element('div', undefined, 'model-workspace'), center = element('section', undefined, 'model-center'), inspector = element('section', undefined, 'model-inspector'); layout.append(center, inspector); main.append(layout);
   const tools = element('div', undefined, 'tools'), viewport = element('div', undefined, 'viewport'), selected = element('p', 'Vyberte objekt mapy.'), objects = element('select'); objects.setAttribute('aria-label', 'Objekt mapy'); objects.append(element('option', 'Vyberte objekt…')); center.append(tools, objects, selected, viewport);
   let properties, selectedObject, selectedId;
-  const add = element('button', 'Vložit model…'), duplicate = element('button', 'Duplikovat…'), remove = element('button', 'Odstranit…'), focus = element('button', 'Zarámovat objekt');
+  const add = element('button', 'Vložit model…'), addHuman=element('button','Přidat postavu…'), duplicate = element('button', 'Duplikovat…'), remove = element('button', 'Odstranit…'), focus = element('button', 'Zarámovat objekt');
   duplicate.disabled = remove.disabled = focus.disabled = true;
   const view = new Viewport(viewport, frame => {
     const object = frame.sceneObject; selected.textContent = object ? object.name : `${frame.name} · geometrie ve scene.4ds`;
@@ -659,28 +660,29 @@ function renderMap(main, file, previous = null) {
   focus.onclick = () => { const object = view.frames.get(selectedId); if (object) { cameraMoved = true; view.fit(object); } };
   tools.append(focus);
   if (!file.cacheSource) {
-    for (const [button, kind] of [[add, 'add-model'], [duplicate, 'duplicate'], [remove, 'delete']]) button.onclick = () => run(async () => {
+    for (const [button, kind] of [[add, 'add-model'], [addHuman,'add-human'], [duplicate, 'duplicate'], [remove, 'delete']]) button.onclick = () => run(async () => {
       if (state.texts.size) throw new Error('Před změnou seznamu objektů uložte rozepsané vlastnosti.');
       sceneObjectDialog(file, kind, selectedObject);
     });
-    tools.append(add, duplicate, remove);
+    tools.append(add, addHuman, duplicate, remove);
   }
   view.loadTextures(resolveTexture);
   properties = renderProperties(inspector, file, file.cacheSource ? api.saveCache : async (...args) => { await api.saveScene(...args); return api.map(file.path); }, (entry, value) => { const field = byField.get(entry.id); if (field && ['position','rotation','scale'].includes(field.kind)) view.update(field.id, { [field.kind]: value }); });
   center.append(element('p', file.cacheSource ? 'Statické modely vybrané části cache.bin. Transformace se ukládají do samostatného modu; oranžové body označují chybějící modely.' : 'Geometrie scene.4ds a objekty scene2.bin. Modré body označují světla, zvuky a další objekty bez modelu; oranžové body chybějící model. Statické modely lze upravit otevřením cache.bin; kolize a navigace se ještě doplňují.', 'notice'));
 }
 function sceneObjectDialog(file, kind, object) {
-  if (kind !== 'add-model' && !object) throw new Error('Nejdřív vyberte samostatný objekt mapy.');
+  const adding=kind==='add-model'||kind==='add-human';
+  if (!adding && !object) throw new Error('Nejdřív vyberte samostatný objekt mapy.');
   const dialog = element('dialog'), form = element('form', undefined, 'mission-form'), fields = element('div', undefined, 'mission-fields');
-  const labels = { 'add-model': 'Vložit model do mise', duplicate: 'Duplikovat objekt', delete: 'Odstranit objekt' };
+  const labels = { 'add-model': 'Vložit model do mise', 'add-human':'Přidat postavu do mise', duplicate: 'Duplikovat objekt', delete: 'Odstranit objekt' };
   dialog.append(element('h2', labels[kind]), element('p', kind === 'delete' ? `Odstranit ${object.name}? Změnu lze vrátit tlačítkem Vrátit změnu.` : 'Objekt se uloží do samostatného modu. Uložení lze vrátit jedním krokem.'), form);
   function field(label, input) { const row = element('label', label); row.append(input); fields.append(row); return input; }
   function number(label, value) { const input = element('input'); input.type = 'number'; input.step = 'any'; input.required = true; input.value = String(value); return field(label, input); }
   const name = element('input'); name.required = true; name.maxLength = 63;
-  name.value = kind === 'duplicate' ? `${object.name.slice(0,55)}_copy` : 'WB_MODEL';
+  name.value = kind === 'duplicate' ? `${object.name.slice(0,55)}_copy` : kind==='add-human'?'WB_CHARACTER':'WB_MODEL';
   if (kind !== 'delete') field('Jedinečný název objektu', name);
-  let model, position, heading, scale;
-  if (kind === 'add-model') {
+  let model, position, heading, scale, code;const parameters=new Map();
+  if (adding) {
     const search = element('input'); search.type = 'search'; search.placeholder = 'Hledat model…'; search.setAttribute('aria-label', 'Hledat vkládaný model'); field('Hledat model', search);
     model = element('select'); model.required = true; model.setAttribute('aria-label', 'Vkládaný model'); field('Model 4DS', model);
     const assets = state.project.assets.filter(a => /^models\/[^/]+\.4ds$/i.test(a.path));
@@ -688,7 +690,13 @@ function sceneObjectDialog(file, kind, object) {
     search.oninput = fillModels; fillModels();
     position = ['X','Y','Z'].map((axis,i) => number(`Pozice ${axis}`, object?.position?.[i] ?? 0));
     heading = number('Natočení kolem Y (stupně)', 0); scale = ['X','Y','Z'].map(axis => number(`Měřítko ${axis}`, 1));
-    form.append(fields, element('p', 'Model se vloží do hlavního sektoru. Kolize v tree.klz ani aktéři a skripty se tím nevytvářejí.'));
+    form.append(fields, element('p', kind==='add-human'?'Postava se vloží do hlavního sektoru s vlastním aktérem a skriptem. Vyberte model s kostrou. Navigační body lze upravit v check.bin.':'Model se vloží do hlavního sektoru. Kolize v tree.klz ani aktéři a skripty se tím nevytvářejí.'));
+    if(kind==='add-human'){
+      const settings=element('details'),settingsFields=element('div',undefined,'mission-fields');settings.append(element('summary','Parametry postavy'),settingsFields);
+      for(const field of humanFields){const input=element('input');input.type='number';input.step=field.kind==='byte'?'1':'any';if(field.kind==='byte'){input.min='0';input.max='255';}input.value=String(field.default);input.required=true;input.setAttribute('aria-label',field.label);const row=element('label',field.label);row.append(input);settingsFields.append(row);parameters.set(field.key,input);}
+      code=element('textarea');code.rows=8;code.value='label 1\r\nwait 1000\r\ngoto 1\r\n';code.setAttribute('aria-label','Skript nové postavy');
+      form.append(settings,element('label','Skript postavy'),code,element('p','Parametry jsou uložená maxima; human_getproperty a human_setproperty používají procenta. Výchozí skript čeká. Vlastní kód se vykoná při startu mise.','notice'));
+    }
   } else { form.append(fields, element('p', kind === 'duplicate' ? 'Kopie zachová model, rodiče a transformace. Po vložení ji posuňte pomocí 3D nástroje.' : 'Skripty, aktéři a původní geometrie se automaticky nepřepisují. Objekty s rozpoznanými vazbami nelze odstranit.')); }
   const message = element('p', '', 'notice'), actions = element('div', undefined, 'tools'), cancel = element('button', 'Zrušit'), submit = element('button', kind === 'delete' ? 'Odstranit z mise' : kind === 'duplicate' ? 'Duplikovat do modu' : 'Vložit do modu', 'primary');
   cancel.type = 'button'; cancel.onclick = () => dialog.close(); submit.type = 'submit'; actions.append(cancel, submit); form.append(message, actions);
@@ -698,9 +706,10 @@ function sceneObjectDialog(file, kind, object) {
       submit.disabled = cancel.disabled = true;
       try {
         let request = { kind, id: object?.id, name: name.value };
-        if (kind === 'add-model') {
+        if (adding) {
           const radians = Number(heading.value) % 360 * Math.PI / 180;
           request = { kind, name: name.value, model: model.value, position: position.map(input => Number(input.value)), rotation: [Math.cos(radians/2),0,Math.sin(radians/2),0], scale: scale.map(input => Number(input.value)) };
+          if(kind==='add-human'){request.parameters=Object.fromEntries([...parameters].map(([key,input])=>[key,Number(input.value)]));request.code=code.value;}
         }
         state.file = await api.changeSceneObject(file.path, request, file.sha256); state.selectSceneName = kind === 'delete' ? null : name.value;
         dialog.close(); await refresh(); renderDetail(); status(`${labels[kind]}: uloženo do modu se zálohou.`);
