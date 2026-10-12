@@ -1,4 +1,5 @@
 import { categories, groupAssets } from '../shared/categories.js';
+import { groupSceneProperties } from '../shared/scene-properties.js';
 import { Viewport } from './viewport.js';
 import { AnimationPreview } from './animation.js';
 import { NavigationViewport } from './navigation.js';
@@ -353,7 +354,15 @@ function renderProperties(main, file, saveAPI, onEdit = () => {}) {
   const workspace = element('div', undefined, 'text-workspace'), indexPanel = element('div', undefined, 'text-index'), form = element('div', undefined, 'text-form');
   const search = element('input'); search.type = 'search'; search.placeholder = 'Objekt, vlastnost nebo skript…'; search.setAttribute('aria-label', 'Hledat ve scéně');
   const list = element('div', undefined, 'text-list');
+  const groups = ['scene','map'].includes(file.type) && !file.cacheSource ? groupSceneProperties(file) : null;
+  const expanded = new Set(), rows = new Map(), groupRows = new Map();
+  let selected = null, limit = 100;
+  function markSelection() {
+    for(const [id,button] of rows){const active=id===selected;button.classList.toggle('active',active);button.setAttribute('aria-current',String(active));}
+    for(const [id,details] of groupRows)details.classList.toggle('selected',groups.find(group=>group.id===id).entries.some(item=>item.entry.id===selected));
+  }
   function edit(entry) {
+    selected = entry.id; markSelection();
     form.replaceChildren();
     const label = element('label', `${entry.context} / ${entry.label}`); label.htmlFor = 'scene-value';
     const input = element('textarea'); input.id = 'scene-value';
@@ -378,15 +387,35 @@ function renderProperties(main, file, saveAPI, onEdit = () => {}) {
   }
   function fill() {
     const query = search.value.toLowerCase(), fragment = document.createDocumentFragment();
+    rows.clear(); groupRows.clear();
+    if(groups){
+      const matches=groups.map(group=>({...group,entries:group.entries.filter(({entry,label})=>`${group.name} ${entry.context} ${label} ${entry.kind==='script'?entry.value.name:''}`.toLowerCase().includes(query))})).filter(group=>group.entries.length);
+      for(const group of matches.slice(0,limit)){
+        const details=element('details',undefined,'property-group'),summary=element('summary');
+        summary.append(element('span',group.name),element('span',String(group.entries.length),'property-count'));summary.title=group.context;
+        details.open=Boolean(query)||expanded.has(group.id);details.append(summary);groupRows.set(group.id,details);
+        let populated=false;
+        function populate(){if(populated)return;populated=true;const children=element('div');for(const {entry,label} of group.entries){const button=element('button',label);button.title=`${entry.context} / ${entry.label}`;button.onclick=()=>edit(entry);rows.set(entry.id,button);children.append(button);}details.append(children);markSelection();}
+        details.ontoggle=()=>{if(details.open){expanded.add(group.id);populate();}else expanded.delete(group.id);};
+        if(details.open)populate();fragment.append(details);
+      }
+      if(matches.length>limit){const more=element('button',`Dalších ${Math.min(100,matches.length-limit)} objektů…`,'load-more');more.onclick=()=>{limit+=100;fill();};fragment.append(more);}
+      list.replaceChildren(fragment);markSelection();return;
+    }
     for (const entry of file.entries.filter(e => `${e.context} ${e.label} ${e.kind === 'script' ? e.value.name : ''}`.toLowerCase().includes(query)).slice(0, 800)) {
       const button = element('button', `${entry.kind === 'script' ? entry.value.name : entry.context.split(' / ').at(-1)} · ${entry.label}`);
       button.title = `${entry.context} / ${entry.label}`; button.onclick = () => edit(entry); fragment.append(button);
     }
     list.replaceChildren(fragment);
   }
-  search.oninput = fill; fill(); indexPanel.append(search, list); workspace.append(indexPanel, form); main.append(element('p', `${file.entries.length.toLocaleString('cs')} rozpoznaných vlastností. Nerozpoznaná data se zachovají beze změny.`, 'notice'), workspace);
-  if (file.entries.length) edit(file.entries.find(e => e.kind === 'script') ?? file.entries[0]);
-  return { select: id => { const entry = file.entries.find(e => e.id === id); if (entry) edit(entry); }, changed: () => { const entry = file.entries.find(e => e.id === state.selectedProperty); if (entry) edit(entry); } };
+  function select(id){
+    const entry=file.entries.find(e=>e.id===id);if(!entry)return;
+    if(groups){const index=groups.findIndex(group=>group.entries.some(item=>item.entry.id===id));expanded.add(groups[index].id);limit=Math.max(limit,index+1);if(search.value)search.value='';fill();}
+    edit(entry);rows.get(id)?.scrollIntoView({block:'nearest'});
+  }
+  search.oninput = () => {limit=100;fill();}; fill(); indexPanel.append(search, list); workspace.append(indexPanel, form); main.append(element('p', `${groups?`${groups.length.toLocaleString('cs')} objektů · `:''}${file.entries.length.toLocaleString('cs')} rozpoznaných vlastností. Nerozpoznaná data se zachovají beze změny.`, 'notice'), workspace);
+  if (file.entries.length) select((file.entries.find(e => e.kind === 'script') ?? file.entries[0]).id);
+  return { select, changed: () => { const entry = file.entries.find(e => e.id === state.selectedProperty); if (entry) edit(entry); } };
 }
 function renderMedia(main, file) {
   const container = element('div', undefined, 'media-preview'), caption = element('p', 'Načítám náhled…'); main.append(container, caption);
