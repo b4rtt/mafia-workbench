@@ -21,6 +21,12 @@ Rozcestník: [MafiaHub/awesome-mafia](https://github.com/MafiaHub/awesome-mafia/
 | BIK/AVI | Předrenderované video | Přehrávání ve hře ověřeno; náhled v editoru zatím není implementovaný |
 | rmorf.bin/CHG/DNC/GMF | Zbývající specializovaná data; DCED_misc, DCED2, mLib | Rmorf.bin Editor, DNC Extractor, CHG Editor, GmfRE |
 
+## Náhled rotací a animací
+
+Rotace 4DS, scene2.bin, cache.bin a 5DS zůstávají uložené jako WXYZ. Pro Three se použije konjugovaná rotace; zrcadlení osy Z zůstává v kořeni pohledu. Směr potvrdila reference `b4rtt/mafia-webgl-renderer/main.js` v `GeneralMesh.initFromMafia`, která obrací W (ekvivalent konjugace), a skutečný náhled #rad022.4ds: před opravou vyklopená střecha a otočené zábradlí, po opravě souvislý dům. Gizmo převádí rotaci zpět do LS3D.
+
+Váhy SINGLEMESH byly porovnané s `RoadTrain/mafia-formats/4ds.bt` a čtením v `Richard01CZ/Mafia4Blender_4ds`: pořadí pevných a vážených vrcholů po skupinách kostí, zbytek kořenových vrcholů na konci; každá váha doplňuje vliv uloženého rodiče do 1. ID kloubu ve frame typu 10 je uložené od nuly, skupiny kostí od jedné. Náhled odvozuje bind inverze z původní zobrazované hierarchie včetně měřítek. 553 sad skinningu skutečné hry má platné počty a váhy. 5DS klíče představují absolutní lokální transformace, chybějící kanály zachovávají bind pose; v UI bylo ověřeno 21/21 uzlů Tommyho při chůzi. Rychlost náhledu je volitelná, není odhadovaným údajem ze souboru. Morfování a herní události poznámek ještě nejsou přehrávané.
+
 ## Prázdná mise
 
 Uživatel dodal [Empty_Mission.zip](https://github.com/user-attachments/files/16255595/Empty_Mission.zip), stejnou šablonu uvádí awesome-mafia. SHA-256 staženého archivu:

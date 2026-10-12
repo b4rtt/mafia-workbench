@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
+import { bindSkin } from './animation.js';
+import { fromLs3dRotation, toLs3dRotation } from './transforms.js';
 
 export class Viewport {
   constructor(container, onSelect = () => {}, onChange = () => {}) {
@@ -15,14 +17,14 @@ export class Viewport {
     this.gizmo.addEventListener('dragging-changed', event => { this.controls.enabled = !event.value; });
     this.gizmo.addEventListener('objectChange', () => {
       const object = this.gizmo.object;
-      if (object) this.onChange(object.userData.frame, { position: object.position.toArray(), scale: object.scale.toArray(), rotation: [object.quaternion.w, object.quaternion.x, object.quaternion.y, object.quaternion.z] }, this.gizmo.mode);
+      if (object) this.onChange(object.userData.frame, { position: object.position.toArray(), scale: object.scale.toArray(), rotation: toLs3dRotation(object.quaternion) }, this.gizmo.mode);
     });
     this.root = new THREE.Group(); this.root.scale.z = -1; this.scene.add(this.root);
     this.scene.add(new THREE.HemisphereLight(0xe4edff, 0x55554a, 2));
     const light = new THREE.DirectionalLight(0xffffff, 2); light.position.set(5, 10, 7); this.scene.add(light);
     this.grid = new THREE.GridHelper(100, 50, 0x546658, 0x293832); this.scene.add(this.grid);
     this.scene.add(new THREE.AxesHelper(2));
-    this.frames = new Map(); this.materials = new Set(); this.textures = new Set();
+    this.frames = new Map(); this.materials = new Set(); this.textures = new Set(); this.skinWarnings = [];
     this.raycaster = new THREE.Raycaster();
     this.down = event => { this.start = [event.clientX, event.clientY]; };
     this.up = event => {
@@ -36,16 +38,16 @@ export class Viewport {
     };
     this.renderer.domElement.addEventListener('pointerdown', this.down); this.renderer.domElement.addEventListener('pointerup', this.up);
     this.observer = new ResizeObserver(() => this.resize()); this.observer.observe(container); this.resize();
-    this.renderer.setAnimationLoop(() => { if (!this.disposed) { this.controls.update(); this.renderer.render(this.scene, this.camera); } });
+    this.renderer.setAnimationLoop(time => { if (!this.disposed) { this.onFrame?.(time); this.controls.update(); this.renderer.render(this.scene, this.camera); } });
   }
   resize() { const w = this.container.clientWidth, h = this.container.clientHeight; if (!w || !h) return; this.renderer.setSize(w, h); this.camera.aspect = w / h; this.camera.updateProjectionMatrix(); }
   addModel(model, parent = this.root, key = '', overrides = new Map()) {
-    const frames = new Map(), geometry = new Map();
+    const frames = new Map(), geometry = new Map(), skins = [];
     for (const frame of model.meshes) {
-      const object = new THREE.Group(), override = overrides.get(frame.name.toLowerCase());
+      const object = frame.type === 10 ? new THREE.Bone() : new THREE.Group(), override = overrides.get(frame.name.toLowerCase());
       object.name = frame.name; object.userData.frame = { ...frame, id: `${key}${frame.id}`, sourceId: frame.id, sceneObject: override };
       object.position.fromArray(override?.position ?? frame.position); object.scale.fromArray(override?.scale ?? frame.scale);
-      const rotation = override?.rotation ?? frame.rotation; object.quaternion.set(rotation[1], rotation[2], rotation[3], rotation[0]);
+      fromLs3dRotation(override?.rotation ?? frame.rotation, object.quaternion);
       frames.set(frame.id, object); this.frames.set(object.userData.frame.id, object);
     }
     const resolve = (frame, visited = new Set()) => {
@@ -74,11 +76,18 @@ export class Viewport {
           base.setIndex(indices); if (!lod.normals.some(n => n !== 0)) base.computeVertexNormals();
           geometry.set(lod, { base, materials });
         }
-        const cached = geometry.get(lod); object.add(new THREE.Mesh(cached.base, cached.materials));
+        const cached = geometry.get(lod), skin = frame.skin?.[0];
+        const mesh = skin ? new THREE.SkinnedMesh(cached.base, cached.materials) : new THREE.Mesh(cached.base, cached.materials);
+        object.add(mesh); if (skin) skins.push({ mesh, object, skin });
       }
       const ancestor = frames.get(frame.parent);
       if (frame.parent && (!ancestor || frame.parent === frame.id)) throw new Error('4DS: neplatná hierarchie.');
       (ancestor ?? parent).add(object);
+    }
+    for (const { mesh, object, skin } of skins) if (!bindSkin(mesh, object, frames, skin)) {
+      // Keep unsupported skin data visible in its static bind pose.
+      object.remove(mesh); object.add(new THREE.Mesh(mesh.geometry, mesh.material));
+      this.skinWarnings?.push(object.name);
     }
     return frames;
   }
@@ -124,13 +133,13 @@ export class Viewport {
     const object = this.frames.get(id); if (!object) return;
     if (values.position) object.position.fromArray(values.position);
     if (values.scale) object.scale.fromArray(values.scale);
-    if (values.rotation) object.quaternion.set(values.rotation[1], values.rotation[2], values.rotation[3], values.rotation[0]);
+    if (values.rotation) fromLs3dRotation(values.rotation, object.quaternion);
   }
   addSceneObject(source, model = null) {
     const id = `scene:${source.id}`, object = new THREE.Group(); object.name = source.name;
     object.userData.frame = { id, name: source.name, sceneObject: source, editable: Boolean(source.fields.position) };
     object.position.fromArray(source.position ?? [0,0,0]); object.scale.fromArray(source.scale ?? [1,1,1]);
-    const rotation = source.rotation ?? [1,0,0,0]; object.quaternion.set(rotation[1], rotation[2], rotation[3], rotation[0]);
+    fromLs3dRotation(source.rotation ?? [1,0,0,0], object.quaternion);
     this.root.add(object); this.frames.set(id, object);
     if (model) {
       const children = this.addModel(model, object, `${id}/`);
@@ -168,6 +177,7 @@ export class Viewport {
   dispose() {
     this.disposed = true; this.observer.disconnect(); this.renderer.setAnimationLoop(null); this.controls.dispose(); this.gizmo.dispose();
     const geometries = new Set(); this.scene.traverse(o => { if (o.geometry) geometries.add(o.geometry); });
+    this.scene.traverse(o => o.skeleton?.dispose());
     for (const geometry of geometries) geometry.dispose(); for (const material of this.materials) material.dispose(); for (const texture of this.textures) texture.dispose();
     this.renderer.domElement.removeEventListener('pointerdown', this.down); this.renderer.domElement.removeEventListener('pointerup', this.up);
     this.renderer.dispose(); this.renderer.domElement.remove();

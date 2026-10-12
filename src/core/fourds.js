@@ -49,10 +49,22 @@ function object(reader, geometry) {
   return { instance, lods };
 }
 function skin(reader, lods) {
-  for (let lod = 0; lod < lods; lod++) {
-    const bones = reader.u8(); reader.skip(28);
-    for (let bone = 0; bone < bones; bone++) { reader.skip(68); const weighted = reader.u32(); reader.skip(28 + weighted * 4); }
+  const result = [];
+  for (const lod of lods) {
+    const count = reader.u8(), rootVertices = reader.u32(); reader.skip(24);
+    const bones = []; let vertices = rootVertices, valid = true;
+    for (let bone = 0; bone < count; bone++) {
+      const inverse = Array.from({ length: 16 }, () => reader.number('readFloatLE', 4));
+      const rigid = reader.u32(), weighted = reader.u32(), parent = reader.u32(); reader.skip(24);
+      reader.skip(weighted * 4);
+      const weights = Array.from({ length: weighted }, (_, i) => reader.bytes.readFloatLE(reader.pos - weighted * 4 + i * 4));
+      valid &&= parent <= count && weights.every(w => Number.isFinite(w) && w >= 0 && w <= 1);
+      vertices += rigid + weighted;
+      bones.push({ id: bone + 1, inverse, rigid, parent, weights });
+    }
+    result.push({ rootVertices, bones, valid: valid && vertices === lod.vertices });
   }
+  return result;
 }
 function morph(reader) {
   const targets = reader.u8(); if (!targets) return;
@@ -96,7 +108,7 @@ export function parseFourDs(source, geometry = false) {
     if (type === 1) {
       if ([0, 1, 2, 3, 4, 5].includes(visual)) {
         const data = object(reader, geometry); Object.assign(mesh, data);
-        if (visual === 2 || visual === 3) skin(reader, data.lods.length);
+        if (visual === 2 || visual === 3) mesh.skin = skin(reader, data.lods);
         if ((visual === 3 || visual === 5) && !data.instance) morph(reader);
         if (visual === 4 && !data.instance) reader.skip(5);
       } else if (visual === 6) reader.skip(reader.u8() * 6);
@@ -108,7 +120,7 @@ export function parseFourDs(source, geometry = false) {
     else if (type === 5) triangleMesh(reader, true);
     else if (type === 6) reader.skip(24);
     else if (type === 7) { reader.skip(2); reader.skip(reader.u8() * 2); }
-    else if (type === 10) reader.skip(68);
+    else if (type === 10) { mesh.inverseBind = Array.from({ length: 16 }, () => reader.number('readFloatLE', 4)); mesh.joint = reader.u32() + 1; }
     else if (type === 12) triangleMesh(reader);
     else throw new Error(`4DS: nepodporovaný frame type ${type}.`);
     meshes.push(mesh);

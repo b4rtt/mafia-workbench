@@ -37,3 +37,13 @@ test('nonfinite normals and UVs use a preview fallback while preserving every or
   assert.deepEqual(editFourDs(source, []), source);
   source.writeFloatLE(Infinity, start); assert.throws(() => parseFourDs(source, true), /vrcholy/);
 });
+test('4DS reads skin vertex groups and joint IDs without changing their opaque payload', () => {
+  const header = Buffer.alloc(14); header.write('4DS\0'); header.writeUInt16LE(29,4);
+  const u32 = value => { const bytes = Buffer.alloc(4); bytes.writeUInt32LE(value); return bytes; };
+  const transform = floats([0,0,0,1,1,1,1,0,0,0]), inverse = floats([1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]);
+  const body = Buffer.concat([Buffer.from([1,2,0,0]), u16(0), transform, Buffer.from([0]), text('body'), text(''), u16(0), Buffer.from([1]), floats([0]), u16(3), Buffer.alloc(96), Buffer.from([0]), Buffer.from([1]), u32(1), Buffer.alloc(24,0xaa), inverse, u32(1), u32(1), u32(0), Buffer.alloc(24,0xbb), floats([.25])]);
+  const joint = Buffer.concat([Buffer.from([10]), u16(1), transform, Buffer.from([0]), text('arm'), text(''), inverse, u32(0)]);
+  const source = Buffer.concat([header,u16(0),u16(2),body,joint,Buffer.from([1])]), parsed = parseFourDs(source,true);
+  assert.equal(parsed.meshes[1].joint,1); assert.equal(parsed.meshes[0].skin[0].valid,true);
+  assert.deepEqual(parsed.meshes[0].skin[0].bones[0].weights,[.25]); assert.deepEqual(editFourDs(source,[]),source);
+});

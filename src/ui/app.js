@@ -1,5 +1,6 @@
 import { categories, groupAssets } from '../shared/categories.js';
 import { Viewport } from './viewport.js';
+import { AnimationPreview } from './animation.js';
 const api = window.workbench;
 const $ = id => document.getElementById(id);
 const state = { project: null, file: null, category: 'levels', texts: new Map(), textIndex: 0, busy: false, viewport: null };
@@ -101,7 +102,7 @@ function renderDetail() {
   else if (file.type === 'cache') renderCache(main, file);
   else if (file.type === 'model') renderModel(main, file);
   else if (file.type === 'map') renderMap(main, file);
-  else if (file.type === 'animation') renderProperties(main, file, api.saveAnimation);
+  else if (file.type === 'animation') renderAnimation(main, file);
   else if (file.type === 'image' || file.type === 'audio') renderMedia(main, file);
   else {
     if (file.warning) main.append(element('p', file.warning, 'notice'));
@@ -213,8 +214,56 @@ function renderModel(main, file) {
     const path = texture.replaceAll('\\', '/').toLowerCase(), match = state.project.assets.find(a => a.path.toLowerCase() === `maps/${path}` || a.path.toLowerCase() === path);
     return match ? api.media(match.path) : null;
   });
-  center.append(element('p', `${file.meshes.length} objektů · ${file.materials.length} materiálů · LOD 0. Skinning a morfování zatím nejsou v náhledu animované.`, 'notice'));
+  center.append(element('p', `${file.meshes.length} objektů · ${file.materials.length} materiálů · LOD 0. Animaci přehrajete v kategorii Animace 5DS po výběru tohoto modelu. Morfování zatím není podporované.`, 'notice'));
   properties = renderProperties(inspector, file, api.saveModel, (entry, value) => { const match = /^meshes\/(\d+)\/(position|rotation|scale)$/.exec(entry.id); if (match) view.update(String(Number(match[1]) + 1), { [match[2]]: value }); });
+}
+function renderAnimation(main, file) {
+  const layout = element('div', undefined, 'model-workspace'), center = element('section', undefined, 'model-center'), inspector = element('section', undefined, 'model-inspector');
+  layout.append(center, inspector); main.append(layout);
+  const tools = element('div', undefined, 'tools'), search = element('input'), models = element('select'), load = element('button', 'Načíst model pro animaci');
+  search.type = 'search'; search.value = 'Tommy'; search.placeholder = 'Hledat model…'; search.setAttribute('aria-label', 'Hledat model pro animaci'); models.setAttribute('aria-label', 'Model pro animaci');
+  const caption = element('p', `${file.nodes.length} animovaných uzlů · snímky 0–${file.frames}. Vyberte model se shodnými názvy uzlů.`, 'notice');
+  const viewport = element('div', undefined, 'viewport'), timeline = element('div', undefined, 'tools');
+  const play = element('button', 'Přehrát'), previous = element('button', 'Předchozí snímek'), next = element('button', 'Další snímek'), slider = element('input'), fps = element('input'), frameLabel = element('output');
+  slider.type = 'range'; slider.min = '0'; slider.max = String(file.frames); slider.step = '1'; slider.value = '0'; slider.setAttribute('aria-label', 'Snímek animace');
+  fps.type = 'number'; fps.min = '1'; fps.max = '120'; fps.value = '25'; fps.setAttribute('aria-label', 'Rychlost náhledu ve snímcích za sekundu');
+  const fpsLabel = element('label', 'snímků/s'); fpsLabel.prepend(fps);
+  timeline.append(play, previous, next, slider, frameLabel, fpsLabel); tools.append(search, models, load); center.append(tools, caption, viewport, timeline);
+  let view, preview, frame = 0, playing = false, lastTime = null;
+  function showFrame(value) { frame = Math.max(0, Math.min(file.frames, value)); slider.value = String(Math.round(frame)); frameLabel.textContent = `${Math.round(frame)} / ${file.frames}`; preview?.apply(frame, state.texts); }
+  function pause() { playing = false; lastTime = null; play.textContent = 'Přehrát'; }
+  function fillModels() {
+    const matches = state.project.assets.filter(a => /\.4ds$/i.test(a.path) && a.path.toLowerCase().includes(search.value.toLowerCase()));
+    models.replaceChildren(...matches.slice(0, 200).map(asset => { const option = element('option', asset.path); option.value = asset.path; return option; }));
+    load.disabled = !matches.length;
+    if (matches.length > 200) caption.textContent = 'Zobrazeno prvních 200 modelů. Zpřesněte hledání.';
+    else if (!preview) caption.textContent = `${file.nodes.length} animovaných uzlů · snímky 0–${file.frames}. Vyberte model se shodnými názvy uzlů.`;
+  }
+  search.oninput = fillModels; fillModels(); showFrame(0); for (const button of [play, previous, next, slider]) button.disabled = true;
+  load.onclick = () => run(async () => {
+    const model = await api.inspect(models.value); if (state.file !== file) return;
+    if (model.type !== 'model') throw new Error(model.warning ?? 'Model není podporovaný.');
+    pause(); view?.dispose(); view = new Viewport(viewport); state.viewport = view;
+    const frames = view.addModel(model); preview = new AnimationPreview(frames, file); view.fit(); showFrame(0);
+    // The preview has no transform gizmo: scrubbing never writes a game file.
+    view.onSelect = selected => { caption.textContent = `Uzel modelu: ${selected.name}`; };
+    view.select = id => { const object = view.frames.get(id); if (object) view.onSelect(object.userData.frame); };
+    view.onFrame = time => {
+      if (!playing) return;
+      if (lastTime !== null) showFrame((frame + (time - lastTime) / 1000 * Math.max(1, Math.min(120, Number(fps.value) || 25))) % (file.frames + 1));
+      lastTime = time;
+    };
+    for (const button of [play, previous, next, slider]) button.disabled = !preview.matches.length; play.disabled ||= file.frames === 0;
+    caption.textContent = `${preview.matches.length}/${file.nodes.length} uzlů propojeno s ${model.path}.` + (preview.unmatched.length ? ` Chybí nebo jsou nejednoznačné: ${preview.unmatched.slice(0, 8).join(', ')}${preview.unmatched.length > 8 ? '…' : ''}.` : '') + (view.skinWarnings.length ? ` Nepodporované váhy: ${view.skinWarnings.join(', ')}; tyto části zůstávají statické.` : '') + (model.meshes.some(m => [3,5].includes(m.visual)) ? ' Morfování není podporované.' : '');
+    await view.loadTextures(async texture => {
+      const name = texture.replaceAll('\\', '/').toLowerCase(), match = state.project.assets.find(a => a.path.toLowerCase() === `maps/${name}` || a.path.toLowerCase() === name);
+      return match ? api.media(match.path) : null;
+    });
+  });
+  play.onclick = () => { if (playing) pause(); else { playing = true; lastTime = null; play.textContent = 'Pozastavit'; } };
+  slider.oninput = () => { pause(); showFrame(Number(slider.value)); };
+  previous.onclick = () => { pause(); showFrame(Math.round(frame) - 1); }; next.onclick = () => { pause(); showFrame(Math.round(frame) + 1); };
+  renderProperties(inspector, file, api.saveAnimation, () => showFrame(frame));
 }
 function renderCache(main, file) {
   main.append(element('p', `${file.parts.length} částí města · ${file.parts.reduce((sum, part) => sum + part.objects.length, 0)} statických modelů. Vyberte část pro 3D editaci rozmístění modelů.`));
