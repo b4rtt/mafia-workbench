@@ -4,6 +4,7 @@ import { humanFields } from '../shared/human-parameters.js';
 import { doorFields } from '../shared/door-parameters.js';
 import { lightTypes, lightDefaults, sceneSectors } from '../shared/lights.js';
 import { soundTypes, soundDefaults } from '../shared/sounds.js';
+import { soundExtentSettings } from './sound-extent.js';
 import { roadGraph, roadEntries, roadReference } from '../shared/roads.js';
 import { Viewport } from './viewport.js';
 import { AnimationPreview } from './animation.js';
@@ -85,7 +86,7 @@ function renderDetail() {
   const file = state.file; if (!file) return;
   const previous = state.viewport;
   const mapView = file.type === 'map' && previous?.mapPath === file.path && previous.projectRoot === state.project.root
-    ? { camera: previous.captureCamera(), selectedName: previous.selectedName, mode: previous.gizmo.mode, backdrop: previous.backdrop?.visible, collisions: previous.collisionOverlay?.visible } : null;
+    ? { camera: previous.captureCamera(), selectedName: previous.selectedName, mode: previous.gizmo.mode, backdrop: previous.backdrop?.visible, collisions: previous.collisionOverlay?.visible, sounds: previous.soundExtentVisible } : null;
   state.viewport?.dispose(); state.viewport = null;
   for (const audio of $('detail').querySelectorAll('audio')) { audio.pause(); audio.removeAttribute('src'); audio.load(); }
   const main = $('detail'); main.replaceChildren();
@@ -597,6 +598,16 @@ function renderMap(main, file, previous = null) {
   const layout = element('div', undefined, 'model-workspace'), center = element('section', undefined, 'model-center'), inspector = element('section', undefined, 'model-inspector'); layout.append(center, inspector); main.append(layout);
   const tools = element('div', undefined, 'tools'), viewport = element('div', undefined, 'viewport'), selected = element('p', 'Vyberte objekt mapy.'), objects = element('select'); objects.setAttribute('aria-label', 'Objekt mapy'); objects.append(element('option', 'Vyberte objekt…')); center.append(tools, objects, selected, viewport);
   let properties, selectedObject, selectedId, selectedFrame;
+  const soundExtent=element('button','Dosah zvuku'),focusSound=element('button','Zarámovat dosah'),soundLegend=element('p','','notice');soundExtent.disabled=focusSound.disabled=true;
+  let soundExtentVisible=previous?.sounds??true;
+  soundExtent.setAttribute('aria-pressed',String(soundExtentVisible));soundLegend.hidden=true;center.append(soundLegend);
+  function updateSoundExtent(){
+    const settings=soundExtentSettings(file,selectedObject,state.texts);
+    soundExtent.disabled=!settings;
+    soundLegend.hidden=!settings;soundLegend.textContent=settings?.reason??'';
+    view.showSoundExtent(selectedId,settings,soundExtentVisible);
+    focusSound.disabled=!view.soundOverlay?.visible;
+  }
   const add = element('button', 'Vložit model…'), addHuman=element('button','Přidat postavu…'), addCar=element('button','Přidat auto…'), duplicate = element('button', 'Duplikovat…'), remove = element('button', 'Odstranit…'), focus = element('button', 'Zarámovat objekt'), collision=element('button','Kolize modelu…');
   duplicate.disabled = remove.disabled = focus.disabled = collision.disabled = true;
   const addDoor=element('button','Vytvořit dveře…'),addLight=element('button','Přidat světlo…'),addSound=element('button','Přidat zvuk…');addDoor.disabled=true;
@@ -613,11 +624,13 @@ function renderMap(main, file, previous = null) {
     const actorBound=file.entries.some(entry=>entry.label==='Název aktéra'&&entry.value.toLowerCase()===(object?.name??frame.name).toLowerCase());
     addDoor.disabled=Boolean(frame.ownerId)||actorBound||!(object?.frameType===9||frame.type===1&&[0,1].includes(frame.visual));
     if (object) { objects.value = String(frame.id); properties?.select(object.fields.position ?? object.fields.name); }
+    updateSoundExtent();
   }, (frame, values, mode) => {
     const field = { translate: 'position', rotate: 'rotation', scale: 'scale' }[mode], id = frame.sceneObject?.fields[field];
     if (!id) { status('Tato transformace nemá existující vlastnost ve zdrojovém souboru. Zatím ji upravte ve scene.4ds.', true); return; }
     state.texts.set(id, values[field]); properties?.select(id); status('Úprava mapy je rozepsaná. Uložte ji v inspektoru.');
   }); state.viewport = view;
+  view.soundExtentVisible=soundExtentVisible;
   view.mapPath = file.path; view.projectRoot = state.project.root; view.focusOnSelect = true;
   let cameraMoved = false;
   view.controls.addEventListener('start', () => { cameraMoved = true; });
@@ -665,7 +678,7 @@ function renderMap(main, file, previous = null) {
   addObjects().catch(error => status(error.message, true));
   for (const [mode, label] of [['translate', 'Posun'], ['rotate', 'Rotace'], ['scale', 'Měřítko']]) { const button = element('button', label); button.onclick = () => view.gizmo.setMode(mode); tools.append(button); }
   const fit = element('button', 'Zarámovat mapu'); fit.onclick = () => { cameraMoved = true; view.fit(); };
-  const sky = element('button', 'Obloha'); let showSky = Boolean(previous?.backdrop); sky.setAttribute('aria-pressed', String(showSky)); sky.onclick = () => { showSky = !showSky; view.showBackdrop(showSky); sky.setAttribute('aria-pressed', String(showSky)); };
+  const sky = element('button', 'Obloha'); let showSky = Boolean(previous?.backdrop); sky.setAttribute('aria-pressed', String(showSky)); sky.onclick = () => { showSky = !showSky; view.showBackdrop(showSky); sky.setAttribute('aria-pressed', String(showSky)); updateSoundExtent(); };
   tools.append(fit, sky); objects.onchange = () => view.select(objects.value);
   if(file.collision){
     const show=element('button',`Kolizní boxy (${file.collision.boxes.length})`);let visible=Boolean(previous?.collisions);show.setAttribute('aria-pressed',String(visible));
@@ -674,6 +687,11 @@ function renderMap(main, file, previous = null) {
   }
   focus.onclick = () => { const object = view.frames.get(selectedId); if (object) { cameraMoved = true; view.fit(object); } };
   tools.append(focus);
+  if(!file.cacheSource){
+    soundExtent.onclick=()=>{soundExtentVisible=!soundExtentVisible;soundExtent.setAttribute('aria-pressed',String(soundExtentVisible));updateSoundExtent();};
+    focusSound.onclick=()=>{if(view.soundOverlay?.visible){cameraMoved=true;view.fit(view.soundOverlay);}};
+    tools.append(soundExtent,focusSound);
+  }
   if (!file.cacheSource) {
     for (const [button, kind] of [[add, 'add-model'], [addHuman,'add-human'], [addCar,'add-car'], [duplicate, 'duplicate'], [remove, 'delete'],[collision,'collision']]) button.onclick = () => run(async () => {
       if (state.texts.size) throw new Error('Před změnou seznamu objektů uložte rozepsané vlastnosti.');
@@ -687,7 +705,7 @@ function renderMap(main, file, previous = null) {
     tools.append(add, addHuman, addCar, addDoor, addLight, addSound, duplicate, remove,collision);
   }
   view.loadTextures(resolveTexture);
-  properties = renderProperties(inspector, file, file.cacheSource ? api.saveCache : async (...args) => { await api.saveScene(...args); return api.map(file.path); }, (entry, value) => { const field = byField.get(entry.id); if (field && ['position','rotation','scale'].includes(field.kind)) view.update(field.id, { [field.kind]: value }); });
+  properties = renderProperties(inspector, file, file.cacheSource ? api.saveCache : async (...args) => { await api.saveScene(...args); return api.map(file.path); }, (entry, value) => { const field = byField.get(entry.id); if (field && ['position','rotation','scale'].includes(field.kind)) view.update(field.id, { [field.kind]: value }); updateSoundExtent(); });
   center.append(element('p', file.cacheSource ? 'Statické modely vybrané části cache.bin. Transformace se ukládají do samostatného modu; oranžové body označují chybějící modely.' : 'Geometrie scene.4ds a objekty scene2.bin. Modré body označují objekty bez modelu; oranžové body chybějící model. Generované kolizní boxy se přepočítají při uložení transformace a vracejí se společně s objektem.', 'notice'));
 }
 function soundDialog(file,position=[0,0,0]){

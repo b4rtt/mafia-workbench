@@ -4,6 +4,7 @@ import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { bindSkin } from './animation.js';
 import { fromLs3dRotation, toLs3dRotation } from './transforms.js';
 import { materialTransparency, bmpTransparency, textureWithMask } from './materials.js';
+import { createSoundExtent } from './sound-extent.js';
 
 export class Viewport {
   constructor(container, onSelect = () => {}, onChange = () => {}) {
@@ -24,6 +25,7 @@ export class Viewport {
     this.gizmo.addEventListener('objectChange', () => {
       const object = this.gizmo.object;
       if (object) this.onChange(object.userData.frame, { position: object.position.toArray(), scale: object.scale.toArray(), rotation: toLs3dRotation(object.quaternion) }, this.gizmo.mode);
+      this.syncSoundExtent();
     });
     this.root = new THREE.Group(); this.root.scale.z = -1; this.scene.add(this.root);
     this.scene.add(new THREE.HemisphereLight(0xe4edff, 0x55554a, 2));
@@ -205,6 +207,7 @@ export class Viewport {
     if (values.scale) object.scale.fromArray(values.scale);
     if (values.rotation) fromLs3dRotation(values.rotation, object.quaternion);
     if (values.culling !== undefined) object.visible = Boolean(values.culling & 1);
+    this.syncSoundExtent();
   }
   addSceneObject(source, model = null) {
     const id = `scene:${source.id}`, object = new THREE.Group(); object.name = source.name;
@@ -241,9 +244,25 @@ export class Viewport {
       while (current) { if (visited.has(current)) throw new Error('Scene: cyklická hierarchie objektů mapy.'); visited.add(current); current = links.get(current) ?? current.parent; }
     }
     for (const [object, parent] of links) parent.add(object);
+    this.syncSoundExtent();
     return warnings;
   }
-  showBackdrop(value) { if (this.backdrop) this.backdrop.visible = value; }
+  showBackdrop(value) { if (this.backdrop) this.backdrop.visible = value; this.syncSoundExtent(); }
+  showSoundExtent(id, settings, visible = true) {
+    if(this.soundOverlay){this.soundOverlay.traverse(node=>{node.geometry?.dispose();if(node.material){node.material.dispose();this.materials.delete(node.material);}});this.soundOverlay.removeFromParent();this.soundOverlay=null;}
+    this.soundExtentVisible=visible;this.soundExtentId=id;
+    if(!settings?.mode||!this.frames.has(id))return;
+    this.soundOverlay=createSoundExtent(settings);this.soundOverlay.matrixAutoUpdate=false;
+    this.soundOverlay.traverse(node=>{if(node.material)this.materials.add(node.material);});
+    // Outside root: sound ranges cannot capture picking or expand framing.
+    this.scene.add(this.soundOverlay);this.syncSoundExtent();
+  }
+  syncSoundExtent() {
+    const object=this.frames.get(this.soundExtentId);if(!object||!this.soundOverlay)return;
+    object.updateWorldMatrix(true,false);this.soundOverlay.matrix.copy(object.matrixWorld);this.soundOverlay.matrixWorldNeedsUpdate=true;
+    let visible=Boolean(this.soundExtentVisible);for(let node=object;node;node=node.parent)visible&&=node.visible;
+    this.soundOverlay.visible=visible;
+  }
   showCollisionBoxes(boxes, visible) {
     if(!this.collisionOverlay){this.collisionOverlay=new THREE.Group();this.collisionOverlay.scale.z=-1;this.scene.add(this.collisionOverlay);
       for(const box of boxes){const helper=new THREE.Box3Helper(new THREE.Box3(new THREE.Vector3(...box.min),new THREE.Vector3(...box.max)),0xf59e0b);helper.name=box.name;this.materials.add(helper.material);this.collisionOverlay.add(helper);}}
