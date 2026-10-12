@@ -34,12 +34,18 @@ test('malformed chunks, missing properties and invalid values fail explicitly', 
   assert.throws(() => editScene(original, 'no-such-id', 1), /neexistuje/);
   assert.throws(() => editScene(original, position.id, [NaN, 0, 0]), /hodnota/);
 });
-test('kind 5 actor script source is bounded, read-only and leaves unknown actor payloads intact',()=>{
+test('kind 5 actor scripts preserve headers, tails and unknown actor payloads on edits',()=>{
   const code=Buffer.from('loaddifferences "One.chg"\r\nrecloadfull "One.rep"'),header=Buffer.alloc(14);header[0]=header[1]=header[5]=1;header.writeUInt32LE(code.length,10);
   const actor=(kind,data)=>{const k=Buffer.alloc(4);k.writeUInt32LE(kind);return chunk(0xae21,Buffer.concat([chunk(0xae23,Buffer.from('Init\0')),chunk(0xae22,k),chunk(0xae24,data)]));};
   const data=Buffer.concat([header,code,Buffer.from([0xde,0xad])]),source=chunk(0x4c53,chunk(0xae20,actor(5,data))),before=Buffer.from(source);
   assert.deepEqual(inspectScene(source).actorScripts,[{name:'Init',code:code.toString()}]);assert.deepEqual(editScene(source,'0/0/0/0','Init'),source);assert.deepEqual(source,before);
-  assert.deepEqual(inspectScene(chunk(0x4c53,chunk(0xae20,actor(2,data)))).actorScripts,[]);
+  const entry=inspectScene(source).entries.find(e=>e.actorScript);assert.equal(entry.id,'0/0/0/2');assert.deepEqual(editScene(source,entry.id,entry.value),source);
+  const value={name:'Init',code:entry.value.code+'\r\n// český komentář'};
+  const changed=editScene(source,entry.id,value);assert.deepEqual(inspectScene(changed).entries.find(e=>e.id===entry.id).value,value);assert.ok(changed.subarray(-2).equals(Buffer.from([0xde,0xad])));assert.ok(changed.includes(header.subarray(0,10)));assert.equal(changed.readUInt32LE(2),changed.length);assert.deepEqual(editScene(changed,entry.id,entry.value),source);assert.deepEqual(source,before);
+  assert.equal(inspectScene(editScene(source,entry.id,{name:'Init',code:''})).actorScripts[0].code,'');
+  for(const invalid of [{name:'Other',code:'wait 1'},{name:'Init',code:'emoji 🐱'},{name:'Init',code:'nul\0'},{name:'Init',code:'a'.repeat(1000001)}])assert.throws(()=>editScene(source,entry.id,invalid),/Scene/);
+
+  const unsupported=chunk(0x4c53,chunk(0xae20,actor(2,data)));assert.deepEqual(inspectScene(unsupported).actorScripts,[]);assert.throws(()=>editScene(unsupported,entry.id,value),/neexistuje/);
   assert.deepEqual(inspectScene(chunk(0x4c53,chunk(0xae20,actor(5,data.subarray(0,20))))).actorScripts,[]);
   const unknown=Buffer.from(data);unknown[5]=0;assert.deepEqual(inspectScene(chunk(0x4c53,chunk(0xae20,actor(5,unknown)))).actorScripts,[]);
 });

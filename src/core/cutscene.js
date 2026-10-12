@@ -34,7 +34,7 @@ const replayBasename = value => { const name=path.posix.basename(canonical(value
 // Only adjacent literal load commands are paired. Another cutscene's CHG in
 // the same mission must not prevent selecting the selected REP's own CHG.
 export function sceneReplayReferences(scene, basename) {
-  const scripts=[...(scene.actorScripts??[]),...(scene.entries??[]).filter(e=>e.kind==='script').map(e=>e.value)],refs=[];
+  const scripts=[...(scene.actorScripts??[]),...(scene.entries??[]).filter(e=>e.kind==='script'&&!e.actorScript).map(e=>e.value)],refs=[];
   for(const script of scripts){
     const lines=scriptLines(script.code);
     for(let i=0;i<lines.length;i++){

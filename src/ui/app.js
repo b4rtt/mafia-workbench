@@ -361,6 +361,7 @@ function renderProperties(main, file, saveAPI, onEdit = () => {}) {
     const isString = ['string', 'string8'].includes(entry.kind);
     input.value = draft?.invalid ? draft.raw : entry.kind === 'script' ? draft.code : isString ? draft : JSON.stringify(draft);
     const name = element('input'); name.setAttribute('aria-label', 'Název skriptu'); name.value = entry.kind === 'script' ? draft.name : '';
+    name.disabled = Boolean(entry.actorScript);
     function value() { return entry.kind === 'script' ? { name: name.value, code: input.value } : isString ? input.value : JSON.parse(input.value); }
     function track() {
       try { const next = value(); if (JSON.stringify(next) === JSON.stringify(entry.value)) state.texts.delete(entry.id); else state.texts.set(entry.id, next); save.disabled = !state.texts.size; save.textContent = `Uložit změny (${state.texts.size})`; onEdit(entry, next); status('Rozepsaná úprava.'); }
@@ -373,7 +374,7 @@ function renderProperties(main, file, saveAPI, onEdit = () => {}) {
       state.file = await saveAPI(file.path, [...state.texts].map(([id, value]) => ({ id, value })), file.sha256);
       state.texts.clear(); await refresh(); renderDetail(); status('Změny uložené do modu se zálohou.');
     });
-    form.append(label); if (entry.kind === 'script') form.append(name); form.append(input, element('p', entry.kind === 'script' ? 'Zdroj skriptu mise. První bajt a další nerozpoznaná data zůstanou zachovaná.' : `Typ: ${entry.kind}. Souřadnice: X, Y, Z; rotace: W, X, Y, Z. Ostatní vlastnosti zůstanou zachované.`), save);
+    form.append(label); if (entry.kind === 'script') form.append(name); form.append(input, element('p', entry.kind === 'script' ? entry.actorScript ? 'Zdroj skriptového aktéra. Hlavička a další nerozpoznaná data zůstanou zachovaná. Název je svázaný s aktérem; zde se upravuje pouze kód. Změny se projeví při novém načtení mise.' : 'Zdroj skriptu mise. První bajt a další nerozpoznaná data zůstanou zachovaná.' : `Typ: ${entry.kind}. Souřadnice: X, Y, Z; rotace: W, X, Y, Z. Ostatní vlastnosti zůstanou zachované.`), save);
   }
   function fill() {
     const query = search.value.toLowerCase(), fragment = document.createDocumentFragment();

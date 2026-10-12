@@ -87,10 +87,14 @@ export function inspectScene(source) {
         const data = node.children.find(n => n.type === 0xae24)?.payload;
         const name = node.children.find(n => n.type === 0xae23)?.payload;
         // Kind 5 script actor: mLib ExtractObjectScript documents the 10-byte
-        // header followed by u32 code length. Read only; keep AE24 opaque to edits.
+        // header followed by u32 code length. Other actor layouts remain opaque.
         if (kind?.length >= 4 && kind.readUInt32LE(0) === 5 && name && data?.length >= 14 && data[0] === 1 && data.readUInt32LE(1) <= 1 && data[5] === 1 && data.readUInt32LE(6) === 0) {
           const length = data.readUInt32LE(10);
-          if (length <= 1000000 && 14 + length <= data.length) actorScripts.push({ name: string(name), code: iconv.decode(data.subarray(14, 14 + length), 'windows-1250') });
+          if (length <= 1000000 && 14 + length <= data.length) {
+            const value={name:string(name),code:iconv.decode(data.subarray(14,14+length),'windows-1250')};
+            actorScripts.push(value);
+            entries.push({id:node.children.find(n=>n.type===0xae24).id,label:'Skript aktéra',kind:'script',value,actorScript:true,context:`${context} / ${value.name}`.replace(/^ \/ /,''),bytes:data.length});
+          }
         }
       }
       if (node.type === 0x4010 && node.children) {
@@ -116,12 +120,19 @@ export function inspectScene(source) {
 }
 export function editScene(source, id, value) {
   if (typeof id !== 'string') throw new Error('Scene: neplatná vlastnost.');
-  const roots = tree(source);
+  const roots = tree(source), actorScripts = new Map(inspectScene(source).entries.filter(e=>e.actorScript).map(e=>[e.id,e]));
   let found = false;
   function write(node) {
     let payload;
     if (node.children) payload = Buffer.concat(node.children.map(write));
-    else if (node.id === id && fields.has(node.type)) {
+    else if (node.id === id && actorScripts.has(id)) {
+      const entry=actorScripts.get(id);
+      if(!value || value.name!==entry.value.name || typeof value.code!=='string')throw new Error('Scene: změňte pouze kód skriptu aktéra; název patří jeho frame.');
+      found=true;
+      if(value.code===entry.value.code)return node.raw;
+      const code=encode(value.code),header=Buffer.from(node.payload.subarray(0,14));header.writeUInt32LE(code.length,10);
+      payload=Buffer.concat([header,code,node.payload.subarray(14+node.payload.readUInt32LE(10))]);
+    } else if (node.id === id && fields.has(node.type)) {
       found = true;
       const kind = fields.get(node.type)[1];
       if (JSON.stringify(decodeField(kind, node.payload)) === JSON.stringify(value)) return node.raw;

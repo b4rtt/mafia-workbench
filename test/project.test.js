@@ -110,3 +110,18 @@ test('scene object operations save with hash guards, export and undo, preserving
   await project.undo(); assert.deepEqual(await project.read(name),added); await project.undo(); assert.deepEqual(await project.read(name),scene);
   assert.deepEqual(await project.original(project.asset(name)),scene);
 });
+test('actor script saves guard stale data and retain opaque bytes through reopen, export and undo', async t => {
+  const {root,project}=await setup(t);
+  const chunk=(type,payload)=>{const header=Buffer.alloc(6);header.writeUInt16LE(type);header.writeUInt32LE(payload.length+6,2);return Buffer.concat([header,payload]);};
+  const code=Buffer.from('wait 1\r\n'),header=Buffer.alloc(14);header[0]=header[1]=header[5]=1;header.writeUInt32LE(code.length,10);
+  const kind=Buffer.alloc(4);kind.writeUInt32LE(5);
+  const scene=chunk(0x4c53,Buffer.concat([chunk(0xae20,chunk(0xae21,Buffer.concat([chunk(0xae22,kind),chunk(0xae23,Buffer.from('Init\0')),chunk(0xae24,Buffer.concat([header,code,Buffer.from('opaque tail')]))]))),chunk(0xbeef,Buffer.from('unknown sibling'))]));
+  const name='missions/SCRIPT/scene2.bin';await project.createFiles([{path:name,data:scene}]);
+  const entry=inspectScene(scene).entries.find(e=>e.actorScript),value={...entry.value,code:'wait 123\r\n// změna'};
+  await assert.rejects(project.saveScene(name,[{id:entry.id,value}],'stale'),/změnil/);
+  await project.saveScene(name,[{id:entry.id,value}],hash(scene));
+  const reopened=await ModProject.open(root),changed=await reopened.read(name);
+  assert.deepEqual(inspectScene(changed).actorScripts,[value]);assert.ok(changed.includes(Buffer.from('opaque tail')));assert.ok(changed.includes(Buffer.from('unknown sibling')));
+  const destination=path.join(root,'actor-export');await reopened.export(destination);assert.deepEqual(await fs.readFile(path.join(destination,name)),changed);
+  await reopened.undo();assert.deepEqual(await reopened.read(name),scene);assert.deepEqual(await reopened.original(reopened.asset(name)),scene);
+});
