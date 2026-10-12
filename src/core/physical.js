@@ -25,3 +25,12 @@ export function editPhysical(source,key,value) {
   else bytes.writeInt32LE(value,field.offset);
   return bytes;
 }
+
+export function createPhysical(parameters = {}) {
+  if(!parameters||typeof parameters!=='object'||Array.isArray(parameters)||Object.keys(parameters).some(key=>!physicalFields.some(field=>field.key===key)))throw new Error('Fyzikální předmět: neplatné parametry nového aktéra.');
+  // Packed v2 descriptor. Init seeds the opaque wheel parameter to 1.0.
+  let data=Buffer.alloc(31);data[0]=2;data.writeFloatLE(1,6);
+  for(const field of physicalFields)data=editPhysical(data,field.key,field.default);
+  for(const [key,value] of Object.entries(parameters))data=editPhysical(data,key,value);
+  return data;
+}

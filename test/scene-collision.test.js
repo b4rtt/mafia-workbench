@@ -71,3 +71,27 @@ test('creating a door replaces its owned static box atomically and undo restores
   await assert.rejects(p.changeSceneObject(scenePath,door,hash(after)),/už má/);assert.deepEqual(await p.read(scenePath),after);
   const reopened=await ModProject.open(p.root);await reopened.undo();assert.deepEqual(await reopened.read(scenePath),before);assert.deepEqual(await reopened.read(klzPath),box);assert.equal(collisionOwnership(reopened.manifest,scenePath).length,1);
 });
+
+test('physical actor creation replaces only its owned box, exports and undoes actor and collisions atomically',async t=>{
+  const {p,root,scene}=await setup(t);await add(p,scene);await p.changeSceneObject(scenePath,{...operation,name:'OTHER_CRATE',position:[15,0,5]},hash(await p.read(scenePath)));
+  const before=await p.read(scenePath),box=await p.read(klzPath),model=await p.read('models/Crate.4ds'),map=await p.inspectMap(scenePath),history=p.manifest.history.length;
+  const request={kind:'attach-physical',target:'wb_crate',parameters:{mass:25,impactSound:3},collisionHash:map.collision.sha256};
+  await assert.rejects(p.changeSceneObject(scenePath,{...request,collisionHash:'stale'},hash(before)),/Kolize se/);assert.deepEqual(await p.read(scenePath),before);assert.deepEqual(await p.read(klzPath),box);
+  await p.changeSceneObject(scenePath,request,hash(before));const after=await p.read(scenePath),klz=await p.read(klzPath),parsed=inspectScene(after);
+  assert.equal(parsed.objects.find(o=>o.name==='WB_CRATE').actorBound,true);assert.equal(parsed.entries.find(e=>e.physicalParameter&&e.key==='mass').value,25);assert.equal(parsed.entries.find(e=>e.label==='Typ aktéra').value,35);
+  assert.equal(p.manifest.history.length,history+1);assert.deepEqual(p.manifest.history.at(-1).files.map(f=>f.path),[scenePath,klzPath]);assert.deepEqual(collisionOwnership(p.manifest,scenePath).map(o=>o.name),['OTHER_CRATE']);
+  assert.equal(parseCollision(klz).primitives.aabbs.count,2);const original=parseCollision(box).primitives.aabbs.records,next=parseCollision(klz).primitives.aabbs.records;assert.deepEqual(next[0].raw,original[0].raw);assert.deepEqual(next[1].raw,original[2].raw);assert.deepEqual(await p.read('models/Crate.4ds'),model);
+  await assert.rejects(p.changeSceneObject(scenePath,request,hash(after)),/už má/);
+  const reopened=await ModProject.open(root),destination=path.join(root,'physical-export');await reopened.export(destination);assert.deepEqual(await fs.readFile(path.join(destination,scenePath)),after);assert.deepEqual(await fs.readFile(path.join(destination,klzPath)),klz);
+  await reopened.undo();assert.deepEqual(await reopened.read(scenePath),before);assert.deepEqual(await reopened.read(klzPath),box);assert.equal(collisionOwnership(reopened.manifest,scenePath).length,2);assert.equal(reopened.manifest.history.length,history);
+});
+
+test('physical actor creation rejects missing model surfaces and concurrent model changes without publishing partial data',async t=>{
+  const {p,root,scene}=await setup(t),before=await add(p,scene),box=await p.read(klzPath),model=await p.read('models/Crate.4ds'),history=p.manifest.history.length;
+  const request={kind:'attach-physical',target:'WB_CRATE'},changeBatch=p.changeBatch;
+  p.changeBatch=async function(files,...rest){await this.change('models/Crate.4ds',Buffer.concat([model,Buffer.from([0])]),'Concurrent model');return changeBatch.call(this,files,...rest);};
+  await assert.rejects(p.changeSceneObject(scenePath,request,hash(before)),/změnil/);assert.deepEqual(await p.read(scenePath),before);assert.deepEqual(await p.read(klzPath),box);assert.equal(p.manifest.history.length,history+1);p.changeBatch=changeBatch;await p.undo();
+  const empty=await p.read('missions/NEW/scene.4ds');await p.change('models/Crate.4ds',empty,'Empty surface');await assert.rejects(p.changeSceneObject(scenePath,request,hash(before)),/statický model/);assert.deepEqual(await p.read(scenePath),before);await p.undo();
+  const save=p.saveManifest;p.saveManifest=async()=>{throw new Error('simulated publication failure');};await assert.rejects(p.changeSceneObject(scenePath,request,hash(before)),/simulated/);p.saveManifest=save;
+  assert.deepEqual(await p.read(scenePath),before);assert.deepEqual(await p.read(klzPath),box);assert.equal(p.manifest.history.length,history);assert.equal(collisionOwnership(p.manifest,scenePath).length,1);assert.deepEqual(await p.read('models/Crate.4ds'),model);
+});

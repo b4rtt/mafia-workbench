@@ -297,6 +297,13 @@ export class ModProject {
         dependencies.push({path:modelPath,data:bytes,expectedHash:hash(bytes)});
       }
     }
+    if(operation?.kind==='attach-physical'){
+      const object=inspectScene(before).objects.find(object=>key(object.name)===key(operation.target));
+      if(!object?.model||object.frameType!==9||geometry.meshes.some(mesh=>key(mesh.name)===key(operation.target)))throw new Error('Fyzikální předmět: vyberte samostatný model ve scéně.');
+      const modelPath=this.asset(`models/${object.model.replace(/\.(?:i3d|4ds)$/i,'.4ds')}`).path,bytes=await this.read(modelPath),model=parseFourDs(bytes,true);
+      if(model.meshes.some(mesh=>mesh.joint||mesh.skin?.length||[2,3,5].includes(mesh.visual))||!model.meshes.some(mesh=>mesh.type===1&&[0,1].includes(mesh.visual)&&mesh.lods?.[0]?.faces.some(face=>face.indices.length)))throw new Error('Fyzikální předmět: vyberte statický model s geometrií.');
+      dependencies.push({path:geometryPath,data:geometryBytes,expectedHash:hash(geometryBytes)},{path:modelPath,data:bytes,expectedHash:hash(bytes)});
+    }
     if (['add-model','add-human','add-car'].includes(operation?.kind)) {
       if (typeof operation.model !== 'string' || !/^models\/[^/\\]+\.4ds$/i.test(operation.model)) throw new Error('Vyberte model z hlavní složky models.');
       const modelBytes=await this.read(operation.model),model=parseFourDs(modelBytes, true);
@@ -311,7 +318,7 @@ export class ModProject {
     }
     const after=operation?.kind==='collision'?before:changeSceneObject(before, request, geometry.meshes.map(mesh => mesh.name),geometry.meshes);
     const requests=[];
-    if(operation?.kind==='attach-door'&&collisionOwnership(this.manifest,name).some(object=>key(object.name)===key(operation.target)))requests.push({name:operation.target,kind:'none'});
+    if(['attach-door','attach-physical'].includes(operation?.kind)&&collisionOwnership(this.manifest,name).some(object=>key(object.name)===key(operation.target)))requests.push({name:operation.target,kind:'none'});
     if(operation?.collision){
       if(!['add-model','collision'].includes(operation.kind))throw new Error('Kolize lze generovat pouze pro statický model.');
       const object=operation.kind==='collision'?inspectScene(before).objects.find(o=>o.id===operation.id):null;
@@ -323,7 +330,7 @@ export class ModProject {
       if(owned){const klz=parseCollision(await this.read(`${folder}/tree.klz`)),record=ownedCollisionRecords(klz,[owned])[0];requests.push({name:operation.name,kind:'aabb',material:record.material});}
     }
     const collision=await prepareSceneCollision(this,name,before,after,{requests,expectedHash:operation?.collisionHash});
-    const label={ 'add-model': 'Vložení modelu do mise', 'add-human':'Vložení postavy a jejího skriptu','add-car':'Vložení automobilu a jeho aktéra','add-light':'Vložení světla do mise','add-sound':'Vložení prostorového zvuku do mise','attach-door':'Vytvoření dveřního aktéra', duplicate: 'Duplikace objektu mise', delete: 'Odstranění objektu mise',collision:'Generování kolize modelu' }[operation?.kind]??'Úprava objektů mise';
+    const label={ 'add-model': 'Vložení modelu do mise', 'add-human':'Vložení postavy a jejího skriptu','add-car':'Vložení automobilu a jeho aktéra','add-light':'Vložení světla do mise','add-sound':'Vložení prostorového zvuku do mise','attach-door':'Vytvoření dveřního aktéra','attach-physical':'Vytvoření fyzikálního předmětu', duplicate: 'Duplikace objektu mise', delete: 'Odstranění objektu mise',collision:'Generování kolize modelu' }[operation?.kind]??'Úprava objektů mise';
     const files=new Map([{path:name,data:after,expectedHash},...dependencies,...(collision?.files??[])].map(file=>[key(file.path),file]));
     await this.changeBatch([...files.values()],label,collision?.ownership);
   }

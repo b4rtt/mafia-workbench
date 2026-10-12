@@ -2,6 +2,7 @@ import { categories, groupAssets } from '../shared/categories.js';
 import { groupSceneProperties } from '../shared/scene-properties.js';
 import { humanFields } from '../shared/human-parameters.js';
 import { doorFields } from '../shared/door-parameters.js';
+import { physicalFields } from '../shared/physical-parameters.js';
 import { lightTypes, lightDefaults, sceneSectors } from '../shared/lights.js';
 import { soundTypes, soundDefaults } from '../shared/sounds.js';
 import { soundExtentSettings } from './sound-extent.js';
@@ -611,7 +612,7 @@ function renderMap(main, file, previous = null) {
   }
   const add = element('button', 'Vložit model…'), addHuman=element('button','Přidat postavu…'), addCar=element('button','Přidat auto…'), duplicate = element('button', 'Duplikovat…'), remove = element('button', 'Odstranit…'), focus = element('button', 'Zarámovat objekt'), collision=element('button','Kolize modelu…');
   duplicate.disabled = remove.disabled = focus.disabled = collision.disabled = true;
-  const addDoor=element('button','Vytvořit dveře…'),addLight=element('button','Přidat světlo…'),addSound=element('button','Přidat zvuk…');addDoor.disabled=true;
+  const addDoor=element('button','Vytvořit dveře…'),addPhysical=element('button','Vytvořit fyzikální předmět…'),addLight=element('button','Přidat světlo…'),addSound=element('button','Přidat zvuk…');addDoor.disabled=addPhysical.disabled=true;
   const view = new Viewport(viewport, frame => {
     const object = frame.sceneObject; selected.textContent = object ? object.name : `${frame.name} · geometrie ve scene.4ds`;
     selectedObject = object;
@@ -624,6 +625,7 @@ function renderMap(main, file, previous = null) {
     collision.disabled=!independent||object.frameType!==9||!file.collision||Boolean(file.collision.warning);
     const actorBound=file.entries.some(entry=>entry.label==='Název aktéra'&&entry.value.toLowerCase()===(object?.name??frame.name).toLowerCase());
     addDoor.disabled=Boolean(frame.ownerId)||actorBound||!(object?.frameType===9||frame.type===1&&[0,1].includes(frame.visual));
+    addPhysical.disabled=Boolean(frame.ownerId)||actorBound||object?.frameType!==9||!object?.model||file.geometry.meshes.some(mesh=>mesh.name.toLowerCase()===object.name.toLowerCase());
     if (object) { objects.value = String(frame.id); properties?.select(object.fields.position ?? object.fields.name); }
     updateSoundExtent();
   }, (frame, values, mode) => {
@@ -701,9 +703,10 @@ function renderMap(main, file, previous = null) {
       sceneObjectDialog(file, kind, selectedObject,cars);
     });
     addDoor.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před vytvořením dveří uložte rozepsané vlastnosti.');if(!selectedFrame)throw new Error('Nejdřív vyberte křídlo dveří.');doorActorDialog(file,selectedFrame);});
+    addPhysical.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před vytvořením fyzikálního předmětu uložte rozepsané vlastnosti.');if(!selectedObject)throw new Error('Nejdřív vyberte model.');physicalActorDialog(file,selectedObject);});
     addLight.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před vložením světla uložte rozepsané vlastnosti.');lightDialog(file,selectedObject?.position);});
     addSound.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před vložením zvuku uložte rozepsané vlastnosti.');soundDialog(file,selectedObject?.position);});
-    tools.append(add, addHuman, addCar, addDoor, addLight, addSound, duplicate, remove,collision);
+    tools.append(add, addHuman, addCar, addDoor, addPhysical, addLight, addSound, duplicate, remove,collision);
   }
   view.loadTextures(resolveTexture);
   properties = renderProperties(inspector, file, file.cacheSource ? api.saveCache : async (...args) => { await api.saveScene(...args); return api.map(file.path); }, (entry, value) => { const field = byField.get(entry.id); if (field && ['position','rotation','scale'].includes(field.kind)) view.update(field.id, { [field.kind]: value }); updateSoundExtent(); });
@@ -781,6 +784,23 @@ function doorActorDialog(file,frame){
     state.file=await api.changeSceneObject(file.path,{kind:'attach-door',target,parameters,collisionHash:file.collision?.sha256},file.sha256);state.selectSceneName=target;dialog.close();await refresh();renderDetail();status('Dveře vytvořeny v modu se zálohou.');
   }catch(error){message.textContent=error.message;throw error;}finally{submit.disabled=cancel.disabled=false;}});};
   dialog.addEventListener('cancel',event=>{if(state.busy)event.preventDefault();});dialog.addEventListener('close',()=>dialog.remove(),{once:true});document.body.append(dialog);dialog.showModal();inputs.get('angle').focus();
+}
+function physicalActorDialog(file,object){
+  const target=object.name,dialog=element('dialog'),form=element('form',undefined,'mission-form'),fields=element('div',undefined,'mission-fields'),inputs=new Map();
+  dialog.append(element('h2','Vytvořit fyzikální předmět'),element('p',`Model: ${target}. Box použije rozměry modelu; kolo vlastní poloměr. Hmotnost je výslovně nastavená níže.`),form);
+  for(const field of physicalFields){const input=element('input');input.type=field.kind==='boolean'?'checkbox':'number';input.setAttribute('aria-label',field.label);
+    if(field.kind==='boolean')input.checked=field.default;else{input.value=String(field.default);input.step=field.kind==='int'?'1':'any';input.min=String(field.min);input.required=true;if(field.max!==undefined)input.max=String(field.max);}
+    const row=element('label',field.label);row.append(input);fields.append(row);inputs.set(field.key,input);
+  }
+  const sync=()=>{for(const key of ['wheelRadius','wheelDamping'])inputs.get(key).disabled=inputs.get('box').checked;};inputs.get('box').onchange=sync;sync();
+  const box=file.collision?.boxes.some(box=>box.name.toLowerCase()===target.toLowerCase()),message=element('p','','notice'),actions=element('div',undefined,'tools'),cancel=element('button','Zrušit'),submit=element('button','Vytvořit fyzikální předmět','primary');
+  form.append(fields,element('p',`Hra vytvoří pohyblivou kolizi. ${box?'Generovaný statický box modelu se odstraní ve stejném kroku. ':''}Původní statické kolize mapy tato akce neupravuje. Nárazový zvuk 0–13 je sloupec tabulky materiálů; −1 je ticho. Význam parametru zásahu není úplně ověřený. Změna se uloží do modu s jedním undo. Chování nového předmětu ve hře ještě čeká na ověření.`),message,actions);
+  cancel.type='button';cancel.onclick=()=>dialog.close();submit.type='submit';actions.append(cancel,submit);
+  form.onsubmit=event=>{event.preventDefault();if(!form.reportValidity()||state.busy)return;run(async()=>{submit.disabled=cancel.disabled=true;try{
+    const parameters=Object.fromEntries(physicalFields.map(field=>[field.key,field.kind==='boolean'?inputs.get(field.key).checked:Number(inputs.get(field.key).value)]));
+    state.file=await api.changeSceneObject(file.path,{kind:'attach-physical',target,parameters,collisionHash:file.collision?.sha256},file.sha256);state.selectSceneName=target;dialog.close();await refresh();renderDetail();status('Fyzikální předmět vytvořen v modu se zálohou.');
+  }catch(error){message.textContent=error.message;throw error;}finally{submit.disabled=cancel.disabled=false;}});};
+  dialog.addEventListener('cancel',event=>{if(state.busy)event.preventDefault();});dialog.addEventListener('close',()=>dialog.remove(),{once:true});document.body.append(dialog);dialog.showModal();inputs.get('mass').focus();
 }
 function sceneObjectDialog(file, kind, object, cars = null) {
   const adding=['add-model','add-human','add-car'].includes(kind);

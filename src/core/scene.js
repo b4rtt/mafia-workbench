@@ -3,7 +3,7 @@ import { humanFields } from '../shared/human-parameters.js';
 import { inspectDoor, editDoor, createDoor } from './doors.js';
 import { sceneSectors, validateNewLight } from '../shared/lights.js';
 import { validateNewSound } from '../shared/sounds.js';
-import { inspectPhysical, editPhysical } from './physical.js';
+import { inspectPhysical, editPhysical, createPhysical } from './physical.js';
 const containers = new Set([0x4c53, 0x4000, 0x4010, 0x4020, 0x4040, 0x4060, 0xae20, 0xae21, 0xae50]);
 const names = new Map([[0x4c53, 'Scéna'], [0x4000, 'Objekty'], [0x4010, 'Objekt'], [0x4020, 'Rodič'], [0x4040, 'Světlo'], [0x4060, 'Zvuk'], [0xae20, 'Aktéři'], [0xae21, 'Aktér'], [0xae50, 'Skripty'], [0xae51, 'Skript']]);
 const fields = new Map([
@@ -211,7 +211,7 @@ export function editScene(source, id, value) {
 // Existing opaque actor data, scripts, geometry overrides and sibling chunks
 // remain intact. New human actors use the verified C_human v6 layout.
 export function changeSceneObject(source, operation, geometryNames = [], geometryFrames = []) {
-  if (!operation || !['add-model', 'add-human', 'add-car', 'add-light', 'add-sound', 'attach-door', 'duplicate', 'delete'].includes(operation.kind)) throw new Error('Scene: neplatná operace s objektem.');
+  if (!operation || !['add-model', 'add-human', 'add-car', 'add-light', 'add-sound', 'attach-door', 'attach-physical', 'duplicate', 'delete'].includes(operation.kind)) throw new Error('Scene: neplatná operace s objektem.');
   const scene = inspectScene(source), roots = tree(source), all = [];
   function collect(nodes) { for (const node of nodes) { all.push(node); if (node.children) collect(node.children); } }
   collect(roots);
@@ -220,7 +220,7 @@ export function changeSceneObject(source, operation, geometryNames = [], geometr
   const containers = all.filter(n => n.type === 0x4000);
   if (containers.length !== 1) throw new Error('Scene: scéna nemá jednoznačný seznam objektů.');
   const container = containers[0]; let added, removed, actorAdded, actorContainer;
-  if (!['delete','attach-door'].includes(operation.kind)) {
+  if (!['delete','attach-door','attach-physical'].includes(operation.kind)) {
     const name = operation.name;
     if (typeof name !== 'string' || name !== name.trim() || !/^[a-zA-Z0-9_#][a-zA-Z0-9_# -]{0,62}$/.test(name)) throw new Error('Název objektu: 1–63 znaků, písmena bez diakritiky, číslice, mezera, #, pomlčka nebo podtržítko.');
     const used = [...scene.objects.map(o => o.name), ...geometryNames, ...scene.entries.filter(e => e.label === 'Název aktéra').map(e => e.value), 'Primary sector', 'Backdrop sector'];
@@ -245,6 +245,16 @@ export function changeSceneObject(source, operation, geometryNames = [], geometr
       chunk(0x4020,text(0x10,'Primary sector')),
       chunk(0x4060,Buffer.concat([text(0x10,p.file),numeric(0x4061,'uint',p.type,4),numeric(0x4062,'float',p.volume,4),numeric(0x4063,'float',p.outVolume,4),numeric(0x4064,'vec2',p.cone,8),numeric(0x4068,'vec4',p.range,16),...(p.loop?[chunk(0x4066,Buffer.alloc(0))]:[]),...p.sectors.map(name=>text(0xb200,name))]))
     ]));
+  }else if(operation.kind==='attach-physical'){
+    const target=operation.target;
+    if(typeof target!=='string'||!target||target.includes('\0')||encode(target).length>255)throw new Error('Fyzikální předmět: neplatný odkaz na model.');
+    const objects=scene.objects.filter(object=>key(object.name)===key(target));
+    if(objects.length!==1||objects[0].frameType!==9||!objects[0].model||geometryNames.some(name=>key(name)===key(target)))throw new Error('Fyzikální předmět: vyberte samostatný model ve scéně.');
+    if(scene.entries.some(entry=>entry.label==='Název aktéra'&&key(entry.value)===key(target)))throw new Error('Fyzikální předmět: model už má navázaného aktéra.');
+    const actors=all.filter(node=>node.type===0xae20);
+    if(actors.length>1||roots.length!==1)throw new Error('Scene: nejednoznačný seznam aktérů.');
+    actorContainer=actors[0];const type=Buffer.alloc(4);type.writeUInt32LE(35);
+    actorAdded=chunk(0xae21,Buffer.concat([chunk(0xae23,Buffer.concat([encode(objects[0].name),Buffer.from([0])])),chunk(0xae22,type),chunk(0xae24,createPhysical(operation.parameters))]));
   }else if(operation.kind==='attach-door'){
     const target=operation.target;
     if(typeof target!=='string'||!target||target.includes('\0')||encode(target).length>255)throw new Error('Dveře: neplatný odkaz na frame.');
