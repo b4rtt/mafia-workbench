@@ -9,7 +9,7 @@ import { parseFourDs, editFourDs } from './fourds.js';
 import { parseFiveDs, editFiveDs } from './fiveds.js';
 import { inspectCache, editCache } from './cache.js';
 import { parseItems, editItems } from './items.js';
-import { parseNavigation, editNavigation } from './navigation.js';
+import { parseNavigation, editNavigation, changeNavigationConnection } from './navigation.js';
 import { parseRoads, editRoads } from './roads.js';
 import { parseTrack, editTrack } from './track.js';
 import { inspectDifference, editDifference } from './difference.js';
@@ -299,6 +299,13 @@ export class ModProject {
       if (expectedHash !== hash(before)) throw new Error('Soubor se od otevření změnil. Otevřete jej znovu.');
       return editNavigation(before, changes);
     }, 'Úprava navigačních bodů a vazeb');
+  }
+  async changeNavigationConnection(name, request, expectedHash) {
+    if (!/^missions\/[^/]+\/check\.bin$/i.test(name)) throw new Error('Soubor není check.bin mise.');
+    await this.change(name, before => {
+      if (expectedHash !== hash(before)) throw new Error('Soubor se od otevření změnil. Otevřete jej znovu.');
+      return changeNavigationConnection(before, request);
+    }, request?.action === 'disconnect' ? 'Odpojení navigačních bodů' : 'Propojení navigačních bodů');
   }
   async saveTrack(name, changes, expectedHash) {
     if (!/\.tck$/i.test(name)) throw new Error('Soubor není TCK stopa.');

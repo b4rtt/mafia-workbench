@@ -262,6 +262,12 @@ function renderNavigation(main, file) {
   number.type = 'number'; number.min = '0'; number.max = String(Math.max(0,file.points.length-1)); number.step = '1'; number.value = '0'; number.setAttribute('aria-label','Číslo navigačního bodu'); focus.disabled = !file.points.length;
   tools.append(number,jump,fit,focus,background); center.append(tools,viewport);
   let properties;
+  let pickingTarget = false;
+  const target = element('input'), direction = element('select'), pickTarget = element('button','Vybrat cíl ve 3D');
+  target.type='number';target.min='0';target.max=number.max;target.step='1';target.setAttribute('aria-label','Cílový bod spojení');
+  direction.setAttribute('aria-label','Směr nového spojení');
+  for(const [value,label] of [['both','Obousměrně'],['forward','Vybraný bod → cíl'],['backward','Cíl → vybraný bod']]){const option=element('option',label);option.value=value;direction.append(option);}
+  pickTarget.onclick=()=>{pickingTarget=!pickingTarget;pickTarget.textContent=pickingTarget?'Zrušit výběr cíle':'Vybrat cíl ve 3D';status(pickingTarget?'Klikněte na druhý navigační bod.':'Výběr cíle zrušen.');};
   function entries(point) {
     const context = `Bod ${point.index} · uložené ID ${point.id}`;
     const result = [['position','Pozice XYZ','vec3'],['type','Typ / příznaky','uint16'],['id','Uložené ID','uint16'],['areaSize','Velikost oblasti (raw)','uint16']].map(([key,label,kind])=>({id:`points/${point.index}/${key}`,context,label,kind,value:point[key]}));
@@ -269,7 +275,18 @@ function renderNavigation(main, file) {
     return result;
   }
   const view = new NavigationViewport(viewport, frame => {
+    if(pickingTarget){if(frame.navigationIndex===state.navigationIndex){status('Vyberte jiný bod než začátek spojení.',true);return;}target.value=String(frame.navigationIndex);pickingTarget=false;pickTarget.textContent='Vybrat cíl ve 3D';view.select(String(state.navigationIndex));status(`Cílový bod: ${target.value}`);return;}
     const point = file.points[frame.navigationIndex]; number.value = String(point.index); state.navigationIndex = point.index; inspector.replaceChildren();
+    if(target.value===''||Number(target.value)===point.index)target.value=String(point.links[0]?.target??(point.index+1)%file.points.length);
+    const connections=element('div',undefined,'tools'),connect=element('button','Propojit body'),disconnect=element('button','Odpojit body');
+    connections.append(target,pickTarget,direction,connect,disconnect);
+    inspector.append(element('h3',`Spojení bodu ${point.index}`),connections,element('p','Nové spojení respektuje kategorie bodů a vzdálenost. Jednosměrná cesta uloží i protější blokovanou vazbu; odpojení odstraní oba směry.','notice'));
+    for(const [button,action] of [[connect,'connect'],[disconnect,'disconnect']])button.onclick=()=>run(async()=>{
+      if(state.texts.size)throw new Error('Před změnou spojení uložte nebo zahoďte rozepsané vlastnosti.');
+      if(target.value==='')throw new Error('Vyberte cílový bod spojení.');
+      state.file=await api.changeNavigationConnection(file.path,{action,from:point.index,to:Number(target.value),direction:direction.value},file.sha256);
+      await refresh();renderDetail();status(action==='connect'?'Body propojené v modu se zálohou.':'Body odpojené v modu se zálohou.');
+    });
     properties = renderProperties(inspector,{...file,entries:entries(point)},api.saveNavigation,(entry,value)=>{
       const [section,index,key] = entry.id.split('/');
       if (section === 'points' && key === 'position' && Array.isArray(value) && value.length === 3 && value.every(n=>typeof n==='number'&&Number.isFinite(n))) view.updatePoint(Number(index),value);

@@ -125,6 +125,7 @@ app.whenReady().then(async () => {
   handle('asset:cache', (name, changes, expectedHash) => operation(async () => { await current().saveCache(name, changes, expectedHash); return current().inspect(name); }));
   handle('asset:items', (name, changes, expectedHash) => operation(async () => { await current().saveItems(name, changes, expectedHash); return current().inspect(name); }));
   handle('asset:navigation', (name, changes, expectedHash) => operation(async () => { await current().saveNavigation(name, changes, expectedHash); return current().inspect(name); }));
+  handle('asset:navigation-connection', (name, request, expectedHash) => operation(async () => { await current().changeNavigationConnection(name, request, expectedHash); return current().inspect(name); }));
   handle('asset:roads', (name, changes, expectedHash) => operation(async () => { await current().saveRoads(name, changes, expectedHash); return current().inspect(name); }));
   handle('asset:track', (name, changes, expectedHash) => operation(async () => { await current().saveTrack(name, changes, expectedHash); return current().inspect(name); }));
   handle('asset:difference', (name, changes, expectedHash) => operation(async () => { await current().saveDifference(name, changes, expectedHash); return current().inspect(name); }));
