@@ -11,6 +11,8 @@ contextBridge.exposeInMainWorld('workbench', {
   inspect: name => invoke('asset:inspect', name),
   media: name => invoke('asset:media', name),
   map: name => invoke('asset:map', name),
+  replayMissions: name => invoke('replay:missions', name),
+  replayContext: (name, scene, difference) => invoke('replay:context', name, scene, difference),
   playtestState: () => invoke('playtest:get'),
   startLevel: name => invoke('playtest:start', name),
   stopLevel: () => invoke('playtest:stop'),

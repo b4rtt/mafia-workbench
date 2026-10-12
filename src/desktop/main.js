@@ -8,6 +8,7 @@ import { parseTextDb } from '../core/textdb.js';
 import { randomUUID } from 'node:crypto';
 import { Playtest } from '../core/playtest.js';
 import { readEmptyMissionZip } from '../core/mission.js';
+import { replayMissions, loadCutsceneContext } from '../core/cutscene.js';
 const directory = path.dirname(fileURLToPath(import.meta.url));
 const uiRoot = path.resolve(directory, '../ui');
 const profileRoot = path.resolve(directory, '../../local/electron-profile');
@@ -106,6 +107,8 @@ app.whenReady().then(async () => {
   }));
   handle('asset:inspect', name => current().inspect(name));
   handle('asset:map', name => current().inspectMap(name));
+  handle('replay:missions', name => replayMissions(current(), name));
+  handle('replay:context', (name, scene, difference) => loadCutsceneContext(current(), name, scene, difference));
   handle('playtest:get', () => playtest.attach(project));
   handle('playtest:start', name => operation(() => playtest.start(current(), name, p => window.webContents.send('extraction:progress', p), state => { if (!window.isDestroyed()) window.webContents.send('playtest:state', state); })));
   handle('playtest:stop', () => operation(() => playtest.stop()));

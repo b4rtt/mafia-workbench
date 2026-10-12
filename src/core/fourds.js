@@ -92,19 +92,20 @@ export function parseFourDs(source, geometry = false) {
     const ambient = reader.field(`${base}/ambient`, 'Ambient RGB', 'float', 3), diffuse = reader.field(`${base}/diffuse`, 'Diffuse RGB', 'float', 3), emission = reader.field(`${base}/emission`, 'Emission RGB', 'float', 3), opacity = reader.field(`${base}/opacity`, 'Opacity', 'float');
     if (flags & 0x80000) { reader.field(`${base}/reflection`, 'Síla odrazu', 'float'); reader.field(`${base}/environmentTexture`, 'Textura odrazu', 'string8'); }
     const texture = reader.field(`${base}/texture`, 'Diffuse textura', 'string8');
-    if (texture && (flags & 0x40000000) && !(flags & 0x1000000)) reader.field(`${base}/alphaTexture`, 'Alpha textura', 'string8');
+    let alphaTexture;
+    if (texture && (flags & 0x40000000) && !(flags & 0x1000000)) alphaTexture = reader.field(`${base}/alphaTexture`, 'Alpha textura', 'string8');
     if (flags & 0x4000000) reader.skip(18);
-    materials.push({ flags, ambient, diffuse, emission, opacity, texture });
+    materials.push({ flags, ambient, diffuse, emission, opacity, texture, alphaTexture });
   }
   const meshCount = reader.u16(), meshes = [];
   for (let i = 0; i < meshCount; i++) {
     reader.context = `Objekt ${i + 1}`; const base = `meshes/${i}`, type = reader.u8();
-    let visual;
-    if (type === 1) { visual = reader.u8(); reader.skip(2); }
+    let visual, renderFlags, logicFlags;
+    if (type === 1) { visual = reader.u8(); renderFlags = reader.u8(); logicFlags = reader.u8(); }
     const parent = reader.field(`${base}/parent`, 'Rodič (0 = kořen)', 'u16'), position = reader.field(`${base}/position`, 'Pozice XYZ', 'float', 3), scale = reader.field(`${base}/scale`, 'Měřítko XYZ', 'float', 3), rotation = reader.field(`${base}/rotation`, 'Rotace WXYZ', 'float', 4);
-    reader.field(`${base}/culling`, 'Culling příznaky', 'u8');
-    const name = reader.field(`${base}/name`, 'Název objektu', 'string8'); reader.field(`${base}/properties`, 'Vlastnosti objektu', 'string8');
-    const mesh = { id: i + 1, name, parent, position, scale, rotation, type, visual };
+    const culling = reader.field(`${base}/culling`, 'Culling příznaky', 'u8');
+    const name = reader.field(`${base}/name`, 'Název objektu', 'string8'), properties = reader.field(`${base}/properties`, 'Vlastnosti objektu', 'string8');
+    const mesh = { id: i + 1, name, parent, position, scale, rotation, type, visual, renderFlags, logicFlags, culling, properties };
     if (type === 1) {
       if ([0, 1, 2, 3, 4, 5].includes(visual)) {
         const data = object(reader, geometry); Object.assign(mesh, data);

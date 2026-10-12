@@ -3,7 +3,7 @@ import { Viewport } from './viewport.js';
 import { AnimationPreview } from './animation.js';
 import { NavigationViewport } from './navigation.js';
 import { TrackViewport } from './track.js';
-import { ReplayViewport } from './replay.js';
+import { CutsceneViewport, CutsceneAudio, activeCutsceneAudio } from './cutscene.js';
 import { Group } from 'three';
 const api = window.workbench;
 const $ = id => document.getElementById(id);
@@ -127,21 +127,30 @@ function renderDetail() {
   }
 }
 function renderReplay(main, file) {
-  main.append(element('p', `${file.tracks.length} objektových stop · ${file.cameras.length} klíčů kamery · ${file.focus.length} klíčů cíle · ${file.duration} ms. Modrá: kamera, zelená: její cíl. 3D náhled spojuje polohy lineárně uvnitř jednotlivých záběrů; střihy a konec kamery jsou pouze ke čtení. Herní křivky, pohyb modelů, zvuky a skripty nepřehrává.`, 'notice'));
+  main.append(element('p', `${file.tracks.length} objektových stop · ${file.cameras.length} klíčů kamery · ${file.focus.length} klíčů cíle · ${file.duration} ms. Modrá: kamera, zelená: její cíl. Po načtení mise a CHG lze přehrávat dostupné modely, 5DS animace, zvukové události a dialogy. Přímočaré skriptové události z CHG přepínají viditelnost objektů. Kamera a pohyb mezi klíči jsou lineární; ostatní skripty, herní světla, morfování a pohybové TCK náhled nesimuluje.`, 'notice'));
   for (const warning of file.warnings.slice(0,10)) main.append(element('p',warning,'notice'));
   main.append(element('p', `${file.clockCount} záznamů mapování času · ${file.fadeCount} efektů obrazu · ${file.opaqueKeyBytes.toLocaleString('cs')} nerozpoznaných bajtů objektových klíčů. Počty, pořadí, typy klíčů, časování pohybu a neznámá data se zachovají. Časy skriptových, zvukových a dialogových událostí lze změnit při zachování jejich pořadí.`, 'muted'));
   const layout = element('div',undefined,'model-workspace'), center = element('section',undefined,'model-center'), inspector = element('section',undefined,'model-inspector'); layout.append(center,inspector);main.append(layout);
-  const tools = element('div',undefined,'tools'), play = element('button','Přehrát dráhy'), fit = element('button','Zarámovat dráhy'), fitShot = element('button','Zarámovat záběr'), seek = element('input'), clock = element('output'), timeline = element('canvas'), viewport = element('div',undefined,'viewport');
+  const contextTools=element('div',undefined,'tools'),mission=element('select'),difference=element('select'),load=element('button','Načíst scénu'),closeContext=element('button','Pouze dráhy'),contextInfo=element('p','Vyberte misi a rozdíly scény CHG. Odkazy ve skriptech slouží jako návrh výběru.','muted');
+  mission.setAttribute('aria-label','Mise pro náhled cutscény');difference.setAttribute('aria-label','CHG pro náhled cutscény');
+  mission.append(element('option','Vyberte misi…'));mission.firstChild.value='';difference.append(element('option','Bez CHG'));difference.firstChild.value='';
+  for(const asset of state.project.assets.filter(a=>/^missions\/[^/]+\/scene2\.bin$/i.test(a.path))){const option=element('option',asset.path.split('/')[1]);option.value=asset.path;mission.append(option);}
+  for(const asset of state.project.assets.filter(a=>/\.chg$/i.test(a.path))){const option=element('option',asset.path);option.value=asset.path;difference.append(option);}
+  state.replayContexts??=new Map();const savedContext=state.replayContexts.get(file.path);if(savedContext){mission.value=savedContext.scene;difference.value=savedContext.difference;}
+  let chosen=Boolean(savedContext);mission.onchange=difference.onchange=()=>{chosen=true;};closeContext.hidden=true;
+  contextTools.append(mission,difference,load,closeContext);center.append(contextTools,contextInfo);
+  const tools = element('div',undefined,'tools'), play = element('button','Přehrát dráhy'), fit = element('button','Zarámovat dráhy'), fitShot = element('button','Zarámovat záběr'), film=element('input'),sound=element('input'),filmLabel=element('label','Kamera cutscény '),soundLabel=element('label','Zvuk '),subtitle=element('p',undefined,'notice'), seek = element('input'), clock = element('output'), timeline = element('canvas'), viewport = element('div',undefined,'viewport');
+  film.type=sound.type='checkbox';film.disabled=sound.disabled=true;sound.checked=true;film.setAttribute('aria-label','Kamera cutscény');sound.setAttribute('aria-label','Zvuk cutscény');filmLabel.append(film);soundLabel.append(sound);subtitle.setAttribute('aria-label','Dialog cutscény');
   seek.type='range';seek.min='0';seek.max=String(file.duration);seek.step='1';seek.value='0';seek.setAttribute('aria-label','Čas náhledu REP v ms');play.disabled=!file.duration;timeline.width=800;timeline.height=64;timeline.style.width='100%';timeline.setAttribute('aria-label','Časová osa vybraného kanálu REP; kliknutí vybere nejbližší klíč');
-  tools.append(play,fit,fitShot);center.append(tools,seek,clock,timeline,viewport);const view=new ReplayViewport(viewport);state.viewport=view;view.loadReplay(file);
+  tools.append(play,fit,fitShot,filmLabel,soundLabel);center.append(tools,seek,clock,timeline,viewport,subtitle);const view=new CutsceneViewport(viewport);state.viewport=view;view.loadReplay(file);
   const channels=structuredClone(file.channels), channel=element('select'), number=element('input'), choose=element('button','Vybrat záznam'), recordInfo=element('p',undefined,'muted'), fields=element('div'), keyTools=element('div',undefined,'tools');
   channel.setAttribute('aria-label','Kanál časové osy REP');for(const c of channels){const option=element('option',`${c.label} (${c.records.length})`);option.value=c.id;channel.append(option);}channel.value=channels.some(c=>c.id===state.replayChannel)?state.replayChannel:'camera';
   number.type='number';number.step='1';number.min='0';number.setAttribute('aria-label','Číslo záznamu REP');number.value=String(state.replayIndex??0);keyTools.append(number,choose);inspector.append(channel,keyTools,recordInfo,fields);
   let playing=false,previous,duration=file.duration;
   const selectedChannel=()=>channels.find(c=>c.id===channel.value);
   function draw() {const ctx=timeline.getContext('2d');ctx.clearRect(0,0,800,64);ctx.fillStyle='#88929c';ctx.fillRect(0,30,800,1);const length=Math.max(duration,1);for(const r of selectedChannel().records){ctx.fillStyle=r.index===Number(number.value)?'#007aff':'#8396a8';ctx.fillRect(r.time/length*796,20,3,22);}ctx.fillStyle='#dc8025';ctx.fillRect(view.time/length*796,5,2,50);}
-  function pause(){playing=false;previous=undefined;play.textContent='Přehrát dráhy';}
-  function show(time){view.seek(time);seek.value=String(time);clock.textContent=`${Math.round(time)} / ${duration} ms`;draw();}
+  function pause(){playing=false;previous=undefined;play.textContent=view.contextReady?'Přehrát cutscénu':'Přehrát dráhy';view.audio?.sync(view.time,false);}
+  function show(time){view.seek(time);view.audio?.sync(time,playing);seek.value=String(time);clock.textContent=`${Math.round(time)} / ${duration} ms`;if(view.audio)subtitle.textContent=activeCutsceneAudio(view.audio.events,view.audio.durations,time).filter(e=>e.text).map(e=>e.text).join(' · ');draw();}
   function selectKey(index) {
     pause();const c=selectedChannel();number.max=String(Math.max(0,c.records.length-1));index=Math.min(Math.max(0,index),Math.max(0,c.records.length-1));number.value=String(index);state.replayChannel=c.id;state.replayIndex=index;fields.replaceChildren();const r=c.records[index];choose.disabled=!r;number.disabled=!r;
     if(!r){recordInfo.textContent='Kanál je prázdný.';show(0);return;}
@@ -150,11 +159,28 @@ function renderReplay(main, file) {
   }
   channel.onchange=()=>selectKey(0);choose.onclick=()=>{const index=Number(number.value);if(number.value!==''&&Number.isInteger(index)&&index>=0&&index<selectedChannel().records.length)selectKey(index);else status('Číslo záznamu je mimo rozsah.',true);};
   timeline.onclick=event=>{const c=selectedChannel();if(!c.records.length)return;const box=timeline.getBoundingClientRect(),time=(event.clientX-box.left)/box.width*duration;let nearest=c.records[0];for(const r of c.records)if(Math.abs(r.time-time)<Math.abs(nearest.time-time))nearest=r;selectKey(nearest.index);};
-  seek.oninput=()=>{pause();show(Number(seek.value));};fit.onclick=()=>view.fit(view.paths);fitShot.onclick=()=>view.fitShot();play.onclick=()=>{if(playing)pause();else{if(view.time>=duration)show(0);playing=true;previous=undefined;play.textContent='Pozastavit dráhy';}};
+  const orbit=()=>{film.checked=false;view.cameraMode(false);};
+  seek.oninput=()=>{pause();show(Number(seek.value));};fit.onclick=()=>{orbit();view.fit(view.paths);};fitShot.onclick=()=>{orbit();view.fitShot();};film.onchange=()=>view.cameraMode(film.checked);sound.onchange=()=>view.audio?.mute(!sound.checked);
+  play.onclick=async()=>{if(playing)pause();else{try{await view.audio?.unlock();}catch(error){status('Zvuk nelze spustit: '+error.message,true);}if(view.disposed)return;if(view.time>=duration)show(0);playing=true;previous=undefined;play.textContent=view.contextReady?'Pozastavit cutscénu':'Pozastavit dráhy';show(view.time);}};
+  closeContext.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Nejdřív uložte rozepsané změny.');pause();renderDetail();});
+  load.onclick=()=>run(async()=>{
+    if(state.texts.size)throw new Error('Před načtením scény uložte rozepsané změny.');if(!mission.value)throw new Error('Vyberte misi pro cutscénu.');
+    pause();load.disabled=true;mission.disabled=difference.disabled=true;closeContext.hidden=false;contextInfo.textContent='Načítám scénu, modely, animace a zvuky…';
+    try{
+      const context=await api.replayContext(file.path,mission.value,difference.value||null);if(view.disposed)return;
+      state.replayContexts.set(file.path,{scene:mission.value,difference:difference.value});
+      const result=await view.loadContext(context,name=>api.inspect(name),async texture=>{const name=texture.replaceAll('\\','/').toLowerCase(),asset=state.project.assets.find(a=>a.path.toLowerCase()===`maps/${name}`||a.path.toLowerCase()===name);return asset?api.media(asset.path):null;});if(view.disposed)return;
+      view.audio=new CutsceneAudio();await view.audio.load(context.audio,name=>api.media(name));if(view.disposed)return;
+      film.disabled=sound.disabled=false;film.checked=true;view.cameraMode(true);play.textContent='Přehrát cutscénu';show(view.time);
+      contextInfo.textContent=`${result.actors}/${result.tracks} navázaných stop · ${result.animations} animací · ${view.audio.buffers.size} zvuků. ${result.warnings.length} upozornění na data a vazby · ${view.audio.errors.length} nedekódovaných zvuků. Zvuk je bez prostorového útlumu a opakování; hudba spouštěná skriptem se nepřehrává.`;
+      const details=element('details'),summary=element('summary','Podrobnosti náhledu');details.append(summary,element('pre',[...result.warnings,...view.audio.errors.map(p=>'Nelze dekódovat zvuk: '+p)].join('\n')||'Všechny načítané zdroje jsou dostupné.'));center.append(details);status('Náhled cutscény připraven.');
+    }catch(error){contextInfo.textContent=error.message+' Pro nový výběr zavřete náhled tlačítkem „Pouze dráhy“.';throw error;}
+  });
+  api.replayMissions(file.path).then(matches=>{if(view.disposed||chosen)return;if(matches.length===1){mission.value=matches[0].path;if(matches[0].differences.length===1)difference.value=matches[0].differences[0];contextInfo.textContent='Mise nalezená podle doslovného odkazu na REP ve skriptu. CHG lze změnit před načtením.';}else if(matches.length>1)contextInfo.textContent=`REP se objevuje v ${matches.length} misích; vyberte odpovídající scénu.`;}).catch(error=>{if(!view.disposed)contextInfo.textContent=error.message;});
   view.onFrame=time=>{if(!playing)return;const next=Math.min(duration,view.time+(previous===undefined?0:time-previous));previous=time;show(next);if(next>=duration)pause();};selectKey(Number(number.value));
 }
 function renderDifference(main, file) {
-  main.append(element('p', `${file.blocks} bloků · ${file.objects.length} objektů · ${file.actors.length} popisů aktérů · ${file.bindings.length} vazeb. Lze upravit transformace a existující skripty. Přidávání objektů, data aktérů a přehrávání celé cutscény zatím nejsou podporované.`, 'notice'));
+  main.append(element('p', `${file.blocks} bloků · ${file.objects.length} objektů · ${file.actors.length} popisů aktérů · ${file.bindings.length} vazeb. Lze upravit transformace a existující skripty. Přidávání objektů a data aktérů zatím nejsou podporované. Tento CHG lze připojit k náhledu REP pro přehrávání cutscény.`, 'notice'));
   const summary = element('details'), title = element('summary','Objekty a vazby (jen ke čtení)'); summary.append(title);
   for (const object of file.objects) summary.append(element('p',`${object.index}: ${object.name} · typ ${object.frameType} · rodič ${object.parent || '—'}${object.resource ? ` · zdroj ${object.resource}` : ''}`));
   for (const binding of file.bindings) summary.append(element('p',`${binding.index}: vazba na ${binding.name} · typ aktéra ${binding.kind}`));
@@ -394,7 +420,7 @@ function renderModel(main, file) {
     return match ? api.media(match.path) : null;
   });
   center.append(element('p', `${file.meshes.length} objektů · ${file.materials.length} materiálů · LOD 0. Animaci přehrajete v kategorii Animace 5DS po výběru tohoto modelu. Morfování zatím není podporované.`, 'notice'));
-  properties = renderProperties(inspector, file, api.saveModel, (entry, value) => { const match = /^meshes\/(\d+)\/(position|rotation|scale)$/.exec(entry.id); if (match) view.update(String(Number(match[1]) + 1), { [match[2]]: value }); });
+  properties = renderProperties(inspector, file, api.saveModel, (entry, value) => { const match = /^meshes\/(\d+)\/(position|rotation|scale|culling)$/.exec(entry.id); if (match) view.update(String(Number(match[1]) + 1), { [match[2]]: value }); });
 }
 function renderAnimation(main, file) {
   const layout = element('div', undefined, 'model-workspace'), center = element('section', undefined, 'model-center'), inspector = element('section', undefined, 'model-inspector');

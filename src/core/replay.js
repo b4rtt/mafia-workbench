@@ -39,6 +39,16 @@ function layout(source) {
       if([1,2,3,4,6,27].includes(kind)&&([1,2].includes(type)||([2,3,27].includes(kind)&&type===3))&&stride>=36) {
         key.position=field(r,'position','Pozice XYZ','vec3',k+8,3);key.rotation=field(r,'rotation','Rotace WXYZ','quat',k+20,4);opaqueKeyBytes+=stride-36;
       } else opaqueKeyBytes+=stride-8;
+      // Read-only human animation state, proven by human_track_apply_pose_at_time.
+      if([2,3,27].includes(kind)&&type>0&&stride>=40){key.animationFlags=bytes.readUInt32LE(k+36);if(type===2&&stride>=44)key.animationFrame=bytes.readUInt32LE(k+40)&0xfff;}
+      // Plain model actors store their 5DS state at +0x58, not the human +0x24.
+      // actor_track_apply_pose_at_time (0044ad10): low 11 bits are a direct ID,
+      // bit 0x1000 enables it, and the high ushort is the starting frame at 25 FPS.
+      if(kind===1&&type===1&&stride===92){
+        key.modelAnimationFlags=bytes.readUInt16LE(k+88);
+        key.modelAnimationFrame=bytes.readUInt16LE(k+90);
+        if(key.modelAnimationFlags&0x1000)key.modelAnimationId=key.modelAnimationFlags&0x7ff;
+      }
       track.keys.push(key);cursor+=stride;
     }
     arenaCursor+=size;

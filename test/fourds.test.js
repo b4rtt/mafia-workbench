@@ -14,6 +14,7 @@ function fixture() {
 test('4DS geometry and variable names roundtrip without altering mesh payload or unknown bytes', () => {
   const source = fixture(), parsed = parseFourDs(source, true);
   assert.equal(parsed.meshes[0].lods[0].positions.length, 9); assert.deepEqual(parsed.meshes[0].lods[0].faces[0].indices, [0,1,2]);
+  assert.equal(parsed.meshes[0].culling,7); assert.equal(parsed.meshes[0].renderFlags,0x42); assert.equal(parsed.meshes[0].logicFlags,0x43); assert.equal(parsed.meshes[0].properties,'opaque properties');
   assert.deepEqual(editFourDs(source, parsed.entries.map(({id,value}) => ({id,value}))), source);
   const result = editFourDs(source, [{ id: 'meshes/0/name', value: 'longer mesh' }, { id: 'meshes/0/position', value: [10,20,30] }]);
   const checked = parseFourDs(result, true); assert.equal(checked.meshes[0].name, 'longer mesh'); assert.deepEqual(checked.meshes[0].position, [10,20,30]);

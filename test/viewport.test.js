@@ -49,3 +49,13 @@ test('LS3D rotations point model and scene parts the same way and gizmos convert
   const restored = toLs3dRotation(fromLs3dRotation(rotation)); restored.forEach((v,i)=>assert.ok(Math.abs(v-rotation[i])<1e-8));
   assert.deepEqual(model,before);
 });
+test('disabled helper visuals remain in the hierarchy without fighting visible wall surfaces', () => {
+  const view=viewport(),lod={positions:[-1,-1,0,1,-1,0,0,1,0],normals:[0,0,1,0,0,1,0,0,1],uv:[0,0,1,0,.5,1],faces:[{material:0,indices:[0,1,2]}]};
+  const frame=(id,name,culling,renderFlags=0,parent=0)=>({id,name,culling,renderFlags,parent,type:1,position:[0,0,0],scale:[1,1,1],rotation:[1,0,0,0],lods:[lod]});
+  const model={materials:[],meshes:[frame(1,'SCTR',16),frame(2,'Wall',9),frame(3,'Hidden visual',9,0x40),frame(4,'Visible child',9,0,3)]},before=structuredClone(model);
+  view.addModel(model);assert.equal(view.frames.get('1').visible,false);assert.equal(view.frames.get('2').visible,true);assert.equal(view.frames.get('3').visible,true);assert.equal(view.frames.get('3').children.find(c=>c.isMesh).visible,false);assert.equal(view.frames.get('4').visible,true);
+  view.root.updateMatrixWorld(true);const ray=new THREE.Raycaster(new THREE.Vector3(0,0,2),new THREE.Vector3(0,0,-1));
+  const visible=ray.intersectObject(view.root,true).filter(hit=>{for(let o=hit.object;o;o=o.parent)if(!o.visible)return false;return true;});
+  assert.deepEqual(new Set(visible.map(h=>h.object.parent.name)),new Set(['Wall','Visible child']));
+  view.update('1',{culling:17});assert.equal(view.frames.get('1').visible,true);assert.deepEqual(model,before);
+});

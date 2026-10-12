@@ -3,6 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { bindSkin } from './animation.js';
 import { fromLs3dRotation, toLs3dRotation } from './transforms.js';
+import { materialTransparency, bmpTransparency, textureWithMask } from './materials.js';
 
 export class Viewport {
   constructor(container, onSelect = () => {}, onChange = () => {}) {
@@ -39,7 +40,7 @@ export class Viewport {
     };
     this.renderer.domElement.addEventListener('pointerdown', this.down); this.renderer.domElement.addEventListener('pointerup', this.up);
     this.observer = new ResizeObserver(() => this.resize()); this.observer.observe(container); this.resize();
-    this.renderer.setAnimationLoop(time => { if (!this.disposed) { this.onFrame?.(time); this.controls.update(); this.renderer.render(this.scene, this.camera); } });
+    this.renderer.setAnimationLoop(time => { if (!this.disposed) { this.onFrame?.(time); if (this.controls.enabled) this.controls.update(); this.renderer.render(this.scene, this.camera); } });
   }
   resize() { const w = this.container.clientWidth, h = this.container.clientHeight; if (!w || !h) return; this.renderer.setSize(w, h); this.camera.aspect = w / h; this.camera.updateProjectionMatrix(); }
   addModel(model, parent = this.root, key = '', overrides = new Map()) {
@@ -47,6 +48,8 @@ export class Viewport {
     for (const frame of model.meshes) {
       const object = frame.type === 10 ? new THREE.Bone() : new THREE.Group(), override = overrides.get(frame.name.toLowerCase());
       object.name = frame.name; object.userData.frame = { ...frame, id: `${key}${frame.id}`, sourceId: frame.id, sceneObject: override };
+      // CF_ENABLED also disables children. Keep the frame for hierarchy/editing.
+      object.visible = frame.culling === undefined || Boolean(frame.culling & 1);
       object.position.fromArray(override?.position ?? frame.position); object.scale.fromArray(override?.scale ?? frame.scale);
       fromLs3dRotation(override?.rotation ?? frame.rotation, object.quaternion);
       frames.set(frame.id, object); this.frames.set(object.userData.frame.id, object);
@@ -69,7 +72,9 @@ export class Viewport {
           for (const face of lod.faces) {
             base.addGroup(indices.length, face.indices.length, materials.length); for (const index of face.indices) indices.push(index);
             const source = model.materials[face.material - 1];
-            const material = new THREE.MeshStandardMaterial({ color: source ? new THREE.Color(...source.diffuse) : 0xb0bc9e, roughness: .85, side: THREE.DoubleSide, opacity: source?.opacity ?? 1, transparent: (source?.opacity ?? 1) < 1 });
+            const alpha = materialTransparency(source);
+            const material = new THREE.MeshStandardMaterial({ color: source ? new THREE.Color(...source.diffuse) : 0xb0bc9e, roughness: .85, side: THREE.DoubleSide, opacity: source?.opacity ?? 1, transparent: alpha.transparent, alphaTest: alpha.alphaTest, depthWrite: alpha.depthWrite, blending: alpha.blending });
+            material.userData.alpha = alpha;
             material.userData.texture = source?.texture;
             material.userData.textureColored = Boolean(source?.flags & 0x08000000);
             materials.push(material); this.materials.add(material);
@@ -79,6 +84,8 @@ export class Viewport {
         }
         const cached = geometry.get(lod), skin = frame.skin?.[0];
         const mesh = skin ? new THREE.SkinnedMesh(cached.base, cached.materials) : new THREE.Mesh(cached.base, cached.materials);
+        // RF_HIDEMESH hides this visual only; its child frames stay enabled.
+        mesh.visible = !(frame.renderFlags & 0x40);
         object.add(mesh); if (skin) skins.push({ mesh, object, skin });
       }
       const ancestor = frames.get(frame.parent);
@@ -87,22 +94,54 @@ export class Viewport {
     }
     for (const { mesh, object, skin } of skins) if (!bindSkin(mesh, object, frames, skin)) {
       // Keep unsupported skin data visible in its static bind pose.
-      object.remove(mesh); object.add(new THREE.Mesh(mesh.geometry, mesh.material));
+      const fallback = new THREE.Mesh(mesh.geometry, mesh.material); fallback.visible = mesh.visible;
+      object.remove(mesh); object.add(fallback);
       this.skinWarnings?.push(object.name);
     }
     return frames;
   }
   async loadTextures(resolveUrl) {
-    const loader = new THREE.TextureLoader(), cache = new Map();
+    const loader = new THREE.TextureLoader(), cache = new Map(), variants = new Map(), warnings = new Set();
+    const load = name => {
+      const key = name.toLowerCase();
+      if (!cache.has(key)) cache.set(key,(async()=>{
+        const url=await resolveUrl(name);if(!url)return null;
+        const texture=await loader.loadAsync(url);if(this.disposed){texture.dispose();return null;}
+        this.textures.add(texture);return {texture,url};
+      })());
+      return cache.get(key);
+    };
     await Promise.all([...this.materials].map(async material => {
       const name = material.userData.texture; if (!name) return;
       try {
-        if (!cache.has(name)) cache.set(name, (async () => { const url = await resolveUrl(name); if (!url) return null; return loader.loadAsync(url); })());
-        const texture = await cache.get(name); if (!texture) return;
-        if (this.disposed) { texture.dispose(); return; }
+        const loaded=await load(name);if(!loaded)return;let texture=loaded.texture;
+        const alpha=material.userData.alpha??{};
+        if(alpha.colorKey||alpha.inTexture){
+          const key=name.toLowerCase()+'#'+Number(alpha.colorKey)+Number(alpha.inTexture);
+          if(!variants.has(key))variants.set(key,(async()=>{
+            const response=await fetch(loaded.url);if(!response.ok)throw new Error('BMP není dostupné.');
+            const metadata=bmpTransparency(await response.arrayBuffer());
+            if(alpha.colorKey&&!metadata?.key)warnings.add('Nelze přečíst barevný klíč: '+name);
+            if(this.disposed)return null;
+            const masked=textureWithMask(loaded.texture,metadata,alpha);this.textures.add(masked);return masked;
+          })());
+          texture=await variants.get(key);if(!texture)return;
+        }
+        if(this.disposed)return;
         this.applyTexture(material, texture);
-      } catch { /* Missing or unsupported texture leaves its material colour visible. */ }
+        if(alpha.alphaTexture){
+          const mask=await load(alpha.alphaTexture);if(!mask){warnings.add('Chybí alpha textura: '+alpha.alphaTexture);return;}
+          if(this.disposed)return;
+          const key=alpha.alphaTexture.toLowerCase()+'#alpha';
+          if(!variants.has(key)){
+            const texture=mask.texture.clone();texture.colorSpace=THREE.NoColorSpace;texture.wrapS=texture.wrapT=THREE.RepeatWrapping;texture.needsUpdate=true;
+            this.textures.add(texture);variants.set(key,texture);
+          }
+          material.alphaMap=variants.get(key);material.needsUpdate=true;
+        }
+      } catch { warnings.add('Nelze načíst texturu nebo masku: '+name); }
     }));
+    this.textureWarnings=[...warnings];return this.textureWarnings;
   }
   applyTexture(material, texture) {
     texture.colorSpace = THREE.SRGBColorSpace; texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
@@ -136,6 +175,7 @@ export class Viewport {
     if (values.position) object.position.fromArray(values.position);
     if (values.scale) object.scale.fromArray(values.scale);
     if (values.rotation) fromLs3dRotation(values.rotation, object.quaternion);
+    if (values.culling !== undefined) object.visible = Boolean(values.culling & 1);
   }
   addSceneObject(source, model = null) {
     const id = `scene:${source.id}`, object = new THREE.Group(); object.name = source.name;
