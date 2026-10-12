@@ -9,7 +9,8 @@ import { parseFourDs, editFourDs } from './fourds.js';
 import { parseFiveDs, editFiveDs } from './fiveds.js';
 import { inspectCache, editCache } from './cache.js';
 import { parseItems, editItems } from './items.js';
-import { parseNavigation, editNavigation, changeNavigationConnection } from './navigation.js';
+import { parseNavigation, editNavigation, changeNavigationConnection, changeNavigationPoint } from './navigation.js';
+import { remapSegments } from './segments.js';
 import { parseRoads, editRoads } from './roads.js';
 import { parseTrack, editTrack } from './track.js';
 import { inspectDifference, editDifference } from './difference.js';
@@ -64,11 +65,13 @@ export class ModProject {
   static async open(root) {
     root = path.resolve(root);
     const manifest = JSON.parse(await readSafe(root, MANIFEST));
-    if (manifest.format !== 'mafia-workbench' || manifest.version !== 1 || !Array.isArray(manifest.assets) || !Array.isArray(manifest.history) || manifest.assets.length > 100000) throw new Error('Neplatný projekt Mafia Workbench.');
+    if (manifest.format !== 'mafia-workbench' || ![1,2].includes(manifest.version) || !Array.isArray(manifest.assets) || !Array.isArray(manifest.history) || manifest.assets.length > 100000) throw new Error('Neplatný projekt Mafia Workbench.');
+    if(manifest.version===1&&(manifest.assets.some(asset=>asset.overlay!==undefined)||manifest.history.some(entry=>entry.kind==='batch')))throw new Error('Skupinové vrstvy modu vyžadují formát projektu 2.');
     const seen = new Set();
     for (const asset of manifest.assets) {
       const canonical = key(asset.path);
       if (seen.has(canonical) || !/^originals\//.test(relativeAssetPath(asset.original)) || !/^[0-9a-f]{64}$/.test(asset.sha256)) throw new Error('Neplatný index projektu.');
+      if(asset.overlay!==undefined){const match=/^mods\/batches\/[a-f0-9-]+\/(.+)$/.exec(relativeAssetPath(asset.overlay));if(!match||match[1]!==asset.path)throw new Error('Neplatná vrstva modu.');await safePath(root,asset.overlay);}
       seen.add(canonical);
       await safePath(root, asset.original);
     }
@@ -86,6 +89,7 @@ export class ModProject {
   }
   async read(name) {
     const asset = this.asset(name);
+    if(asset.overlay)return readSafe(this.root,asset.overlay);
     try { return await readSafe(this.root, `mods/${asset.path}`); }
     catch (error) { if (error.code !== 'ENOENT') throw error; return this.original(asset); }
   }
@@ -94,13 +98,14 @@ export class ModProject {
     for (const asset of this.manifest.assets) {
       const { path: name, size, archive, variants } = asset;
       let modified = false;
-      try { modified = hash(await readSafe(this.root, `mods/${name}`)) !== asset.sha256; }
-      catch (error) { if (error.code !== 'ENOENT') throw error; }
+      try { modified = hash(await readSafe(this.root, asset.overlay ?? `mods/${name}`)) !== asset.sha256; }
+      catch (error) { if (error.code !== 'ENOENT' || asset.overlay) throw error; }
       result.push({ path: name, size, archive, created: asset.created === true, modified: modified || asset.created === true, category: assetCategory(name), variants: variants.length });
     }
     return { name: this.manifest.name, root: this.root, assets: result, history: this.manifest.history.length };
   }
   async change(name, data, label = 'Úprava souboru') {
+    if(this.asset(name).overlay)return this.changeBatch([{path:name,data}],label);
     if (this.busy) throw new Error('Probíhá jiné ukládání.');
     this.busy = true;
     try {
@@ -121,6 +126,36 @@ export class ModProject {
     } finally { this.busy = false; }
   }
   async saveManifest() { await writeSafe(this.root, MANIFEST, JSON.stringify(this.manifest, null, 2)); }
+  async changeBatch(files, label) {
+    if(this.busy)throw new Error('Probíhá jiné ukládání.');
+    if(!Array.isArray(files)||!files.length||files.length>64)throw new Error('Neplatná skupina úprav.');
+    this.busy=true;
+    try{
+      const rows=[],seen=new Set();let size=0;
+      for(const file of files){
+        const asset=this.asset(file.path),canonical=key(asset.path);if(seen.has(canonical))throw new Error('Soubor je ve skupině vícekrát.');seen.add(canonical);
+        const before=await this.read(asset.path),sha256=hash(before);
+        if(file.expectedHash!==undefined&&file.expectedHash!==sha256)throw new Error('Soubor se od otevření změnil. Otevřete jej znovu.');
+        const data=Buffer.from(typeof file.data==='function'?await file.data(before):file.data);size+=data.length;
+        if(size>256*1024*1024)throw new Error('Úprava je příliš velká.');await this.original(asset);
+        rows.push({asset,before,data,sha256,after:hash(data),previousOverlay:asset.overlay});
+      }
+      const changed=rows.filter(row=>row.sha256!==row.after);if(!changed.length)return;
+      const id=randomUUID(),entry={id,kind:'batch',label,date:new Date().toISOString(),files:[]};
+      for(const [index,row] of changed.entries()){
+        row.overlay=`mods/batches/${id}/${row.asset.path}`;const backup=`history/${id}-${index}.snapshot`;
+        await writeSafe(this.root,backup,row.before,true);await writeSafe(this.root,row.overlay,row.data,true);
+        entry.files.push({path:row.asset.path,backup,sha256:row.sha256,after:row.after});
+      }
+      await writeSafe(this.root,`history/${id}.json`,JSON.stringify(entry),true);
+      // Nothing staged is visible until the single atomic manifest replacement.
+      for(const row of rows)if(hash(await this.read(row.asset.path))!==row.sha256)throw new Error('Soubor se během ukládání změnil mimo editor.');
+      const previousVersion=this.manifest.version;this.manifest.version=2;
+      for(const row of changed)row.asset.overlay=row.overlay;this.manifest.history.push(entry);
+      try{await this.saveManifest();}
+      catch(error){this.manifest.history.pop();this.manifest.version=previousVersion;for(const row of changed){if(row.previousOverlay===undefined)delete row.asset.overlay;else row.asset.overlay=row.previousOverlay;}throw error;}
+    }finally{this.busy=false;}
+  }
   async createFiles(files, label = 'Přidání souborů') {
     if (this.busy) throw new Error('Probíhá jiné ukládání.');
     if (!Array.isArray(files) || !files.length || files.length > 64) throw new Error('Neplatné nové soubory.');
@@ -307,6 +342,14 @@ export class ModProject {
       return changeNavigationConnection(before, request);
     }, request?.action === 'disconnect' ? 'Odpojení navigačních bodů' : 'Propojení navigačních bodů');
   }
+  async changeNavigationPoint(name, request, expectedHash) {
+    if(!/^missions\/[^/]+\/check\.bin$/i.test(name))throw new Error('Soubor není check.bin mise.');
+    const before=await this.read(name);if(hash(before)!==expectedHash)throw new Error('Soubor se od otevření změnil. Otevřete jej znovu.');
+    const changed=changeNavigationPoint(before,request),files=[{path:name,data:changed.data,expectedHash}],segment=this.index.get(key(name.replace(/check\.bin$/i,'clusters.seg')));
+    if(segment){const source=await this.read(segment.path);files.push({path:segment.path,data:remapSegments(source,changed.mapping,changed.pointCount),expectedHash:hash(source)});}
+    await this.changeBatch(files,request?.action==='add'?'Přidání navigačního bodu':'Odstranění navigačního bodu');
+    return changed.index;
+  }
   async saveTrack(name, changes, expectedHash) {
     if (!/\.tck$/i.test(name)) throw new Error('Soubor není TCK stopa.');
     await this.change(name, before => {
@@ -361,6 +404,7 @@ export class ModProject {
     const entry = this.manifest.history.at(-1);
     if (!entry) return;
     if (entry.kind === 'create') return this.undoCreation(entry);
+    if(entry.kind==='batch'||this.asset(entry.path).overlay)return this.undoBatch(entry);
     if (!/^history\/[a-f0-9-]+\.snapshot$/.test(entry.backup)) throw new Error('Neplatná záloha historie.');
     const before = await readSafe(this.root, entry.backup);
     const after = await this.read(entry.path);
@@ -374,6 +418,26 @@ export class ModProject {
       catch (error) { this.manifest.history.push(entry); await writeSafe(this.root, `mods/${this.asset(entry.path).path}`, after); throw error; }
     } finally { this.busy = false; }
   }
+  async undoBatch(entry) {
+    if(this.busy)throw new Error('Probíhá jiné ukládání.');
+    const files=entry.kind==='batch'?entry.files:[entry];
+    if(!Array.isArray(files)||!files.length||files.length>64)throw new Error('Neplatná skupinová historie.');
+    this.busy=true;
+    try{
+      const rows=[],seen=new Set(),id=randomUUID();
+      for(const file of files){
+        const asset=this.asset(file.path),canonical=key(asset.path);if(seen.has(canonical)||!/^history\/[a-f0-9-]+\.snapshot$/.test(file.backup))throw new Error('Neplatná záloha historie.');seen.add(canonical);
+        const before=await readSafe(this.root,file.backup),after=await this.read(asset.path);
+        if(hash(before)!==file.sha256||hash(after)!==file.after)throw new Error('Historie neodpovídá aktuálním datům; soubor mohl být změněn mimo editor.');
+        await this.original(asset);rows.push({asset,before,after:hash(after),previousOverlay:asset.overlay,overlay:`mods/batches/${id}/${asset.path}`});
+      }
+      for(const row of rows)await writeSafe(this.root,row.overlay,row.before,true);
+      for(const row of rows)if(hash(await this.read(row.asset.path))!==row.after)throw new Error('Soubor se během vracení změnil mimo editor.');
+      for(const row of rows)row.asset.overlay=row.overlay;this.manifest.history.pop();
+      try{await this.saveManifest();}
+      catch(error){this.manifest.history.push(entry);for(const row of rows){if(row.previousOverlay===undefined)delete row.asset.overlay;else row.asset.overlay=row.previousOverlay;}throw error;}
+    }finally{this.busy=false;}
+  }
   async undoCreation(entry) {
     if (this.busy) throw new Error('Probíhá jiné ukládání.');
     if (!Array.isArray(entry.files) || !entry.files.length || entry.files.length > 64) throw new Error('Neplatná historie nových souborů.');
@@ -385,7 +449,7 @@ export class ModProject {
         const asset = this.asset(file.path);
         if (!asset.created || asset.creation !== entry.id || removed.has(key(file.path)) || hash(await this.read(file.path)) !== file.sha256) throw new Error('Historie neodpovídá aktuálním datům nové mise.');
         await this.original(asset); removed.add(key(file.path));
-        try { overlays.push({ path: `mods/${asset.path}`, bytes: await readSafe(this.root, `mods/${asset.path}`) }); }
+        try { const bytes=await readSafe(this.root, `mods/${asset.path}`);if(asset.overlay&&hash(bytes)!==file.sha256)throw new Error('Historie neodpovídá skryté vrstvě souboru nové mise.');overlays.push({ path: `mods/${asset.path}`, bytes }); }
         catch (error) { if (error.code !== 'ENOENT') throw error; }
       }
       // Remove only verified overlays, with rollback if publication fails.

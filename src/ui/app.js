@@ -261,6 +261,20 @@ function renderNavigation(main, file) {
   const tools = element('div', undefined, 'tools'), number = element('input'), jump = element('button', 'Vybrat bod'), fit = element('button', 'Zarámovat síť'), focus = element('button', 'Přiblížit bod'), background = element('button', 'Zobrazit geometrii mise'), viewport = element('div', undefined, 'viewport');
   number.type = 'number'; number.min = '0'; number.max = String(Math.max(0,file.points.length-1)); number.step = '1'; number.value = '0'; number.setAttribute('aria-label','Číslo navigačního bodu'); focus.disabled = !file.points.length;
   tools.append(number,jump,fit,focus,background); center.append(tools,viewport);
+  const addPoint=element('button','Přidat bod…'),deletePoint=element('button','Odstranit bod');deletePoint.disabled=!file.points.length;tools.append(addPoint,deletePoint);
+  async function changePoint(request){
+    if(state.texts.size)throw new Error('Před změnou bodů uložte nebo zahoďte rozepsané vlastnosti.');
+    const result=await api.changeNavigationPoint(file.path,request,file.sha256);state.file=result.file;state.navigationIndex=Math.max(0,result.index);await refresh();renderDetail();status('Navigační body a odkazy segmentů uložené společně se zálohou a undo.');
+  }
+  addPoint.onclick=()=>run(async()=>{
+    if(state.texts.size)throw new Error('Před přidáním bodu uložte nebo zahoďte rozepsané vlastnosti.');
+    const dialog=element('dialog'),fields=element('div',undefined,'mission-fields'),type=element('select'),create=element('button','Přidat bod','primary'),cancel=element('button','Zrušit'),actions=element('div',undefined,'tools');
+    const coordinates=['X','Y','Z'].map((axis,i)=>{const label=element('label',`Pozice ${axis}`),input=element('input');input.type='number';input.step='any';input.value=String(file.points[state.navigationIndex]?.position[i]??0);input.setAttribute('aria-label',`Pozice nového bodu ${axis}`);label.append(input);fields.append(label);return input;});
+    type.setAttribute('aria-label','Kategorie nového navigačního bodu');for(const [value,label] of [[1,'Chodci'],[2,'AI'],[4,'Vozidla'],[8,'Zastávky']]){const option=element('option',label);option.value=String(value);type.append(option);}
+    actions.append(cancel,create);dialog.append(element('h3','Nový navigační bod'),fields,element('p','Kategorie'),type,element('p','Nový bod nemá spoje. Po přidání ho můžete připojit k síti tlačítkem Propojit body.','notice'),actions);main.append(dialog);dialog.addEventListener('close',()=>dialog.remove(),{once:true});cancel.onclick=()=>dialog.close();
+    create.onclick=()=>run(async()=>{if(coordinates.some(input=>input.value===''))throw new Error('Vyplňte všechny tři souřadnice.');await changePoint({action:'add',position:coordinates.map(input=>Number(input.value)),type:Number(type.value)});});dialog.showModal();coordinates[0].focus();
+  });
+  deletePoint.onclick=()=>run(()=>changePoint({action:'delete',index:state.navigationIndex}));
   let properties;
   let pickingTarget = false;
   const target = element('input'), direction = element('select'), pickTarget = element('button','Vybrat cíl ve 3D');

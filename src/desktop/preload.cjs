@@ -29,6 +29,7 @@ contextBridge.exposeInMainWorld('workbench', {
   saveItems: (name, changes, expectedHash) => invoke('asset:items', name, changes, expectedHash),
   saveNavigation: (name, changes, expectedHash) => invoke('asset:navigation', name, changes, expectedHash),
   changeNavigationConnection: (name, request, expectedHash) => invoke('asset:navigation-connection', name, request, expectedHash),
+  changeNavigationPoint: (name, request, expectedHash) => invoke('asset:navigation-point', name, request, expectedHash),
   saveRoads: (name, changes, expectedHash) => invoke('asset:roads', name, changes, expectedHash),
   saveTrack: (name, changes, expectedHash) => invoke('asset:track', name, changes, expectedHash),
   saveDifference: (name, changes, expectedHash) => invoke('asset:difference', name, changes, expectedHash),

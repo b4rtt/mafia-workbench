@@ -85,7 +85,7 @@ export async function synchronizeAssets(project, game, previous = {}, progress =
     const target = canonical(asset.path), old = previous[target];
     // The owned snapshot is the baseline. Inventory checks missing files and links
     // without reopening every unchanged original and test copy on every launch.
-    if (existing.has(target) && !mods.has(target) && old?.source === asset.sha256 && old.applied === asset.sha256 && validHash(old.applied)) files[target] = old;
+    if (existing.has(target) && !asset.overlay && !mods.has(target) && old?.source === asset.sha256 && old.applied === asset.sha256 && validHash(old.applied)) files[target] = old;
     else pending.push({ asset, target, old });
   }
   let copied = 0;
@@ -96,7 +96,7 @@ export async function synchronizeAssets(project, game, previous = {}, progress =
     if (currentHash !== applied) {
       if (existing.has(target)) await writeSafe(game, target, bytes);
       else {
-        const origin = mods.has(target) ? `mods/${mods.get(target)}` : asset.original;
+        const origin = asset.overlay ?? (mods.has(target) ? `mods/${mods.get(target)}` : asset.original);
         await cloneFile(project.root, origin, game, target);
         if (hash(await readSafe(game, target)) !== applied) throw new Error('Data projektu se změnila během přípravy testu. Spusťte přípravu znovu.');
       }

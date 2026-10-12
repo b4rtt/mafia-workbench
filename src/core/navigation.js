@@ -69,6 +69,33 @@ export function changeNavigationConnection(source, request) {
   parseNavigation(result); return result;
 }
 
+export function changeNavigationPoint(source, request) {
+  const parsed=parseNavigation(source),bytes=Buffer.from(source),{action,index,position,type=1}=request??{};
+  if(!['add','delete'].includes(action))throw new Error('Check: neplatná operace s bodem.');
+  if(parsed.points.some((point,i)=>i>0&&point.position[0]<parsed.points[i-1].position[0]))throw new Error('Check: body nejsou seřazené podle X. Nejprve je potřeba opravit síť i segmenty.');
+  let insertion,point;
+  if(action==='add'){
+    if(parsed.points.length===65536)throw new Error('Check: síť už má maximálních 65 536 bodů.');
+    if(!Array.isArray(position)||position.length!==3||position.some(n=>typeof n!=='number'||!Number.isFinite(n)||!Number.isFinite(Math.fround(n)))||!Number.isInteger(type)||type<0||type>65535)throw new Error('Check: neplatná pozice nebo kategorie nového bodu.');
+    const xyz=position.map(Math.fround);insertion=parsed.points.findIndex(p=>p.position[0]>xyz[0]);if(insertion===-1)insertion=parsed.points.length;
+    point=Buffer.alloc(POINT_SIZE);xyz.forEach((n,i)=>point.writeFloatLE(n,i*4));point.writeUInt16LE(type,12);point.writeUInt16LE(50,16); // PC web_node_ctor default radius; other descriptors and links start empty.
+  }else if(!Number.isInteger(index)||index<0||index>=parsed.points.length)throw new Error('Check: neplatný bod k odstranění.');
+  const mapping=parsed.points.map(p=>action==='delete'?(p.index===index?-1:p.index-(p.index>index?1:0)):p.index+(p.index>=insertion?1:0));
+  const nodes=[],connections=[],start=8+parsed.points.length*POINT_SIZE;
+  for(const original of parsed.points){
+    if(action==='add'&&original.index===insertion)nodes.push(point);
+    if(mapping[original.index]===-1)continue;
+    const node=Buffer.from(bytes.subarray(8+original.index*POINT_SIZE,8+(original.index+1)*POINT_SIZE)),links=[];
+    for(const link of original.links){if(mapping[link.target]===-1)continue;const data=Buffer.from(bytes.subarray(start+link.index*LINK_SIZE,start+(link.index+1)*LINK_SIZE));data.writeUInt16LE(mapping[link.target]);links.push(data);}
+    if(links.length!==original.links.length)node[28]=node[29]=links.length;
+    nodes.push(node);connections.push(...links);
+  }
+  if(action==='add'&&insertion===parsed.points.length)nodes.push(point);
+  const header=Buffer.from(bytes.subarray(0,8));header.writeUInt32LE(nodes.length,4);
+  const result=Buffer.concat([header,...nodes,...connections]);parseNavigation(result);
+  return {data:result,mapping,index:action==='add'?insertion:Math.min(index,nodes.length-1),pointCount:nodes.length};
+}
+
 export function editNavigation(source, changes) {
   const parsed = parseNavigation(source), result = Buffer.from(source), seen = new Set();
   if (!Array.isArray(changes) || changes.length > 1024) throw new Error('Check: neplatné úpravy.');
