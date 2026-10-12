@@ -244,6 +244,12 @@ export class Viewport {
     return warnings;
   }
   showBackdrop(value) { if (this.backdrop) this.backdrop.visible = value; }
+  showCollisionBoxes(boxes, visible) {
+    if(!this.collisionOverlay){this.collisionOverlay=new THREE.Group();this.collisionOverlay.scale.z=-1;this.scene.add(this.collisionOverlay);
+      for(const box of boxes){const helper=new THREE.Box3Helper(new THREE.Box3(new THREE.Vector3(...box.min),new THREE.Vector3(...box.max)),0xf59e0b);helper.name=box.name;this.materials.add(helper.material);this.collisionOverlay.add(helper);}}
+    // Outside root: helpers cannot capture object picking or alter framing.
+    this.collisionOverlay.visible=visible;
+  }
   wireframe(value) { for (const material of this.materials) material.wireframe = value; }
   dispose() {
     this.disposed = true; this.observer.disconnect(); this.renderer.setAnimationLoop(null); this.controls.dispose(); this.gizmo.dispose();

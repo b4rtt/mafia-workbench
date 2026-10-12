@@ -10,6 +10,12 @@ function viewport() {
   return view;
 }
 function source(id, name, parent, position) { return { id, name, parent, position, fields: { position: id + '/position' } }; }
+test('collision helpers reflect native Z without changing object picking or camera framing',()=>{
+  const view=viewport();view.scene=new THREE.Scene();view.scene.add(view.root);view.root.add(new THREE.Mesh(new THREE.BoxGeometry(1,1,1)));view.fit();const before=view.captureCamera();
+  view.showCollisionBoxes([{name:'far collision',min:[100,0,200],max:[101,1,201]}],true);view.fit();assert.deepEqual(view.captureCamera(),before);
+  view.scene.updateMatrixWorld(true);const helper=view.collisionOverlay.children[0],bounds=new THREE.Box3().setFromObject(helper);assert.deepEqual(bounds.min.toArray(),[100,0,-201]);assert.deepEqual(bounds.max.toArray(),[101,1,-200]);
+  const ray=new THREE.Raycaster(new THREE.Vector3(100.5,.5,-199),new THREE.Vector3(0,0,-1));assert.equal(ray.intersectObjects(view.root.children,true).length,0);
+});
 test('framing fits all transformed corners in narrow and wide viewports and keeps the viewing angle', () => {
   for (const aspect of [.4,2]) {
     const view=viewport(); view.camera.fov=50; view.camera.aspect=aspect;

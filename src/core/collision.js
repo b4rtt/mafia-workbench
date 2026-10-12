@@ -62,8 +62,11 @@ export function parseCollision(source) {
   return {bytes,gridOffset,links,grid,separator,primitives,vertexCount,extraVertices,cellSeparator,cells,tail:bytes.subarray(offset)};
 }
 
-export function appendCollisionBoxes(source, boxes) {
-  const parsed=parseCollision(source);if(!Array.isArray(boxes)||boxes.length>65536)fail('neplatný seznam boxů.');if(!boxes.length)return Buffer.from(source);
+export function appendCollisionBoxes(source, boxes, removedIndices = []) {
+  const parsed=parseCollision(source);if(!Array.isArray(boxes)||boxes.length>65536)fail('neplatný seznam boxů.');
+  if(!Array.isArray(removedIndices)||new Set(removedIndices).size!==removedIndices.length||removedIndices.some(i=>!Number.isInteger(i)||i<0||i>=parsed.primitives.aabbs.count))fail('neplatný seznam odstraňovaných boxů.');
+  if(!boxes.length&&!removedIndices.length)return Buffer.from(source);
+  const removed=new Set(removedIndices),retained=parsed.primitives.aabbs.records.filter(record=>!removed.has(record.index)),remapped=new Map(retained.map((record,index)=>[record.index,index]));
   const {grid}=parsed,links=parsed.links.map(link=>link.raw),records=[],byName=new Map(),nameCounts=new Map();
   for(const link of parsed.links){const key=link.name.normalize('NFC').toLowerCase();byName.set(key,link.index);nameCounts.set(key,(nameCounts.get(key)??0)+1);}
   let minX=grid.minX,minZ=grid.minZ,maxX=grid.maxX,maxZ=grid.maxZ;
@@ -80,7 +83,9 @@ export function appendCollisionBoxes(source, boxes) {
     minX=Math.min(minX,xyzMin[0]);minZ=Math.min(minZ,xyzMin[2]);maxX=Math.max(maxX,xyzMax[0]);maxZ=Math.max(maxZ,xyzMax[2]);
   }
   // Expand by whole existing cells; preserve the existing axes and every old
-  // cell's opaque header and flags. Untouched cells retain their exact padding.
+  // cell's runtime-pointer bytes and flags. +12 is max collision height, used
+  // by the engine to reject cells before testing their primitives.
+  // Untouched cells retain their exact padding.
   // No existing collider is regenerated.
   const left=Math.ceil((grid.minX-minX)/grid.cellWidth),bottom=Math.ceil((grid.minZ-minZ)/grid.cellLength),right=Math.ceil((maxX-grid.maxX)/grid.cellWidth),top=Math.ceil((maxZ-grid.maxZ)/grid.cellLength);
   const extend=(axis,before,after,step)=>[...Array.from({length:before},(_,i)=>Math.fround(axis[0]-(before-i)*step)),...axis,...Array.from({length:after},(_,i)=>Math.fround(axis.at(-1)+(i+1)*step))];
@@ -90,27 +95,32 @@ export function appendCollisionBoxes(source, boxes) {
   const lower=(axis,value,upper=false)=>{let lo=0,hi=axis.length;while(lo<hi){const mid=(lo+hi)>>>1;if(axis[mid]<value||(upper&&axis[mid]===value))lo=mid+1;else hi=mid;}return lo;};
   const additions=new Map();let referenceCount=0;
   for(const [i,record] of records.entries()){
-    const offset=(parsed.primitives.aabbs.count+i)*32;if(offset>0xffffff)fail('příliš mnoho kolizních boxů.');
+    const offset=(retained.length+i)*32;if(offset>0xffffff)fail('příliš mnoho kolizních boxů.');
     const firstX=Math.max(0,lower(x,record.min[0])-1),lastX=Math.min(width-1,lower(x,record.max[0],true)-1),firstZ=Math.max(0,lower(z,record.min[2])-1),lastZ=Math.min(length-1,lower(z,record.max[2],true)-1);
     referenceCount+=(lastX-firstX+1)*(lastZ-firstZ+1);if(referenceCount>10000000)fail('příliš mnoho nových vazeb buněk.');
     for(let row=firstZ;row<=lastZ;row++)for(let col=firstX;col<=lastX;col++){const index=row*width+col,refs=additions.get(index)??[];refs.push((0x81000000+offset)>>>0);additions.set(index,refs);}
   }
-  const gridRaw=Buffer.from(grid.raw);gridRaw.writeFloatLE(x[0],0);gridRaw.writeFloatLE(z[0],4);gridRaw.writeFloatLE(x.at(-1),8);gridRaw.writeFloatLE(z.at(-1),12);gridRaw.writeUInt32LE(width,24);gridRaw.writeUInt32LE(length,28);gridRaw.writeUInt32LE(parsed.primitives.aabbs.count+records.length,0x40);
+  const gridRaw=Buffer.from(grid.raw);gridRaw.writeFloatLE(x[0],0);gridRaw.writeFloatLE(z[0],4);gridRaw.writeFloatLE(x.at(-1),8);gridRaw.writeFloatLE(z.at(-1),12);gridRaw.writeUInt32LE(width,24);gridRaw.writeUInt32LE(length,28);gridRaw.writeUInt32LE(retained.length+records.length,0x40);
   const cells=[];
   for(let row=0;row<length;row++)for(let col=0;col<width;col++){
     const old=col>=left&&col<left+grid.width&&row>=bottom&&row<bottom+grid.length?parsed.cells[(row-bottom)*grid.width+col-left]:null,added=additions.get(row*width+col)??[];
-    if(!added.length&&old){cells.push(old.raw);continue;}
-    const count=(old?.references.length??0)+added.length,raw=Buffer.alloc(16+count*5+pad(count));if(old)old.header.copy(raw);raw.writeUInt32LE(count);let n=0;
+    const refs=(old?.references??[]).filter(ref=>ref.type!==0x81||!removed.has(ref.index)).map(ref=>ref.type===0x81?{...ref,index:remapped.get(ref.index)}:ref);
+    if(!added.length&&old&&refs.length===old.references.length){
+      if(refs.every((ref,i)=>ref.index===old.references[i].index)){cells.push(old.raw);continue;}
+      const raw=Buffer.from(old.raw);refs.forEach((ref,i)=>raw.writeUInt32LE((ref.type*0x1000000+ref.index*arrays.find(a=>a.type===ref.type).size)>>>0,16+i*4));cells.push(raw);continue;
+    }
+    const count=refs.length+added.length,raw=Buffer.alloc(16+count*5+pad(count));if(old)old.header.copy(raw);raw.writeUInt32LE(count);let n=0;
+    if(added.length){const previousHeight=old?.header.readFloatLE(12)??-Infinity;if(old&&!Number.isFinite(previousHeight))fail('neplatná maximální výška buňky.');const maxHeight=added.reduce((height,packed)=>Math.max(height,records[(packed&0xffffff)/32-retained.length].max[1]),previousHeight);raw.writeFloatLE(maxHeight,12);}
     // Queries can stop early on sorted triangle X bounds. Test new volumes
     // before that existing triangle sequence, keeping its order unchanged.
     for(const packed of added){raw.writeUInt32LE(packed,16+n*4);n++;}
-    for(const ref of old?.references??[]){const spec=arrays.find(array=>array.type===ref.type);raw.writeUInt32LE((ref.type*0x1000000+ref.index*spec.size)>>>0,16+n*4);raw[16+count*4+n]=ref.flag;n++;}
+    for(const ref of refs){const spec=arrays.find(array=>array.type===ref.type);raw.writeUInt32LE((ref.type*0x1000000+ref.index*spec.size)>>>0,16+n*4);raw[16+count*4+n]=ref.flag;n++;}
     cells.push(raw);
   }
   const offsets=Buffer.alloc(links.length*4),shift=(links.length-parsed.links.length)*4,linkBlock=parsed.bytes.subarray(24+parsed.links.length*4,parsed.gridOffset),newLinks=links.slice(parsed.links.length);let offset=parsed.gridOffset+shift;
   parsed.links.forEach((link,i)=>offsets.writeUInt32LE(link.offset+shift,i*4));newLinks.forEach((raw,i)=>{offsets.writeUInt32LE(offset,(parsed.links.length+i)*4);offset+=raw.length;});
   const header=Buffer.from(parsed.bytes.subarray(0,24));header.writeUInt32LE(offset,8);header.writeUInt32LE(links.length,12);
   const bounds=Buffer.alloc((x.length+z.length)*4);[...x,...z].forEach((n,i)=>bounds.writeFloatLE(n,i*4));
-  const result=Buffer.concat([header,offsets,linkBlock,...newLinks,gridRaw,bounds,parsed.separator,...arrays.flatMap(spec=>[parsed.primitives[spec.name].raw,...(spec.name==='aabbs'?records.map(record=>record.raw):[])]),parsed.extraVertices,parsed.cellSeparator,...cells,parsed.tail]);
+  const result=Buffer.concat([header,offsets,linkBlock,...newLinks,gridRaw,bounds,parsed.separator,...arrays.flatMap(spec=>spec.name==='aabbs'?[...retained.map(record=>record.raw),...records.map(record=>record.raw)]:[parsed.primitives[spec.name].raw]),parsed.extraVertices,parsed.cellSeparator,...cells,parsed.tail]);
   parseCollision(result);return result;
 }

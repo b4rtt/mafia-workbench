@@ -17,6 +17,8 @@ import { inspectDifference, editDifference } from './difference.js';
 import { inspectReplay, editReplay } from './replay.js';
 import { assetCategory } from '../shared/categories.js';
 import { readEmptyMissionZip, configureEmptyMission, missionName } from './mission.js';
+import { parseCollision } from './collision.js';
+import { collisionOwnership, ownedCollisionRecords, prepareSceneCollision } from './scene-collision.js';
 
 const MANIFEST = 'workbench.json';
 const key = p => relativeAssetPath(p).normalize('NFC').toLowerCase();
@@ -105,6 +107,10 @@ export class ModProject {
     return { name: this.manifest.name, root: this.root, assets: result, history: this.manifest.history.length };
   }
   async change(name, data, label = 'Úprava souboru') {
+    if(/scene2\.bin$/i.test(name)&&collisionOwnership(this.manifest,name).length){
+      const before=await this.read(name),after=Buffer.from(typeof data==='function'?await data(before):data),collision=await prepareSceneCollision(this,name,before,after);
+      return this.changeBatch([{path:name,data:after,expectedHash:hash(before)},...collision.files],label,collision.ownership);
+    }
     if(this.asset(name).overlay)return this.changeBatch([{path:name,data}],label);
     if (this.busy) throw new Error('Probíhá jiné ukládání.');
     this.busy = true;
@@ -126,7 +132,7 @@ export class ModProject {
     } finally { this.busy = false; }
   }
   async saveManifest() { await writeSafe(this.root, MANIFEST, JSON.stringify(this.manifest, null, 2)); }
-  async changeBatch(files, label) {
+  async changeBatch(files, label, collisionSnapshot) {
     if(this.busy)throw new Error('Probíhá jiné ukládání.');
     if(!Array.isArray(files)||!files.length||files.length>64)throw new Error('Neplatná skupina úprav.');
     this.busy=true;
@@ -142,6 +148,7 @@ export class ModProject {
       }
       const changed=rows.filter(row=>row.sha256!==row.after);if(!changed.length)return;
       const id=randomUUID(),entry={id,kind:'batch',label,date:new Date().toISOString(),files:[]};
+      if(collisionSnapshot)entry.collisionOwnership=collisionSnapshot;
       for(const [index,row] of changed.entries()){
         row.overlay=`mods/batches/${id}/${row.asset.path}`;const backup=`history/${id}-${index}.snapshot`;
         await writeSafe(this.root,backup,row.before,true);await writeSafe(this.root,row.overlay,row.data,true);
@@ -246,6 +253,14 @@ export class ModProject {
   }
   async saveScene(name, changes, expectedHash) {
     if (!/scene2\.bin$/i.test(name) || !Array.isArray(changes) || changes.length > 1024) throw new Error('Neplatná úprava scény.');
+    if(collisionOwnership(this.manifest,name).length){
+      const before=await this.read(name);if(hash(before)!==expectedHash)throw new Error('Soubor se od otevření změnil. Otevřete jej znovu.');
+      let after=before;for(const {id,value} of changes)after=editScene(after,id,value);
+      const oldScene=inspectScene(before),newScene=inspectScene(after),renames=new Map();
+      for(const object of oldScene.objects){const current=newScene.objects.find(o=>o.id===object.id);if(current&&current.name!==object.name)renames.set(object.name,current.name);}
+      const collision=await prepareSceneCollision(this,name,before,after,{renames});
+      return this.changeBatch([{path:name,data:after,expectedHash},...collision.files],'Úprava scény a jejích kolizí',collision.ownership);
+    }
     await this.change(name, before => {
       if (expectedHash !== hash(before)) throw new Error('Soubor se od otevření změnil. Otevřete jej znovu.');
       let result = before;
@@ -255,19 +270,32 @@ export class ModProject {
   }
   async changeSceneObject(name, operation, expectedHash) {
     if (!/^missions\/[^/]+\/scene2\.bin$/i.test(name)) throw new Error('Vyberte scene2.bin mise.');
-    await this.change(name, async before => {
-      if (expectedHash !== hash(before)) throw new Error('Soubor se od otevření změnil. Otevřete jej znovu.');
-      const folder = this.asset(name).path.slice(0, this.asset(name).path.lastIndexOf('/'));
-      const geometry = parseFourDs(await this.read(`${folder}/scene.4ds`));
-      let request = operation;
-      if (['add-model','add-human'].includes(operation?.kind)) {
-        if (typeof operation.model !== 'string' || !/^models\/[^/\\]+\.4ds$/i.test(operation.model)) throw new Error('Vyberte model z hlavní složky models.');
-        const model=parseFourDs(await this.read(operation.model), true);
-        if(operation.kind==='add-human'&&!model.meshes.some(mesh=>mesh.joint))throw new Error('Vyberte model postavy s kostrou.');
-        request = { ...operation, model: this.asset(operation.model).path.slice(7).replace(/\.4ds$/i, '.i3d') };
-      }
-      return changeSceneObject(before, request, geometry.meshes.map(mesh => mesh.name));
-    }, { 'add-model': 'Vložení modelu do mise', 'add-human':'Vložení postavy a jejího skriptu', duplicate: 'Duplikace objektu mise', delete: 'Odstranění objektu mise' }[operation?.kind] ?? 'Úprava objektů mise');
+    const before=await this.read(name);
+    if (expectedHash !== hash(before)) throw new Error('Soubor se od otevření změnil. Otevřete jej znovu.');
+    const folder = this.asset(name).path.slice(0, this.asset(name).path.lastIndexOf('/'));
+    const geometry = parseFourDs(await this.read(`${folder}/scene.4ds`));
+    let request = operation;
+    if (['add-model','add-human'].includes(operation?.kind)) {
+      if (typeof operation.model !== 'string' || !/^models\/[^/\\]+\.4ds$/i.test(operation.model)) throw new Error('Vyberte model z hlavní složky models.');
+      const model=parseFourDs(await this.read(operation.model), true);
+      if(operation.kind==='add-human'&&!model.meshes.some(mesh=>mesh.joint))throw new Error('Vyberte model postavy s kostrou.');
+      request = { ...operation, model: this.asset(operation.model).path.slice(7).replace(/\.4ds$/i, '.i3d') };
+    }
+    const after=operation?.kind==='collision'?before:changeSceneObject(before, request, geometry.meshes.map(mesh => mesh.name));
+    const requests=[];
+    if(operation?.collision){
+      if(!['add-model','collision'].includes(operation.kind))throw new Error('Kolize lze generovat pouze pro statický model.');
+      const object=operation.kind==='collision'?inspectScene(before).objects.find(o=>o.id===operation.id):null;
+      if(operation.kind==='collision'&&(!object||object.frameType!==9||object.actorBound||geometry.meshes.some(m=>key(m.name)===key(object.name))))throw new Error('Vyberte samostatný statický model bez aktéra.');
+      requests.push({...operation.collision,name:object?.name??operation.name});
+    }else if(operation?.kind==='collision')throw new Error('Zvolte způsob kolize.');
+    if(operation?.kind==='duplicate'){
+      const original=inspectScene(before).objects.find(o=>o.id===operation.id),owned=collisionOwnership(this.manifest,name).find(o=>key(o.name)===key(original?.name??''));
+      if(owned){const klz=parseCollision(await this.read(`${folder}/tree.klz`)),record=ownedCollisionRecords(klz,[owned])[0];requests.push({name:operation.name,kind:'aabb',material:record.material});}
+    }
+    const collision=await prepareSceneCollision(this,name,before,after,{requests,expectedHash:operation?.collisionHash});
+    const label={ 'add-model': 'Vložení modelu do mise', 'add-human':'Vložení postavy a jejího skriptu', duplicate: 'Duplikace objektu mise', delete: 'Odstranění objektu mise',collision:'Generování kolize modelu' }[operation?.kind]??'Úprava objektů mise';
+    await this.changeBatch([{path:name,data:after,expectedHash},...(collision?.files??[])],label,collision?.ownership);
   }
   async inspect(name) {
     const asset = this.asset(name), bytes = await this.read(name);
@@ -402,9 +430,19 @@ export class ModProject {
     const scene = await this.inspect(name), folder = scene.path.slice(0, scene.path.lastIndexOf('/'));
     const geometry = await this.inspect(`${folder}/scene.4ds`);
     if (geometry.type !== 'model') throw new Error(geometry.warning ?? 'Geometrii této mapy zatím nelze přečíst.');
-    return { ...scene, type: 'map', geometry };
+    let collision;
+    if(this.index.has(key(`${folder}/tree.klz`))){
+      const bytes=await this.read(`${folder}/tree.klz`);collision={sha256:hash(bytes),boxes:[]};
+      try{const ownership=collisionOwnership(this.manifest,scene.path),parsed=parseCollision(bytes),records=ownedCollisionRecords(parsed,ownership);collision.boxes=records.map((record,i)=>({name:ownership[i].name,min:record.min,max:record.max,material:record.material}));}
+      catch(error){collision.warning=error.message;}
+    }
+    return { ...scene, type: 'map', geometry, collision };
   }
-  async restore(name) { const asset = this.asset(name); await this.change(name, await this.original(asset), 'Obnovení originálu'); }
+  async restore(name) {
+    const asset=this.asset(name),original=await this.original(asset);
+    if(/scene2\.bin$/i.test(name)&&collisionOwnership(this.manifest,name).length){const before=await this.read(name),collision=await prepareSceneCollision(this,name,before,original);return this.changeBatch([{path:name,data:original,expectedHash:hash(before)},...collision.files],'Obnovení scény a jejích kolizí',collision.ownership);}
+    await this.change(name,original,'Obnovení originálu');
+  }
   async undo() {
     const entry = this.manifest.history.at(-1);
     if (!entry) return;

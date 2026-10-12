@@ -2,20 +2,24 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseCollision, appendCollisionBoxes } from '../src/core/collision.js';
 
-function fixture() {
-  const header=Buffer.alloc(24,0xa5);header.write('GifC');header.writeUInt32LE(5,4);header.writeUInt32LE(52,8);header.writeUInt32LE(1,12);
-  const offsets=Buffer.alloc(4);offsets.writeUInt32LE(32);const gap=Buffer.from([1,2,3,4]),link=Buffer.alloc(16,0xee);link.writeUInt32LE(2);link.write('old\0',4);
-  const grid=Buffer.alloc(104,0xaa);for(const [i,n] of [0,0,20,20,10,10].entries())grid.writeFloatLE(n,i*4);grid.writeUInt32LE(2,24);grid.writeUInt32LE(2,28);
-  for(const offset of [0x30,0x38,0x40,0x48,0x50,0x58])grid.writeUInt32LE(1,offset);grid.writeUInt32LE(3,0x60);
-  const bounds=Buffer.alloc(24);[0,10,20,0,10,20].forEach((n,i)=>bounds.writeFloatLE(n,i*4));
-  const triangle=Buffer.alloc(32);triangle[0]=3;for(let i=0;i<3;i++){triangle.writeUInt16LE(i,4+i*4);triangle.writeUInt16LE(0x7fff,6+i*4);}triangle.writeFloatLE(1,20);
-  const prim=(type,size)=>{const bytes=Buffer.alloc(size,0xd5);bytes[0]=type;bytes.writeUInt32LE(0,4);return bytes;};
-  const aabb=prim(0x81,32);[1,2,3,4,5,6].forEach((n,i)=>aabb.writeFloatLE(n,8+i*4));
-  const vertices=Buffer.alloc(36);[0,0,0,1,0,0,0,0,1].forEach((n,i)=>vertices.writeFloatLE(n,i*4));
-  const cell=Buffer.alloc(16+24+8,0x88);cell.writeUInt32LE(6);[0x81,0x80,0x84,0x83,0x82,0].forEach((n,i)=>{cell.writeUInt32LE((n*0x1000000)>>>0,16+i*4);cell[40+i]=i+1;});
-  const empty=Buffer.alloc(16,0x19);empty.writeUInt32LE(0);
-  return Buffer.concat([header,offsets,gap,link,Buffer.from('GAP!'),grid,bounds,Buffer.from('SEP!'),triangle,aabb,prim(0x80,184),prim(0x84,20),prim(0x83,160),prim(0x82,24),vertices,Buffer.from('CELL'),cell,empty,empty,empty,Buffer.from('opaque tail')]);
-}
+import { collisionFixture as fixture } from './fixtures/collision.js';
+
+test('new box heights update the cell rejection bound without lowering existing collision bounds',()=>{
+  const bytes=fixture(),p=parseCollision(bytes),offset=p.cells[0].raw.byteOffset-p.bytes.byteOffset;bytes.writeFloatLE(50,offset+12);
+  const q=parseCollision(appendCollisionBoxes(bytes,[{name:'low',min:[1,0,1],max:[2,3,2]},{name:'high',min:[11,0,11],max:[12,8,12]}]));
+  assert.equal(q.cells[0].header.readFloatLE(12),50);assert.equal(q.cells[3].header.readFloatLE(12),8);assert.deepEqual(q.cells[1].raw,p.cells[1].raw);
+});
+
+test('removing an owned AABB remaps later references without touching other primitives, links or cell flags',()=>{
+  const first=appendCollisionBoxes(fixture(),[{name:'one',min:[1,0,1],max:[2,1,2]},{name:'two',min:[11,0,11],max:[12,1,12]}]),p=parseCollision(first),result=appendCollisionBoxes(first,[],[1]),q=parseCollision(result);
+  assert.equal(q.primitives.aabbs.count,2);assert.deepEqual(q.primitives.aabbs.records[1].raw,p.primitives.aabbs.records[2].raw);
+  for(const name of ['triangles','xtobbs','cylinders','obbs','spheres'])assert.deepEqual(q.primitives[name].raw,p.primitives[name].raw);
+  assert.deepEqual(q.cells[3].references,[{type:0x81,index:1,flag:0}]);assert.deepEqual(q.cells[0].references,parseCollision(fixture()).cells[0].references);
+  assert.deepEqual(q.cells[1].raw,p.cells[1].raw);assert.deepEqual(q.extraVertices,p.extraVertices);assert.deepEqual(q.links.map(l=>l.raw),p.links.map(l=>l.raw));assert.deepEqual(q.tail,p.tail);
+  assert.deepEqual(q.cells[3].raw.subarray(20),p.cells[3].raw.subarray(20));
+  const replace=parseCollision(appendCollisionBoxes(first,[{name:'one',min:[2,0,2],max:[3,1,3]}],[1]));assert.equal(replace.primitives.aabbs.count,3);assert.deepEqual(replace.primitives.aabbs.records[1].raw,p.primitives.aabbs.records[2].raw);
+  for(const removal of [[-1],[3],[1,1],[.5]])assert.throws(()=>appendCollisionBoxes(first,[],removal),/odstraňovaných/);
+});
 
 test('KLZ v5 parses every primitive array, relative cell references and extra triangle vertices',()=>{
   const bytes=fixture(),p=parseCollision(bytes);
@@ -33,7 +37,7 @@ test('adding boxes expands XZ cells, uses array-relative offsets and retains all
   assert.deepEqual(q.grid.x,[-10,0,10,20,30]);assert.deepEqual(q.grid.z,[0,10,20]);assert.equal(q.primitives.aabbs.count,3);
   for(const [name,array] of Object.entries(p.primitives))assert.deepEqual(q.primitives[name].raw.subarray(0,array.raw.length),array.raw);
   assert.deepEqual(q.extraVertices,p.extraVertices);assert.deepEqual(q.tail,p.tail);assert.deepEqual(q.separator,p.separator);assert.deepEqual(q.cellSeparator,p.cellSeparator);
-  assert.deepEqual(q.cells[1].references.slice(1),p.cells[0].references);assert.deepEqual(q.cells[1].header.subarray(4),p.cells[0].header.subarray(4));
+  assert.deepEqual(q.cells[1].references.slice(1),p.cells[0].references);assert.deepEqual(q.cells[1].header.subarray(4,12),p.cells[0].header.subarray(4,12));assert.equal(q.cells[1].header.readFloatLE(12),2);
   assert.deepEqual(q.cells[2].raw,p.cells[1].raw);assert.deepEqual(q.cells[6].raw,p.cells[3].raw);
   assert.deepEqual(q.cells.filter(c=>c.references.some(r=>r.type===0x81&&r.index===1)).map(c=>c.index),[0,1,4,5]);
   assert.deepEqual(q.cells.filter(c=>c.references.some(r=>r.type===0x81&&r.index===2)).map(c=>c.index),[3]);
