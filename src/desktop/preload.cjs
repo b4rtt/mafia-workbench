@@ -26,6 +26,7 @@ contextBridge.exposeInMainWorld('workbench', {
   saveCache: (name, changes, expectedHash) => invoke('asset:cache', name, changes, expectedHash),
   saveItems: (name, changes, expectedHash) => invoke('asset:items', name, changes, expectedHash),
   saveNavigation: (name, changes, expectedHash) => invoke('asset:navigation', name, changes, expectedHash),
+  saveTrack: (name, changes, expectedHash) => invoke('asset:track', name, changes, expectedHash),
   restore: name => invoke('asset:restore', name),
   undo: () => invoke('project:undo'),
   replace: name => invoke('asset:replace', name),

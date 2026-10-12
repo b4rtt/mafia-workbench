@@ -2,6 +2,7 @@ import { categories, groupAssets } from '../shared/categories.js';
 import { Viewport } from './viewport.js';
 import { AnimationPreview } from './animation.js';
 import { NavigationViewport } from './navigation.js';
+import { TrackViewport } from './track.js';
 import { Group } from 'three';
 const api = window.workbench;
 const $ = id => document.getElementById(id);
@@ -78,7 +79,7 @@ function renderDetail() {
   state.viewport?.dispose(); state.viewport = null;
   for (const audio of $('detail').querySelectorAll('audio')) { audio.pause(); audio.removeAttribute('src'); audio.load(); }
   const main = $('detail'); main.replaceChildren();
-  const badges = { navigation: 'CHECK · NAVIGACE', items: 'PŘEDMĚTY · ZBRANĚ', textdb: 'TEXTDB · EDITACE', scene: 'SCÉNA · EDITACE', cache: 'CACHE · STATICKÉ MODELY', map: 'MAPA · 3D EDITACE', model: '4DS · 3D EDITACE', animation: '5DS · ANIMACE', image: 'OBRÁZEK · NÁHLED', audio: 'ZVUK · PŘEHRÁVAČ' };
+  const badges = { track: 'TCK · POHYBOVÁ STOPA', navigation: 'CHECK · NAVIGACE', items: 'PŘEDMĚTY · ZBRANĚ', textdb: 'TEXTDB · EDITACE', scene: 'SCÉNA · EDITACE', cache: 'CACHE · STATICKÉ MODELY', map: 'MAPA · 3D EDITACE', model: '4DS · 3D EDITACE', animation: '5DS · ANIMACE', image: 'OBRÁZEK · NÁHLED', audio: 'ZVUK · PŘEHRÁVAČ' };
   const head = element('div', undefined, 'file-header'); head.append(element('h2', file.path), element('span', badges[file.type] ?? 'BINÁRNÍ SOUBOR', 'badge')); main.append(head);
   const source = state.project.assets.find(a => a.path === file.path);
   main.append(element('div', `${file.size.toLocaleString('cs')} bajtů · ${source?.archive} · ${source?.variants ?? 1} variant archivů`, 'file-meta'));
@@ -103,6 +104,7 @@ function renderDetail() {
   if (file.type === 'textdb') renderTexts(main, file);
   else if (file.type === 'items') renderItems(main, file);
   else if (file.type === 'navigation') renderNavigation(main, file);
+  else if (file.type === 'track') renderTrack(main, file);
   else if (file.type === 'scene') renderProperties(main, file, api.saveScene);
   else if (file.type === 'cache') renderCache(main, file);
   else if (file.type === 'model') renderModel(main, file);
@@ -119,6 +121,35 @@ function renderDetail() {
     }
     main.append(element('pre', rows, 'binary'));
   }
+}
+function renderTrack(main, file) {
+  main.append(element('p', `TCK verze 4 · ${file.positions.length.toLocaleString('cs')} polohových klíčů · ${file.secondary.length.toLocaleString('cs')} doplňkových vektorů · ${file.duration} ms · krok ${file.step} ms. Náhled lineárně interpoluje dráhu; kostru postavy ani celou cutscénu nepřehrává.`, 'notice'));
+  if (file.tailBytes) main.append(element('p', `${file.tailBytes.toLocaleString('cs')} koncových bajtů není rozpoznaných. Při editaci se zachovají přesně.`, 'notice'));
+  main.append(element('p', `Hlavička, vektor A (raw): ${JSON.stringify(file.headerVectors[0])} · vektor B (raw): ${JSON.stringify(file.headerVectors[1])}. Časování, počty a hlavička zůstávají zachované.`, 'muted'));
+  const layout = element('div', undefined, 'model-workspace'), center = element('section', undefined, 'model-center'), inspector = element('section', undefined, 'model-inspector'); layout.append(center,inspector); main.append(layout);
+  const tools = element('div', undefined, 'tools'), play = element('button','Přehrát dráhu'), fit = element('button','Zarámovat dráhu'), seek = element('input'), clock = element('output'), viewport = element('div',undefined,'viewport');
+  seek.type = 'range'; seek.min = '0'; seek.max = String(file.duration); seek.step = '1'; seek.value = '0'; seek.setAttribute('aria-label','Čas náhledu dráhy v ms'); play.disabled = !file.duration;
+  tools.append(play,fit); center.append(tools,seek,clock,viewport);
+  const view = new TrackViewport(viewport); state.viewport = view; view.loadTrack(file);
+  let playing = false, previous;
+  function pause() { playing = false; previous = undefined; play.textContent = 'Přehrát dráhu'; }
+  function show(time) { view.seek(time); seek.value = String(time); clock.textContent = `${Math.round(time)} / ${file.duration} ms`; }
+  play.onclick = () => { if (playing) pause(); else { if (Number(seek.value)>=file.duration) show(0); playing = true; previous = undefined; play.textContent = 'Pozastavit dráhu'; } };
+  seek.oninput = () => { pause(); show(Number(seek.value)); }; fit.onclick = () => view.fit(view.path);
+  view.onFrame = time => {
+    if (!playing) return;
+    const next = Math.min(file.duration,view.time+(previous === undefined ? 0 : time-previous)); previous = time; show(next); if (next>=file.duration) pause();
+  };
+  const keyTools = element('div',undefined,'tools'), number = element('input'), select = element('button','Vybrat klíč'), fields = element('div');
+  number.type = 'number'; number.min = '0'; number.max = String(file.positions.length-1); number.step = '1'; number.value = String(Math.min(state.trackIndex??0,file.positions.length-1)); number.setAttribute('aria-label','Číslo klíče TCK'); keyTools.append(number,select); inspector.append(keyTools,fields);
+  function editKey(index) {
+    pause(); state.trackIndex = index; number.value = String(index); show(index*file.step); fields.replaceChildren();
+    const entries = [{id:`positions/${index}`,context:`Klíč ${index} · ${index*file.step} ms`,label:'Poloha XYZ',kind:'vec3',value:file.positions[index]}];
+    if (file.secondary.length) entries.push({id:`secondary/${index}`,context:`Klíč ${index} · ${index*file.step} ms`,label:'Doplňkový vektor (raw)',kind:'vec3',value:file.secondary[index]});
+    renderProperties(fields,{...file,entries},api.saveTrack,(entry,value)=>{pause(); if (entry.id.startsWith('positions/')) view.updateKey(index,value);});
+  }
+  select.onclick = () => { const index = Number(number.value); if (number.value!==''&&Number.isInteger(index)&&index>=0&&index<file.positions.length) editKey(index); else status('Číslo klíče je mimo rozsah.',true); };
+  editKey(Number(number.value));
 }
 function renderNavigation(main, file) {
   main.append(element('p', `${file.points.length.toLocaleString('cs')} bodů · ${file.linkCount.toLocaleString('cs')} směrovaných vazeb. Číslo bodu je jeho pořadí od nuly, uložené ID se může opakovat. Modrá: chodci, žlutá: AI, oranžová: vozidla, fialová: zastávky.`, 'notice'));

@@ -17,7 +17,8 @@ Rozcestník: [MafiaHub/awesome-mafia](https://github.com/MafiaHub/awesome-mafia/
 | Ostatní .def/.dat | Tabulky aut, zbraní, předmětů a menu; MafiaFormats, mEdit, mLib | M Editor, RHAM, Predmety.def Editor, Mafia Menu Editor |
 | BMP | Textury; materiály 4DS mohou odkazovat na diffuse, alpha a environment mapy | Texture Resizer, 4ds Texture Manager |
 | WAV/OGG | Zvuky, dialogy a hudba; archiv může obsahovat DPCM bloky | Sound Maker; samotný archiv A0 nemusí být přítomný v každé distribuci |
-| TCK | Herní cutscény; Cutscene-Tools-, MafiaFormats | Cutscene Guide |
+| TCK | Pohybové stopy; ověřené čtení enginu v mafia-reverse-engineering-export | Editor klíčů a lineární 3D náhled v4 |
+| CHG / REP | Objekty cutscény / časová osa herního záznamu; Cutscene-Tools-, reverse engineering | CHG/REP nástroje; specializovaný editor se připravuje |
 | BIK/AVI | Předrenderované video | Přehrávání ve hře ověřeno; náhled v editoru zatím není implementovaný |
 | rmorf.bin/CHG/DNC/GMF | Zbývající specializovaná data; DCED_misc, DCED2, mLib | Rmorf.bin Editor, DNC Extractor, CHG Editor, GmfRE |
 
@@ -74,3 +75,9 @@ Starší TS reference interpretuje model jako 48 bajtů; překryla by tak metada
 Reference `RoadTrain/mafia-formats/check.bin.bt` odpovídá skutečným souborům: uint32 magic `0x01ABCEDF`, uint32 počet bodů, všechny 30bajtové body, pak všechny 8bajtové vazby. Bod začíná float32 XYZ, následují uint16 typ, ID, velikost oblasti, deset neznámých bajtů a dvě bajtová počítadla vazeb. Počet položek bloku vazeb je součet prvního počítadla; obě počítadla všech ověřených skutečných bodů jsou shodná. Vazby patří postupně příslušným bodům a obsahují uint16 cíl, uint16 typ a čtyři neznámé bajty. Cíl je index pole bodů, nikoli uložené ID: ve skutečné hře jsou ID často stejná pro tisíce bodů.
 
 Specifikace `MafiaHub/MafiaFormats/docs/checkbin.md` a její generovaný parser vynechávají počáteční XYZ; jako úplný layout se proto nepoužívají. Jejich popisy typových masek slouží pro orientační barvy náhledu. Poloměr/velikost oblasti nemá ověřené jednotky a zobrazuje se jako raw uint16. Neznámá hodnota vazby nemá odhadovanou funkci ani přepočet podle délky spojnice. Writer přepisuje jen vybraná rozpoznaná pole, zachovává všechny ostatní bajty, počty, pořadí a nerozpoznané masky. Při rozdílných počítadlech parser hlásí varování a neopravuje je automaticky.
+
+## Pohybové stopy TCK verze 4
+
+Vlastní parser a writer vycházejí z čtení `recorder_load_tck` (VA 0x00544210) a `anim_machine_load_track` (VA 0x005aab30) v uloženém exportu st0rm94. Soubor obsahuje uint32 verzi 4, dvě trojice float32 na offsetech 4 a 16, uint32 délku v ms na 28, uint32 krok v ms na 32, uint32 počet poloh na 36, od 40 polohy float32 XYZ, dále uint32 počet druhého pole a jeho trojice float32. Funkce `anim_machine_get_track_end_point` vrací poslední polohový klíč; `anim_machine_get_track_mixing_point` používá délku a krok pro výběr klíče 250 ms před koncem. Přesná funkce vektorů hlavičky ani všech koncových dat není odhadovaná. Druhé pole může ovlivňovat natočení, ale v tomto editoru je označené raw a neinterpretuje se jako quaternion nebo Eulerovy úhly.
+
+Všech 283 skutečných souborů v4 má nenulový krok (5, 10, 20 nebo 40 ms), délku `(počet−1) × krok` a druhé pole prázdné nebo stejně dlouhé jako první. Deset jiných variant se odmítá. 59 stop má další koncové bajty, které doložené loadery již nečtou; writer je zachovává. Zápis mění pouze komponenty vybraných vektorů v původním bufferu, nemění délku, počty ani časování. Náhled lineárně interpoluje první pole pod společným převodem souřadnic LS3D. Nesimuluje stroj animací, skládání stop, kostru, natočení ani cutscénovou časovou osu CHG/REP.
