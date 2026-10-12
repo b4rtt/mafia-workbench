@@ -34,6 +34,15 @@ test('malformed chunks, missing properties and invalid values fail explicitly', 
   assert.throws(() => editScene(original, 'no-such-id', 1), /neexistuje/);
   assert.throws(() => editScene(original, position.id, [NaN, 0, 0]), /hodnota/);
 });
+test('kind 5 actor script source is bounded, read-only and leaves unknown actor payloads intact',()=>{
+  const code=Buffer.from('loaddifferences "One.chg"\r\nrecloadfull "One.rep"'),header=Buffer.alloc(14);header[0]=header[1]=header[5]=1;header.writeUInt32LE(code.length,10);
+  const actor=(kind,data)=>{const k=Buffer.alloc(4);k.writeUInt32LE(kind);return chunk(0xae21,Buffer.concat([chunk(0xae23,Buffer.from('Init\0')),chunk(0xae22,k),chunk(0xae24,data)]));};
+  const data=Buffer.concat([header,code,Buffer.from([0xde,0xad])]),source=chunk(0x4c53,chunk(0xae20,actor(5,data))),before=Buffer.from(source);
+  assert.deepEqual(inspectScene(source).actorScripts,[{name:'Init',code:code.toString()}]);assert.deepEqual(editScene(source,'0/0/0/0','Init'),source);assert.deepEqual(source,before);
+  assert.deepEqual(inspectScene(chunk(0x4c53,chunk(0xae20,actor(2,data)))).actorScripts,[]);
+  assert.deepEqual(inspectScene(chunk(0x4c53,chunk(0xae20,actor(5,data.subarray(0,20))))).actorScripts,[]);
+  const unknown=Buffer.from(data);unknown[5]=0;assert.deepEqual(inspectScene(chunk(0x4c53,chunk(0xae20,actor(5,unknown)))).actorScripts,[]);
+});
 const modelOperation = { kind:'add-model', name:'WB_CRATE', model:'bedna02.i3d', position:[1,2,3], rotation:[Math.SQRT1_2,0,Math.SQRT1_2,0], scale:[1,2,3] };
 test('inserting and deleting a model recalculates sizes, preserves all original chunks and restores the exact scene', () => {
   const source = fixture(), before = Buffer.from(source), added = changeSceneObject(source,modelOperation), scene = inspectScene(added), object = scene.objects.at(-1);

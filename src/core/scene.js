@@ -75,13 +75,24 @@ function tree(source) {
   return parse(0, bytes.length);
 }
 export function inspectScene(source) {
-  const roots = tree(source), entries = [], objects = [];
+  const roots = tree(source), entries = [], objects = [], actorScripts = [];
   let opaque = 0;
   function visit(nodes, parent = '') {
     const named = nodes.find(n => n.type === 0x10 || n.type === 0xae23);
     let context = parent;
     if (named) context += ` / ${string(named.payload)}`;
     for (const node of nodes) {
+      if (node.type === 0xae21 && node.children) {
+        const kind = node.children.find(n => n.type === 0xae22)?.payload;
+        const data = node.children.find(n => n.type === 0xae24)?.payload;
+        const name = node.children.find(n => n.type === 0xae23)?.payload;
+        // Kind 5 script actor: mLib ExtractObjectScript documents the 10-byte
+        // header followed by u32 code length. Read only; keep AE24 opaque to edits.
+        if (kind?.length >= 4 && kind.readUInt32LE(0) === 5 && name && data?.length >= 14 && data[0] === 1 && data.readUInt32LE(1) <= 1 && data[5] === 1 && data.readUInt32LE(6) === 0) {
+          const length = data.readUInt32LE(10);
+          if (length <= 1000000 && 14 + length <= data.length) actorScripts.push({ name: string(name), code: iconv.decode(data.subarray(14, 14 + length), 'windows-1250') });
+        }
+      }
       if (node.type === 0x4010 && node.children) {
         const object = { id: node.id, fields: {} };
         for (const child of node.children) {
@@ -101,7 +112,7 @@ export function inspectScene(source) {
   visit(roots);
   const actorNames = new Set(entries.filter(e => e.label === 'Název aktéra').map(e => e.value.normalize('NFC').toLowerCase()));
   for (const object of objects) object.actorBound = actorNames.has(object.name.normalize('NFC').toLowerCase());
-  return { entries, opaque, objects };
+  return { entries, opaque, objects, actorScripts };
 }
 export function editScene(source, id, value) {
   if (typeof id !== 'string') throw new Error('Scene: neplatná vlastnost.');

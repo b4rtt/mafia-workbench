@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { cutsceneResource, replayMissions, cutsceneAudioEvents, loadCutsceneContext } from '../src/core/cutscene.js';
+import { cutsceneResource, replayMissions, sceneReplayReferences, cutsceneAudioEvents, loadCutsceneContext } from '../src/core/cutscene.js';
 import { CutsceneViewport, CutsceneAudio, sampleReplayActor, activeCutsceneAudio } from '../src/ui/cutscene.js';
 
 test('cutscene resources use indexed engine aliases and reject traversal and fuzzy matches',()=>{
@@ -10,11 +10,28 @@ test('cutscene resources use indexed engine aliases and reject traversal and fuz
   assert.equal(cutsceneResource(assets,'ANIMS\\walk.I3D','anims','.5ds'),'anims/Walk.5DS');
   for(const name of ['../Tommy.i3d','/Tommy.i3d','somewhere/Tommy.i3d','TommyX.i3d'])assert.equal(cutsceneResource(assets,name,'models','.4ds'),null);
 });
-test('mission suggestions preserve ambiguity and require a literal load reference to the selected REP',async()=>{
+function scriptScene(code){
+  const chunk=(type,payload)=>{const h=Buffer.alloc(6);h.writeUInt16LE(type);h.writeUInt32LE(payload.length+6,2);return Buffer.concat([h,payload]);};
+  const kind=Buffer.alloc(4);kind.writeUInt32LE(5);const header=Buffer.alloc(14);header[0]=header[1]=header[5]=1;header.writeUInt32LE(Buffer.byteLength(code),10);
+  return chunk(0x4c53,chunk(0xae20,chunk(0xae21,Buffer.concat([chunk(0xae23,Buffer.from('Init\0')),chunk(0xae22,kind),chunk(0xae24,Buffer.concat([header,Buffer.from(code)]))]))));
+}
+test('mission suggestions pair only the selected REP with its adjacent CHG and preserve ambiguity',async()=>{
   const assets=['records/Test.rep','missions/A/scene2.bin','missions/B/scene2.bin','missions/C/scene2.bin','diff/First.chg','diff/Second.chg'].map(path=>({path}));
-  const scripts=['recloadfull "TEST.rep"\nloaddifferences "First.chg"','recload "Test.rep"\nloaddifferences "First.chg"\nloaddifferences "Second.chg"','recloadfull "OtherTest.rep"'];
-  const project={manifest:{assets},asset:name=>assets.find(a=>a.path===name),read:async name=>Buffer.from(scripts[assets.findIndex(a=>a.path===name)-1])};
+  const scripts=['loaddifferences "Second.chg"\nrecloadfull "Other.rep"\nloaddifferences "First.chg"\n// selected scene\n\nrecloadfull "TEST.rep"','loaddifferences "First.chg"\nrecload "Test.rep"\nloaddifferences "Second.chg"\nrecloadfull "Test.rep"','// recloadfull "Test.rep"\nrecloadfull "OtherTest.rep"'];
+  const project={manifest:{assets},asset:name=>assets.find(a=>a.path===name),read:async name=>scriptScene(scripts[assets.findIndex(a=>a.path===name)-1])};
   assert.deepEqual(await replayMissions(project,'records/Test.rep'),[{path:assets[1].path,differences:['diff/First.chg']},{path:assets[2].path,differences:['diff/First.chg','diff/Second.chg']}]);
+});
+test('mission prelude preserves literal visibility and rejects control flow or dynamic frame assignments',()=>{
+  const script='dim_frm 2\nfindframe 0,"Base"\nfrm_seton 0,1\nloaddifferences "Earlier.chg"\nrecloadfull "Earlier.rep"\nrecwaitforend\ncleardifferences\nfrm_seton 0,0\nfindframe 1,"Prop"\nfrm_seton 1,1\nloaddifferences "Selected.chg"\nrecloadfull "Selected.rep"';
+  const scene=code=>({actorScripts:[{name:'Init',code}],entries:[]});
+  assert.deepEqual(sceneReplayReferences(scene(script),'selected.rep'),[{difference:'Selected.chg',visibility:[{name:'Base',visible:false},{name:'Prop',visible:true}]}]);
+  for(const command of ['goto 10','label 10','if flt[0],1,10','findframe 0,frm[1]','let frm[0] = frm[1]'])assert.equal(sceneReplayReferences(scene(command+'\n'+script),'selected.rep')[0].visibility,null);
+  const interrupted=scene('loaddifferences "Selected.chg"\nwait 100\nrecloadfull "Selected.rep"');assert.equal(sceneReplayReferences(interrupted,'selected.rep')[0].difference,null);
+  const trigger='dim_frm 1\nfindframe 0,"Base"\nlabel 1\nif flt[0]=1,-1,1\n';
+  const block='commandblock 1\nfrm_seton 0,0\nloaddifferences "Selected.chg"\nrecloadfull "SELECTED"';
+  assert.deepEqual(sceneReplayReferences(scene(trigger+block),'selected.rep'),[{difference:'Selected.chg',visibility:[{name:'Base',visible:false}]}]);
+  for(const command of ['findframe 0,"Other"','findframe flt[0],"Other"','dim_frm 2','let frm[0] = frm[1]'])assert.equal(sceneReplayReferences(scene(trigger+command+'\n'+block),'selected.rep')[0].visibility,null);
+  for(const command of ['commandblock 0','goto 10'])assert.equal(sceneReplayReferences(scene(trigger+block.replace('frm_seton 0,0',command+'\nfrm_seton 0,0')),'selected.rep')[0].visibility,null);
 });
 test('sound state zero enables a named frame and dialogue clips stop at the next line on their channel',()=>{
   const replay={duration:10000,events:{sounds:[{index:0,time:0,name:'Town',state:1},{index:1,time:100,name:'TOWN',state:0},{index:2,time:400,name:'Town',state:1}],dialogues:[{index:0,time:0,character:0,textId:1,command:true},{index:1,time:100,character:0,textId:12},{index:2,time:200,character:1,textId:13},{index:3,time:800,character:0,textId:14}]}};
@@ -29,8 +46,11 @@ test('scene context combines CHG overrides, animation IDs and Czech text without
   const difference={type:'difference',objects:[{index:0,name:'TOMMY',frameType:9,resource:'Tommy.i3d',position:[1,2,3]}]};
   const assets=['models/Tommy.4ds','anims/Walk.5ds','sounds/00000012.wav','tables/textdb_cz.def'].map(path=>({path}));
   const before=structuredClone({objects,replay,difference});
-  const project={manifest:{assets},inspectMap:async()=>({path:'missions/A/scene2.bin',objects,geometry}),inspect:async name=>name==='Test.rep'?replay:name==='Test.chg'?difference:{entries:[{id:12,text:'Ahoj'}]}};
-  const context=await loadCutsceneContext(project,'Test.rep','missions/A/scene2.bin','Test.chg');assert.equal(context.objects.length,1);assert.equal(context.objects[0].modelPath,'models/Tommy.4ds');assert.equal(context.animations[0].path,'anims/Walk.5ds');assert.equal(context.audio[0].text,'Ahoj');assert.deepEqual({objects,replay,difference},before);
+  const actorScripts=[{name:'Init',code:'dim_frm 1\nfindframe 0,"Tommy"\nfrm_seton 0,0\nloaddifferences "Test.chg"\nrecloadfull "Test.rep"'}];
+  // Engine difference resources normally reside under diff/.
+  assets.push({path:'diff/Test.chg'});
+  const project={manifest:{assets},inspectMap:async()=>({path:'missions/A/scene2.bin',objects,geometry,actorScripts}),inspect:async name=>name==='Test.rep'?replay:name==='diff/Test.chg'?difference:{entries:[{id:12,text:'Ahoj'}]}};
+  const context=await loadCutsceneContext(project,'Test.rep','missions/A/scene2.bin','diff/Test.chg');assert.equal(context.objects.length,1);assert.equal(context.objects[0].modelPath,'models/Tommy.4ds');assert.equal(context.animations[0].path,'anims/Walk.5ds');assert.equal(context.audio[0].text,'Ahoj');assert.deepEqual({objects,replay,difference},before);assert.deepEqual(context.visibility[0],{time:0,index:-1,changes:[{name:'Tommy',visible:false}]});
   await assert.rejects(loadCutsceneContext(project,'Test.rep','../scene2.bin'),/scene2/);
 });
 test('actor sampling respects hold flags, animation ID changes, frame offsets and loop state',()=>{

@@ -1,5 +1,5 @@
 import path from 'node:path';
-import iconv from 'iconv-lite';
+import { inspectScene } from './scene.js';
 
 const canonical = value => value.replaceAll('\\','/').normalize('NFC').toLowerCase();
 // Resolve engine resource aliases within the indexed project, never by fuzzy basename.
@@ -16,14 +16,59 @@ export async function replayMissions(project, name) {
   const replay = project.asset(name); if (!/\.rep$/i.test(replay.path)) throw new Error('Neplatný soubor REP.');
   const basename = path.posix.basename(canonical(replay.path)), matches = [];
   for (const asset of project.manifest.assets.filter(a => /^missions\/[^/]+\/scene2\.bin$/i.test(a.path))) {
-    const source = iconv.decode(await project.read(asset.path),'windows-1250');
-    const refs = [...source.matchAll(/\brecload(?:full)?\s+"([^"\r\n]+)"/gi)];
-    if (!refs.some(ref => path.posix.basename(canonical(ref[1])) === basename)) continue;
-    const differences = [...new Set([...source.matchAll(/\bloaddifferences\s+"([^"\r\n]+)"/gi)].map(ref => cutsceneResource(project.manifest.assets,ref[1],'diff')).filter(Boolean))];
+    const source=await project.read(asset.path);
+    let scene;try { scene=inspectScene(source); } catch { continue; }
+    const refs = sceneReplayReferences(scene,basename);
+    if (!refs.length) continue;
+    const differences = [...new Set(refs.map(ref => cutsceneResource(project.manifest.assets,ref.difference,'diff')).filter(Boolean))];
     matches.push({ path:asset.path, differences });
   }
   // Literal references are suggestions, not evaluation of mission scripts.
   return matches;
+}
+
+const scriptLines = code => code.split(/\r?\n/).map(line=>line.replace(/\/\/.*$/,'').trim()).filter(Boolean);
+const loadReference = line => /^recload(?:full)?\s+"([^"\r\n]+)"$/i.exec(line);
+const differenceReference = line => /^loaddifferences\s+"([^"\r\n]+)"$/i.exec(line);
+const replayBasename = value => { const name=path.posix.basename(canonical(value));return path.posix.extname(name)?name:name+'.rep'; };
+// Only adjacent literal load commands are paired. Another cutscene's CHG in
+// the same mission must not prevent selecting the selected REP's own CHG.
+export function sceneReplayReferences(scene, basename) {
+  const scripts=[...(scene.actorScripts??[]),...(scene.entries??[]).filter(e=>e.kind==='script').map(e=>e.value)],refs=[];
+  for(const script of scripts){
+    const lines=scriptLines(script.code);
+    for(let i=0;i<lines.length;i++){
+      const load=loadReference(lines[i]);if(!load||replayBasename(load[1])!==basename)continue;
+      refs.push({difference:i?differenceReference(lines[i-1])?.[1]??null:null,visibility:preludeVisibility(lines.slice(0,i))});
+    }
+  }
+  return refs;
+}
+function preludeVisibility(lines) {
+  const frames=new Map(),states=new Map();let stopped=-1;
+  const apply=line=>{
+    let match;
+    if((match=/^findframe\s+(\d+)\s*,\s*"([^"\r\n]+)"$/i.exec(line))){frames.set(Number(match[1]),match[2]);return true;}
+    if((match=/^frm_seton\s+(\d+)\s*,\s*([01])$/i.exec(line))&&frames.has(Number(match[1]))){const name=frames.get(Number(match[1]));states.set(canonical(name),{name,visible:match[2]==='1'});return true;}
+    // These commands do not assign frame variables. No control flow, dynamic
+    // frame lookup or frame-expression assignment is interpreted.
+    return /^(?:dim_(?:frm|act|flt)|findactor|commandblock|player_lockcontrols|mission_objectives(?:clear)?|zatmyse|act_setstate|setcitytrafficvisible|setcompass|enemy_block|setevent|wait|recwaitforend|recunload|cleardifferences|change_mission)\b/i.test(line)||Boolean(loadReference(line)||differenceReference(line));
+  };
+  for(let i=0;i<lines.length;i++)if(!apply(lines[i])){stopped=i;break;}
+  if(stopped<0)return [...states.values()];
+  // A conditional trigger can precede the cutscene. Infer only the final
+  // straight-line commandblock that contains its load, using bindings declared
+  // before that trigger. Any possible intervening reassignment invalidates them.
+  const start=lines.findLastIndex(line=>/^commandblock\s+1$/i.test(line));
+  if(start<=stopped)return null;
+  for(const line of lines.slice(stopped,start)){
+    const lookup=/^findframe\s+(\d+)\b/i.exec(line);
+    if(lookup)frames.delete(Number(lookup[1]));
+    else if(/^(?:findframe|dim_frm)\b/i.test(line)||/\bfrm\s*\[/i.test(line))frames.clear();
+  }
+  states.clear();
+  for(const line of lines.slice(start+1))if(/^commandblock\s+0$/i.test(line)||!apply(line))return null;
+  return [...states.values()];
 }
 
 export function cutsceneAudioEvents(replay, objects, assets, texts = new Map()) {
@@ -71,6 +116,9 @@ export async function loadCutsceneContext(project, replayName, sceneName, differ
   if (!/^missions\/[^/]+\/scene2\.bin$/i.test(sceneName)) throw new Error('Vyberte scene2.bin konkrétní mise.');
   const replay = await project.inspect(replayName); if (replay.type !== 'replay') throw new Error('REP není podporovaný.');
   const scene = await project.inspectMap(sceneName), warnings = [], objects = scene.objects.map(o => ({...o})), scripts=[];
+  const refs=sceneReplayReferences(scene,path.posix.basename(canonical(replayName))).filter(ref=>differenceName?canonical(cutsceneResource(project.manifest.assets,ref.difference,'diff')??'')===canonical(differenceName):ref.difference===null);
+  const initial=refs.length===1?refs[0].visibility:null;
+  if(refs.length&&initial===null)warnings.push('Inicializační viditelnost mise není jednoznačná nebo obsahuje nepodporované příkazy.');
   if (differenceName) {
     const difference = await project.inspect(differenceName); if (difference.type !== 'difference') throw new Error('CHG není podporované.');
     scripts.push(...(difference.entries??[]).filter(e=>e.kind==='script').map(e=>e.value));
@@ -98,5 +146,5 @@ export async function loadCutsceneContext(project, replayName, sceneName, differ
   const missingAudio = audio.filter(e=>!e.path).length;
   if (missingAudio) warnings.push(`${missingAudio} zvukových událostí nemá dostupný zdroj.`);
   const visibility=cutsceneVisibilityEvents(replay,scripts);warnings.push(...visibility.warnings);
-  return { scenePath:scene.path,differencePath:differenceName,geometry:scene.geometry,objects,animations,audio,visibility:visibility.events,warnings };
+  return { scenePath:scene.path,differencePath:differenceName,geometry:scene.geometry,objects,animations,audio,visibility:[...(initial?.length?[{time:0,index:-1,changes:initial}]:[]),...visibility.events],warnings };
 }

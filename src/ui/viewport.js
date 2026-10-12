@@ -85,7 +85,9 @@ export class Viewport {
         const cached = geometry.get(lod), skin = frame.skin?.[0];
         const mesh = skin ? new THREE.SkinnedMesh(cached.base, cached.materials) : new THREE.Mesh(cached.base, cached.materials);
         // RF_HIDEMESH hides this visual only; its child frames stay enabled.
-        mesh.visible = !(frame.renderFlags & 0x40);
+        // Legacy maps also encode sector volumes as visual meshes with the
+        // SECT property. Hide their surfaces, retaining their visible children.
+        mesh.visible = !(frame.renderFlags & 0x40) && !/(?:^|\s)SECT(?:\s|$)/i.test(frame.properties ?? '');
         object.add(mesh); if (skin) skins.push({ mesh, object, skin });
       }
       const ancestor = frames.get(frame.parent);
