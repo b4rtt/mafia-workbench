@@ -5,6 +5,7 @@ import fs from 'node:fs/promises';
 import { Worker } from 'node:worker_threads';
 import { ModProject } from '../core/project.js';
 import { parseTextDb } from '../core/textdb.js';
+import { randomUUID } from 'node:crypto';
 const directory = path.dirname(fileURLToPath(import.meta.url));
 const uiRoot = path.resolve(directory, '../ui');
 const profileRoot = path.resolve(directory, '../../local/electron-profile');
@@ -13,6 +14,8 @@ app.setPath('userData', profileRoot);
 app.setPath('sessionData', profileRoot);
 protocol.registerSchemesAsPrivileged([{ scheme: 'workbench', privileges: { standard: true, secure: true, supportFetchAPI: true } }]);
 let window, project, busy = false;
+const mediaToken = randomUUID();
+const mediaTypes = new Map([['.bmp', 'image/bmp'], ['.png', 'image/png'], ['.jpg', 'image/jpeg'], ['.jpeg', 'image/jpeg'], ['.wav', 'audio/wav'], ['.ogg', 'audio/ogg'], ['.mp3', 'audio/mpeg']]);
 async function operation(task) {
   if (busy) throw new Error('Probíhá jiná operace.');
   busy = true;
@@ -44,12 +47,32 @@ function importProject(game, destination) {
   });
 }
 app.whenReady().then(async () => {
-  protocol.handle('workbench', request => {
+  protocol.handle('workbench', async request => {
     const url = new URL(request.url);
+    if (url.host !== 'app') return new Response('Not found', { status: 404 });
+    if (url.pathname === `/media/${mediaToken}`) {
+      try {
+        const name = url.searchParams.get('name'), type = mediaTypes.get(path.extname(name ?? '').toLowerCase());
+        if (!type) return new Response('Unsupported media', { status: 415 });
+        const active = current(), bytes = await active.read(name);
+        if (bytes.length > 64 * 1024 * 1024) return new Response('Preview too large', { status: 413 });
+        const headers = { 'Content-Type': type, 'Accept-Ranges': 'bytes', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' };
+        const range = request.headers.get('range');
+        if (range) {
+          const match = /^bytes=(\d*)-(\d*)$/.exec(range);
+          if (!match || (!match[1] && !match[2])) return new Response(null, { status: 416, headers: { ...headers, 'Content-Range': `bytes */${bytes.length}` } });
+          const start = match[1] ? Number(match[1]) : Math.max(0, bytes.length - Number(match[2]));
+          const end = match[1] && match[2] ? Math.min(Number(match[2]), bytes.length - 1) : bytes.length - 1;
+          if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start > end || start < 0 || start >= bytes.length) return new Response(null, { status: 416, headers: { ...headers, 'Content-Range': `bytes */${bytes.length}` } });
+          return new Response(bytes.subarray(start, end + 1), { status: 206, headers: { ...headers, 'Content-Range': `bytes ${start}-${end}/${bytes.length}`, 'Content-Length': String(end - start + 1) } });
+        }
+        return new Response(bytes, { headers: { ...headers, 'Content-Length': String(bytes.length) } });
+      } catch { return new Response('Asset unavailable', { status: 404 }); }
+    }
     const allowed = new Set(['index.html', 'styles.css', 'app.js']);
     const name = url.pathname.slice(1);
-    if (url.host !== 'app' || !allowed.has(name)) return new Response('Not found', { status: 404 });
-    return net.fetch(pathToFileURL(path.join(uiRoot, name)).href);
+    if (!allowed.has(name)) return new Response('Not found', { status: 404 });
+    return net.fetch(pathToFileURL(name === 'app.js' ? path.resolve(directory, '../../out/app.js') : path.join(uiRoot, name)).href);
   });
   session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
   session.defaultSession.setPermissionCheckHandler(() => false);
@@ -77,7 +100,17 @@ app.whenReady().then(async () => {
     await importProject(game, destination); project = await ModProject.open(destination); return project.list();
   }));
   handle('asset:inspect', name => current().inspect(name));
+  handle('asset:map', name => current().inspectMap(name));
+  handle('asset:media', name => {
+    current().asset(name);
+    if (!mediaTypes.has(path.extname(name).toLowerCase())) throw new Error('Náhled tohoto média není podporovaný.');
+    return `workbench://app/media/${mediaToken}?name=${encodeURIComponent(name)}`;
+  });
   handle('asset:texts', (name, changes, expectedHash) => operation(async () => { await current().saveTexts(name, changes, expectedHash); return current().inspect(name); }));
+  handle('asset:scene', (name, changes, expectedHash) => operation(async () => { await current().saveScene(name, changes, expectedHash); return current().inspect(name); }));
+  handle('asset:model', (name, changes, expectedHash) => operation(async () => { await current().saveModel(name, changes, expectedHash); return current().inspect(name); }));
+  handle('asset:animation', (name, changes, expectedHash) => operation(async () => { await current().saveAnimation(name, changes, expectedHash); return current().inspect(name); }));
+  handle('project:loose', () => operation(async () => { await current().importLoose(p => window.webContents.send('extraction:progress', p)); return current().list(); }));
   handle('asset:restore', name => operation(async () => { await current().restore(name); return current().inspect(name); }));
   handle('project:undo', () => operation(async () => { await current().undo(); return current().list(); }));
   handle('asset:replace', name => operation(async () => {

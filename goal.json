@@ -1,6 +1,6 @@
 {
   "title": "Komplexní editor Mafia 1 CZ (2002)",
-  "prerequisite": "Splněno: 12. října 2026 ověřeny dva starty Hra/Game.exe z Finderu, trénink s pohybem a první příběhová mise s jízdou taxi. Zvuk a celá kampaň nejsou zatím ověřené.",
+  "prerequisite": "Splněno: dva starty Hra/Game.exe z Finderu, trénink s pohybem a první mise s jízdou taxi; uživatel potvrdil hudbu a české dialogy. Celá kampaň nebyla otestována.",
   "objective": "Vytvořit komplexní editor celé hry, ideálně v Electronu, pro maximální modifikaci všech částí hry. Rozbalit data a vycházet z dodaných repozitářů a zdokumentovaných formátů, nepracovat naslepo.",
   "requirements": [
     "Uložit všech 16 unikátních dodaných repozitářů a vyhodnotit jejich formáty, implementace a licence.",
@@ -8,7 +8,11 @@
     "Podporovat maximální modifikovatelnost; nepodporované formáty viditelně přiznat a postupně doplnit, nikoli označit komplexní editor za hotový na základě samotného prohlížeče.",
     "Zachovat původní data a umožnit zálohování, vrácení úprav, projekty modů a ověření modifikací v reálné hře.",
     "Pracovat především v tomto adresáři; nepoškodit macOS.",
-    "Vytvořit veřejné repo editoru na GitHubu b4rtt a průběžně commitovat a pushovat smysluplné dokončené změny. Do repozitáře neukládat herní data, instalátory, runtime Wine, přístupové údaje ani soukromé snapshoty referencí."
+    "Vytvořit veřejné repo editoru na GitHubu b4rtt a průběžně commitovat a pushovat smysluplné dokončené změny. Do repozitáře neukládat herní data, instalátory, runtime Wine, přístupové údaje ani soukromé snapshoty referencí.",
+    "Přehledné kategorie a náhledy BMP, 4DS, animací, hudby a zvuků.",
+    "3D pohled a editor map včetně manipulace objekty.",
+    "Tlačítko Spustit level s izolovanou testovací kopií nebo přesměrováním dat; původní herní soubory neměnit.",
+    "Průvodce novou prázdnou misí s volitelným základním nastavením; referencí je Empty_Mission.zip z awesome-mafia."
   ],
   "validation": [
     "Ověřit extrakci na lokálních DTA archivech.",

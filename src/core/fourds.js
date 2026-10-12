@@ -1,0 +1,157 @@
+import iconv from 'iconv-lite';
+class Reader {
+  constructor(source) { this.bytes = Buffer.from(source); this.pos = 0; this.entries = []; this.context = ''; }
+  skip(n) { if (!Number.isSafeInteger(n) || n < 0 || this.pos + n > this.bytes.length) throw new Error(`4DS: data jsou mimo soubor (${this.pos}, ${n}).`); this.pos += n; }
+  number(method, length) { const start = this.pos; this.skip(length); return this.bytes[method](start); }
+  u8() { return this.number('readUInt8', 1); }
+  u16() { return this.number('readUInt16LE', 2); }
+  u32() { return this.number('readUInt32LE', 4); }
+  field(id, label, kind, count = 1) {
+    const offset = this.pos;
+    let value;
+    if (kind === 'string8') { const size = this.u8(), start = this.pos; this.skip(size); value = iconv.decode(this.bytes.subarray(start, this.pos), 'windows-1250'); }
+    else {
+      const values = Array.from({ length: count }, () => kind === 'u8' ? this.u8() : kind === 'u16' ? this.u16() : this.number('readFloatLE', 4));
+      if (values.some(n => !Number.isFinite(n))) throw new Error(`4DS: neplatná hodnota ${label}.`);
+      value = count === 1 ? values[0] : values;
+    }
+    this.entries.push({ id, label, kind, value, offset, length: this.pos - offset, context: this.context });
+    return value;
+  }
+}
+function object(reader, geometry) {
+  const instance = reader.u16(), lods = [];
+  if (instance) return { instance, lods };
+  const count = reader.u8();
+  for (let lod = 0; lod < count; lod++) {
+    const distance = reader.number('readFloatLE', 4), vertices = reader.u16(), start = reader.pos;
+    reader.skip(vertices * 32);
+    const positions = geometry && lod === 0 ? Array.from({ length: vertices * 3 }, (_, i) => reader.bytes.readFloatLE(start + Math.floor(i / 3) * 32 + i % 3 * 4)) : [];
+    const normals = geometry && lod === 0 ? Array.from({ length: vertices * 3 }, (_, i) => reader.bytes.readFloatLE(start + Math.floor(i / 3) * 32 + 12 + i % 3 * 4)) : [];
+    const uv = geometry && lod === 0 ? Array.from({ length: vertices * 2 }, (_, i) => reader.bytes.readFloatLE(start + Math.floor(i / 2) * 32 + 24 + i % 2 * 4)) : [];
+    if ([...positions, ...normals, ...uv].some(v => !Number.isFinite(v))) throw new Error('4DS: geometrie obsahuje neplatná čísla.');
+    const groups = reader.u8(), faces = [];
+    for (let group = 0; group < groups; group++) {
+      const count = reader.u16(), begin = reader.pos; reader.skip(count * 6); const material = reader.u16();
+      if (geometry && lod === 0) {
+        const indices = Array.from({ length: count * 3 }, (_, i) => reader.bytes.readUInt16LE(begin + i * 2));
+        if (indices.some(index => index >= vertices)) throw new Error('4DS: trojúhelník odkazuje mimo vrcholy.');
+        faces.push({ material, indices });
+      }
+    }
+    lods.push({ distance, vertices, positions, normals, uv, faces });
+  }
+  return { instance, lods };
+}
+function skin(reader, lods) {
+  for (let lod = 0; lod < lods; lod++) {
+    const bones = reader.u8(); reader.skip(28);
+    for (let bone = 0; bone < bones; bone++) { reader.skip(68); const weighted = reader.u32(); reader.skip(28 + weighted * 4); }
+  }
+}
+function morph(reader) {
+  const targets = reader.u8(); if (!targets) return;
+  const channels = reader.u8(), lods = reader.u8();
+  for (let lod = 0; lod < lods; lod++) for (let channel = 0; channel < channels; channel++) {
+    const vertices = reader.u16(); if (!vertices) continue;
+    reader.skip(vertices * targets * 24);
+    const indices = reader.u8(); if (indices) reader.skip(vertices * 2);
+  }
+  reader.skip(40);
+}
+function triangleMesh(reader, sector = false) {
+  if (sector) reader.skip(8);
+  const vertices = reader.u32(), faces = reader.u32(); reader.skip(vertices * 12 + faces * 6);
+  if (sector) { reader.skip(24); const portals = reader.u8(); for (let portal = 0; portal < portals; portal++) { const points = reader.u8(); reader.skip(28 + points * 12); } }
+}
+export function parseFourDs(source, geometry = false) {
+  const reader = new Reader(source);
+  if (reader.bytes.length < 16 || reader.bytes.toString('ascii', 0, 4) !== '4DS\0') throw new Error('4DS: neplatná hlavička.');
+  reader.skip(4); const version = reader.u16(); if (version !== 29) throw new Error(`4DS: verze ${version} zatím není podporovaná.`);
+  reader.skip(8);
+  const materialCount = reader.u16(), materials = [];
+  for (let i = 0; i < materialCount; i++) {
+    reader.context = `Materiál ${i + 1}`; const base = `materials/${i}`, flags = reader.u32();
+    const ambient = reader.field(`${base}/ambient`, 'Ambient RGB', 'float', 3), diffuse = reader.field(`${base}/diffuse`, 'Diffuse RGB', 'float', 3), emission = reader.field(`${base}/emission`, 'Emission RGB', 'float', 3), opacity = reader.field(`${base}/opacity`, 'Opacity', 'float');
+    if (flags & 0x80000) { reader.field(`${base}/reflection`, 'Síla odrazu', 'float'); reader.field(`${base}/environmentTexture`, 'Textura odrazu', 'string8'); }
+    const texture = reader.field(`${base}/texture`, 'Diffuse textura', 'string8');
+    if (texture && (flags & 0x40000000) && !(flags & 0x1000000)) reader.field(`${base}/alphaTexture`, 'Alpha textura', 'string8');
+    if (flags & 0x4000000) reader.skip(18);
+    materials.push({ flags, ambient, diffuse, emission, opacity, texture });
+  }
+  const meshCount = reader.u16(), meshes = [];
+  for (let i = 0; i < meshCount; i++) {
+    reader.context = `Objekt ${i + 1}`; const base = `meshes/${i}`, type = reader.u8();
+    let visual;
+    if (type === 1) { visual = reader.u8(); reader.skip(2); }
+    const parent = reader.field(`${base}/parent`, 'Rodič (0 = kořen)', 'u16'), position = reader.field(`${base}/position`, 'Pozice XYZ', 'float', 3), scale = reader.field(`${base}/scale`, 'Měřítko XYZ', 'float', 3), rotation = reader.field(`${base}/rotation`, 'Rotace WXYZ', 'float', 4);
+    reader.field(`${base}/culling`, 'Culling příznaky', 'u8');
+    const name = reader.field(`${base}/name`, 'Název objektu', 'string8'); reader.field(`${base}/properties`, 'Vlastnosti objektu', 'string8');
+    const mesh = { id: i + 1, name, parent, position, scale, rotation, type, visual };
+    if (type === 1) {
+      if ([0, 1, 2, 3, 4, 5].includes(visual)) {
+        const data = object(reader, geometry); Object.assign(mesh, data);
+        if (visual === 2 || visual === 3) skin(reader, data.lods.length);
+        if ((visual === 3 || visual === 5) && !data.instance) morph(reader);
+        if (visual === 4 && !data.instance) reader.skip(5);
+      } else if (visual === 6) reader.skip(reader.u8() * 6);
+      else if (visual === 7) reader.skip(4);
+      else if (visual === 8) { reader.skip(120); triangleMesh(reader); }
+      else if (visual === 9) reader.skip(5);
+      else throw new Error(`4DS: nepodporovaný visual type ${visual}.`);
+    } else if (type === 2) reader.skip(84);
+    else if (type === 5) triangleMesh(reader, true);
+    else if (type === 6) reader.skip(24);
+    else if (type === 7) { reader.skip(2); reader.skip(reader.u8() * 2); }
+    else if (type === 10) reader.skip(68);
+    else if (type === 12) triangleMesh(reader);
+    else throw new Error(`4DS: nepodporovaný frame type ${type}.`);
+    meshes.push(mesh);
+  }
+  if (reader.pos + 1 !== reader.bytes.length) throw new Error(`4DS: neočekávaný konec (${reader.bytes.length - reader.pos} nerozpoznaných bajtů).`);
+  const animated = reader.u8();
+  // Validate before a renderer recursively evaluates world transforms.
+  for (const mesh of meshes) {
+    const visited = new Set([mesh.id]); let parent = mesh.parent;
+    while (parent) {
+      if (visited.has(parent) || !meshes[parent - 1]) throw new Error('4DS: neplatná hierarchie objektů.');
+      visited.add(parent); parent = meshes[parent - 1].parent;
+    }
+  }
+  return { version, materials, meshes, entries: reader.entries, animated };
+}
+export function editFourDs(source, changes) {
+  const original = Buffer.from(source), parsed = parseFourDs(original);
+  if (!Array.isArray(changes) || changes.length > 1024) throw new Error('4DS: neplatné úpravy.');
+  const replacements = [], seen = new Set();
+  for (const { id, value } of changes) {
+    const entry = parsed.entries.find(e => e.id === id);
+    if (!entry || seen.has(id)) throw new Error('4DS: neplatná vlastnost.'); seen.add(id);
+    if (JSON.stringify(value) === JSON.stringify(entry.value)) continue;
+    let payload;
+    if (entry.kind === 'string8') {
+      if (typeof value !== 'string' || value.includes('\0')) throw new Error('4DS: neplatný řetězec.');
+      const bytes = iconv.encode(value, 'windows-1250');
+      if (bytes.length > 255 || iconv.decode(bytes, 'windows-1250') !== value) throw new Error('4DS: řetězec je příliš dlouhý nebo jej nelze kódovat.');
+      payload = Buffer.concat([Buffer.from([bytes.length]), bytes]);
+    } else {
+      const values = Array.isArray(entry.value) ? value : [value];
+      const count = Array.isArray(entry.value) ? entry.value.length : 1;
+      if (!Array.isArray(values) || values.length !== count || values.some(v => typeof v !== 'number' || !Number.isFinite(v) || !Number.isFinite(Math.fround(v)))) throw new Error('4DS: neplatná číselná hodnota.');
+      payload = Buffer.alloc(entry.length);
+      values.forEach((v, i) => {
+        if (entry.kind === 'u8' || entry.kind === 'u16') {
+          const max = entry.kind === 'u8' ? 255 : 65535;
+          if (!Number.isInteger(v) || v < 0 || v > max || (id.endsWith('/parent') && v > parsed.meshes.length)) throw new Error('4DS: neplatný index nebo příznaky.');
+          entry.kind === 'u8' ? payload.writeUInt8(v) : payload.writeUInt16LE(v);
+        } else payload.writeFloatLE(v, i * 4);
+      });
+    }
+    replacements.push({ ...entry, payload });
+  }
+  replacements.sort((a, b) => b.offset - a.offset);
+  let result = original;
+  for (const replacement of replacements) result = Buffer.concat([result.subarray(0, replacement.offset), replacement.payload, result.subarray(replacement.offset + replacement.length)]);
+  parseFourDs(result);
+  return result;
+}

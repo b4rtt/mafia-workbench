@@ -3,15 +3,16 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; media-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
 <title>Mafia Workbench</title>
 <link rel="stylesheet" href="styles.css">
-<script src="app.js" defer></script>
+<script src="app.js" type="module"></script>
 </head>
 <body>
-<header><div class="brand"><span class="mark">MW</span><div><h1>Mafia Workbench</h1><small>MAFIA · THE CITY OF LOST HEAVEN · 2002</small></div></div><nav><button id="create">Rozbalit hru</button><button id="open">Otevřít projekt</button><button id="undo" disabled>Vrátit změnu</button><button id="export" class="primary" disabled>Exportovat mod</button></nav></header>
-<div class="workspace"><aside><div class="section-label">PROJEKT</div><h2 id="project-name">Začněte se svou hrou</h2><p id="project-stats">Původní soubory zůstanou zachované.</p><input id="filter" type="search" placeholder="Hledat soubory…" aria-label="Hledat soubory"><div class="filters"><button id="all" class="selected">Vše</button><button id="changed">Upravené</button><button id="texts">Texty</button></div><div id="file-list" role="list" aria-label="Herní soubory"></div><div id="count" class="section-label"></div></aside>
-<main id="detail"><section class="welcome"><span class="eyebrow">VAŠE MAFIA. VAŠE ÚPRAVY.</span><h2>Otevřete Lost Heaven.</h2><p>Rozbalte DTA archivy do nového projektu. Procházejte herní soubory, upravujte české texty a ukládejte vlastní mod.</p><div class="cards"><article><strong>Originály zůstávají</strong><p>Úpravy se ukládají samostatně. Každý zápis má zálohu a lze jej vrátit.</p></article><article><strong>Celá hra v projektu</strong><p>Scény, modely, animace, tabulky, textury i záznamy. Všechny varianty archivů se uchovávají.</p></article><article><strong>První verze</strong><p>TextDB lze editovat. Ostatní formáty zatím umožňují binární náhled a nahrazení souboru.</p></article></div></section></main></div>
+<header><div class="brand"><div><h1>Mafia Workbench <span id="project-name">Žádný projekt</span></h1><small id="project-stats">Otevřete projekt nebo rozbalte vlastní instalaci hry.</small></div></div><nav><button id="create">Rozbalit hru</button><button id="open">Otevřít projekt</button><button id="undo" disabled>Vrátit změnu</button><button id="export" class="primary" disabled>Exportovat mod</button></nav></header>
+<div class="category-strip"><button id="tabs-left" aria-label="Posunout kategorie doleva">‹</button><div id="categories" role="tablist" aria-label="Kategorie herních dat"></div><button id="tabs-right" aria-label="Posunout kategorie doprava">›</button></div>
+<div class="workspace"><aside><input id="filter" type="search" placeholder="Hledat v kategorii…" aria-label="Hledat soubory"><div id="file-list" role="list" aria-label="Herní soubory"></div><div id="count" class="section-label"></div></aside>
+<main id="detail"><section class="welcome"><h2>Otevřete projekt Mafie.</h2><p>Rozbalte vlastní instalaci hry nebo pokračujte v uloženém projektu.</p><div class="cards"><article><strong>Bezpečné úpravy</strong><p>Úpravy se ukládají samostatně. Každý zápis má zálohu a lze jej vrátit.</p></article><article><strong>Modely a scény</strong><p>Procházejte mapy ve 3D, upravujte objekty, materiály a skripty mise.</p></article><article><strong>Herní média</strong><p>Prohlížejte textury, přehrávejte zvuky a upravujte texty i klíče animací. Podpora dalších formátů se postupně doplňuje.</p></article></div></section></main></div>
 <footer><span id="status" role="status">Připraveno</span><span>WORKBENCH 0.1 · LOKÁLNÍ DATA</span></footer>
 <dialog id="discard"><h2>Máte neuložené změny</h2><p>Chcete je zahodit a pokračovat?</p><form method="dialog"><button value="cancel">Zůstat</button><button class="primary" value="discard">Zahodit změny</button></form></dialog>
 </body>

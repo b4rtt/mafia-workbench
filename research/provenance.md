@@ -18,3 +18,5 @@ Pozorované rozdíly referencí:
 - `Richard01CZ/DCED_misc`, `mLib`, `DCED2`, `Sanderfol/Cutscene-Tools-`, `b4rtt/mafia-nodejs-extractor`, `b4rtt/mafia-webgl-renderer`: uložené reference pro další formáty a nástroje. Jejich celé zdroje, binárky a závislosti nebyly veřejně zkopírované ani spuštěné.
 
 U některých starších referencí nebyla nalezena jednoznačná licence v kořeni. Jejich uložení a čtení není totéž jako svolení k přelicencování. Pro další funkce se použije vlastní implementace podle formátu nebo řádně licencovaný zdroj s atribucí.
+
+Scénový chunk parser, 4DS/5DS parsery a jejich zápisové cesty jsou vlastní implementace podle porovnaných binárních layoutů a reálných souborů. Nebyl kopírovaný zdroj Blender doplňků, DCED ani mEdit. Převod V pro náhled 4DS odpovídá konvenci LS3D popsané čtením Blender reference. Three.js a esbuild jsou instalované balíčky s vlastními licencemi; sestavení uchovává jejich licenční komentáře. Přehled dalších formátů a původ soukromé šablony Empty Mission jsou v `formats.md`.
