@@ -56,7 +56,7 @@ Závislosti implementace:
 
 1. Parser a writer KLZ musí zachovat původní primitiva, vazby, raw příznaky, padding a případná další data. Bez editace se vrací přesně původní soubor.
 2. Generátor musí respektovat celou hierarchii modelu, souřadnice LS3D, světovou pozici, quaternion, měřítko a inverzní matici. Nestačí přenést lokální bounding box.
-3. Tabulka jmen musí ukazovat na framy, které hra skutečně načte a které jednoznačně najde. Odkazy na vrcholy vyžadují správný vizuální mesh a jeho pořadí vrcholů; nestačí libovolný název root modelu.
+3. Tabulka jmen musí ukazovat na framy, které hra skutečně načte a které jednoznačně najde. Odkazy na vrcholy vizuálu vyžadují správný mesh a jeho pořadí vrcholů; nestačí libovolný název root modelu. Alternativní cesta 0x7fff používá samostatné světové vrcholy, popsané níže.
 4. Změna přepočítá rozsah a indexování mřížky, zařadí primitiva do všech potřebných buněk a správně zapíše relativní odkazy. Zápis buněk je nutné odvodit z loaderu a skutečných souborů, nikoli převzít neověřený writer.
 5. Vložení modelu a kolize, posun/rotace/měřítko objektu i odstranění musí uložit scene2.bin a tree.klz jako jednu transakci se společným undo. Soubory původní hry se nemění.
 6. 3D mapa potřebuje přepínač kolizí, rozlišení vizuální geometrie od objemů a výběr kolizního materiálu. Ve hře se ověří blokování pohybu i zásahy, poté export a undo.
@@ -77,3 +77,15 @@ Loader enginu po načtení pracuje s grid blokem na +0x284, přesouvá vazby do 
 - [Engine collision, car a human](https://github.com/st0rm94/mafia-reverse-engineering-export/tree/eb4eaabf718bf9a879f1721e9231ff359871fb47/structs); skutečné loadery v uloženém `ghidra/Game-ghidra.exe.annotated.c`.
 
 Implementační pořadí po rozpracovaném vložení NPC: KLZ včetně generování kolizí modelu a propojeného ukládání; řiditelné auto; dveře, světla, zvuky a spouštěče; doprava/chodci a další specializované typy. Katalog výše zachovává celý rozsah a nemění cíl plnohodnotného editoru.
+
+## Ověřený základ vlastního KLZ zápisu
+
+`src/core/collision.js` čte GifC v5: 24bajtovou hlavičku, absolutní tabulku offsetů frame odkazů, grid na offsetu z hlavičky, 104bajtovou pevnou část gridu, X/Z hranice, separátor, pole triangles/AABB/XTOBB/cylinders/OBB/spheres, extra vrcholy, další separátor a buňky. Původní runtime ukazatele v hlavičkách se neinterpretují ani nenulují. Offsety grid+0x60/+0x64 znamenají počet a runtime ukazatel pole extra vrcholů s 12bajtovými XYZ. Pokud první vertex link trojúhelníku má index 0x7fff, loader použije všechny tři uint16 indexy do tohoto pole. Jinak první link určí vizuální vertex buffer s 32bajtovým krokem. Místní KLZ extra vrcholy nemají; tuto větev pokrývá syntetický test, nikoli dosud herní test.
+
+Buňka má 16bajtovou hlavičku, `count` uint32 odkazů, `count` bajtů příznaků a padding na čtyři bajty. Pole +4/+8 jsou loaderem přepsaná na ukazatele odkazů/příznaků; údaj +8 označený některými template jako height není spolehlivý prostorový parametr. Horní bajt odkazu je typ pole (trojúhelníky vždy 0), dolních 24 bitů je bajtový offset vůči začátku příslušného pole primitiv. Není to absolutní offset souboru ani offset od gridu. Loader toto potvrzuje kolem řádků 300260–300315.
+
+Pořadí v buňce ovlivňuje dotazy: `collision_box_in_tree_level` a `collision_line_in_tree_level` mohou ukončit průchod při seřazené X hranici trojúhelníku. Objemové reference musí být před touto sekvencí. Všech 208 937 místních buněk obsahujících oba druhy má právě toto pořadí. Vkládané AABB proto předcházejí původním referencím; pořadí těch původních se zachovává.
+
+Core zápis `appendCollisionBoxes` připojí světové AABB a typ-2 frame odkazy. Rozšíří grid pouze o celé původní buňky, zachová původní osy a přesune původní buňky podle X/Z. Nová primitiva zahrne i do obou buněk na přesné společné hranici. Nedotčené buňky zachovávají raw hlavičku, reference, příznaky a padding; dotčené zachovávají hlavičku za počtem, původní reference a příznaky, přičemž délka a zarovnání se změní podle nového počtu. Tabulka jmen zachovává celý původní blok včetně mezer a paddingu; při růstu offsetové tabulky se přepočtou absolutní offsety. Zachovávají se ostatní pole primitiv, extra vrcholy, separátory a koncová data.
+
+Audit všech 78 místních KLZ vložil box mimo původní grid a ověřil přesné zachování všech původních primitiv a 2 554 880 původních buněk. Unit fixture obsahuje všechny typy, nenulové opaque ukazatele, padding a mezery mezi link záznamy, tail a extra vrcholy. Parser odmítá neplatné rozměry, useknuté bloky a odkazy mimo pole. Zápis má limity 1 000 000 výsledných buněk, 10 000 000 nových referencí a 24bitových offsetů. Generování z modelu, další tvary, aktualizace/odstranění, propojená transakce scene/KLZ a ověření blokování ve hře ještě zbývají; tento základ není hotová uživatelská funkce.
