@@ -60,3 +60,11 @@ Přímý start GOG 1.2 je implementovaný pouze v izolované kopii a byl ověře
 ## Cache.bin
 
 Rozložení ověřeno podle mEdit `SceneEditor::LoadCacheBin` a všech 25 souborů místní hry: kořenový chunk typu 500 obsahuje verzi 1; části typu 1000 mají název s délkou uint32, 19 floatů oblasti a vložené chunky modelů typu 2000. Model má název s délkou uint32, pozici XYZ, rotaci WXYZ, měřítko XYZ, nerozpoznaný uint32 a druhou uloženou trojici měřítka. Transformace instancí jsou vůči hlavnímu sektoru, nikoli relativně k části města. Zápis reference nebyl převzat; vlastní writer přepočítá délky chunků a zachovává ostatní bajty. Úpravy pozice, modelové cesty a návrat k původním hodnotám byly ověřené přesným porovnáním dat.
+
+## Predmety.def
+
+PC varianta je pole záznamů o 188 bajtech bez hlavičky, ID je index od nuly. Reference: uložený `b4rtt/mafia-editor/src/Include/Data/ItemsDatabase.h` a `st0rm94/mafia-reverse-engineering-export/structs/def_tables.md`; 6 580 bajtů skutečného souboru odpovídá 35 záznamům. PS2 používá jiné rozložení a není tímto parserem podporována.
+
+Název má 32 bajtů na +0x00, příznaky uint32 na +0x20, model 32 bajtů na +0x24. Int32: animace nabíjení +0x4c, zvuk výstřelu +0x54, zvuk nabíjení +0x58, třída +0x5c, kapacita zásobníku +0x60, zásoba +0x64. Float32: dostřel +0x74, poškození +0x78, zpětný ráz +0x84, přesnost +0x88. Rozložení odpovídá skutečným hodnotám zbraní; kapacity potvrzují také spotřebitelé v exportu inventáře. Pole příznaků se ukazuje jako maska bez nejistých jmen jednotlivých bitů.
+
+Starší TS reference interpretuje model jako 48 bajtů; překryla by tak metadata a animaci nabíjení. Nový parser tento postup nepřebírá. Texty jsou nulou ukončené ve Windows-1250, nepřekódovávají se všechny záznamy při uložení. Vlastní writer kopíruje zdroj a zapisuje pouze změněná pole; u textu zachová padding za novým ukončovacím bajtem. Neznámé parametry včetně časování zůstávají beze změny. Zpětné nastavení textu nemusí obnovit historický padding, proto úplné undo obnovuje přesnou zálohu souboru.

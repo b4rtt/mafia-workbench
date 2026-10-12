@@ -8,6 +8,7 @@ import { inspectScene, editScene, changeSceneObject } from './scene.js';
 import { parseFourDs, editFourDs } from './fourds.js';
 import { parseFiveDs, editFiveDs } from './fiveds.js';
 import { inspectCache, editCache } from './cache.js';
+import { parseItems, editItems } from './items.js';
 import { assetCategory } from '../shared/categories.js';
 import { readEmptyMissionZip, configureEmptyMission, missionName } from './mission.js';
 
@@ -233,6 +234,10 @@ export class ModProject {
     if (/textdb_[a-z]{2}\.def$/i.test(name)) return { type: 'textdb', ...parseTextDb(bytes, name), path: asset.path, size: bytes.length, sha256: hash(bytes) };
     if (/scene2\.bin$/i.test(name)) return { type: 'scene', ...inspectScene(bytes), path: asset.path, size: bytes.length, sha256: hash(bytes) };
     let warning;
+    if (/^tables\/predmety\.def$/i.test(name)) {
+      try { return { type: 'items', ...common, ...parseItems(bytes) }; }
+      catch (error) { warning = error.message; }
+    }
     if (/\bcache\.bin$/i.test(name)) {
       try { return { type: 'cache', ...common, ...inspectCache(bytes) }; }
       catch (error) { warning = error.message; }
@@ -255,6 +260,13 @@ export class ModProject {
       if (expectedHash !== hash(before)) throw new Error('Soubor se od otevření změnil. Otevřete jej znovu.');
       return editFourDs(before, changes);
     }, 'Úprava modelu 4DS');
+  }
+  async saveItems(name, changes, expectedHash) {
+    if (!/^tables\/predmety\.def$/i.test(name)) throw new Error('Soubor není tabulka předmětů.');
+    await this.change(name, before => {
+      if (expectedHash !== hash(before)) throw new Error('Soubor se od otevření změnil. Otevřete jej znovu.');
+      return editItems(before, changes);
+    }, 'Úprava zbraní a předmětů');
   }
   async saveAnimation(name, changes, expectedHash) {
     if (!/\.5ds$/i.test(name)) throw new Error('Soubor není 5DS animace.');

@@ -76,7 +76,7 @@ function renderDetail() {
   state.viewport?.dispose(); state.viewport = null;
   for (const audio of $('detail').querySelectorAll('audio')) { audio.pause(); audio.removeAttribute('src'); audio.load(); }
   const main = $('detail'); main.replaceChildren();
-  const badges = { textdb: 'TEXTDB · EDITACE', scene: 'SCÉNA · EDITACE', cache: 'CACHE · STATICKÉ MODELY', map: 'MAPA · 3D EDITACE', model: '4DS · 3D EDITACE', animation: '5DS · ANIMACE', image: 'OBRÁZEK · NÁHLED', audio: 'ZVUK · PŘEHRÁVAČ' };
+  const badges = { items: 'PŘEDMĚTY · ZBRANĚ', textdb: 'TEXTDB · EDITACE', scene: 'SCÉNA · EDITACE', cache: 'CACHE · STATICKÉ MODELY', map: 'MAPA · 3D EDITACE', model: '4DS · 3D EDITACE', animation: '5DS · ANIMACE', image: 'OBRÁZEK · NÁHLED', audio: 'ZVUK · PŘEHRÁVAČ' };
   const head = element('div', undefined, 'file-header'); head.append(element('h2', file.path), element('span', badges[file.type] ?? 'BINÁRNÍ SOUBOR', 'badge')); main.append(head);
   const source = state.project.assets.find(a => a.path === file.path);
   main.append(element('div', `${file.size.toLocaleString('cs')} bajtů · ${source?.archive} · ${source?.variants ?? 1} variant archivů`, 'file-meta'));
@@ -99,6 +99,7 @@ function renderDetail() {
     const map = element('button', 'Otevřít 3D mapu'); map.onclick = () => run(async () => { if (!await discard()) return; state.texts.clear(); status('Načítám geometrii mapy…'); state.file = await api.map(file.path); renderDetail(); status('3D mapa načtená.'); }); toolbar.append(map);
   }
   if (file.type === 'textdb') renderTexts(main, file);
+  else if (file.type === 'items') renderItems(main, file);
   else if (file.type === 'scene') renderProperties(main, file, api.saveScene);
   else if (file.type === 'cache') renderCache(main, file);
   else if (file.type === 'model') renderModel(main, file);
@@ -115,6 +116,66 @@ function renderDetail() {
     }
     main.append(element('pre', rows, 'binary'));
   }
+}
+function renderItems(main, file) {
+  main.append(element('p', `${file.records.length} předmětů · ID odpovídá pořadí záznamu ve hře. Změny se ukládají do modu; neznámé parametry a pořadí zůstávají zachované.`, 'notice'));
+  const layout = element('div', undefined, 'items-workspace'), browser = element('section'), form = element('section', undefined, 'item-form');
+  const search = element('input'); search.type = 'search'; search.placeholder = 'ID, název nebo model…'; search.setAttribute('aria-label', 'Hledat předměty');
+  const scroll = element('div', undefined, 'item-table-scroll'), table = element('table', undefined, 'item-table'), head = element('thead'), header = element('tr'), body = element('tbody');
+  for (const text of ['ID', 'Předmět', 'Zásobník', 'Zásoba', 'Poškození']) header.append(element('th', text));
+  head.append(header); table.append(head, body); scroll.append(table); browser.append(search, scroll); layout.append(browser, form); main.append(layout);
+  const currentValue = entry => state.texts.has(entry.id) ? state.texts.get(entry.id) : entry.value;
+  function fill() {
+    body.replaceChildren(); const query = search.value.toLowerCase();
+    for (const record of file.records) {
+      const name = currentValue(record.entries.find(e => e.key === 'name')), model = currentValue(record.entries.find(e => e.key === 'model'));
+      if (!`${record.index} ${name} ${model}`.toLowerCase().includes(query)) continue;
+      const row = element('tr'); row.classList.toggle('selected', record.index === state.itemIndex);
+      row.append(element('td', record.index)); const cell = element('td'), button = element('button', name || '(bez názvu)');
+      button.setAttribute('aria-label', `Předmět ${record.index}: ${name}`); button.onclick = () => { if (!state.busy) edit(record); }; cell.append(button); row.append(cell);
+      for (const key of ['magazine', 'reserve', 'damage']) { const value = currentValue(record.entries.find(e => e.key === key)); row.append(element('td', value?.invalid ? '…' : value)); }
+      body.append(row);
+    }
+  }
+  function edit(record) {
+    state.itemIndex = record.index; state.viewport?.dispose(); state.viewport = null; form.replaceChildren();
+    form.append(element('h3', `ID ${record.index} · ${record.name}`));
+    const fields = element('div', undefined, 'item-fields'), save = element('button', `Uložit změny (${state.texts.size})`, 'primary'); save.disabled = !state.texts.size;
+    for (const entry of record.entries) {
+      const label = element('label', entry.label), input = element('input'), value = currentValue(entry);
+      input.setAttribute('aria-label', `Předmět ${record.index} · ${entry.label}`); input.type = entry.kind === 'string' ? 'text' : 'number';
+      if (input.type === 'number') input.step = entry.kind === 'float' ? 'any' : '1';
+      input.value = value?.invalid ? value.raw : String(value);
+      input.oninput = () => {
+        const next = entry.kind === 'string' ? input.value : input.value.trim() === '' ? NaN : Number(input.value);
+        if (typeof next === 'number' && !Number.isFinite(next)) { state.texts.set(entry.id, { invalid: true, raw: input.value }); input.setAttribute('aria-invalid', 'true'); }
+        else { input.removeAttribute('aria-invalid'); if (next === entry.value) state.texts.delete(entry.id); else state.texts.set(entry.id, next); }
+        save.textContent = `Uložit změny (${state.texts.size})`; save.disabled = !state.texts.size; fill();
+      };
+      label.append(input); fields.append(label);
+    }
+    save.onclick = () => run(async () => {
+      if ([...state.texts.values()].some(v => v?.invalid)) throw new Error('Vyplňte neplatné číselné hodnoty.');
+      state.file = await api.saveItems(file.path, [...state.texts].map(([id, value]) => ({ id, value })), file.sha256);
+      state.texts.clear(); await refresh(); renderDetail(); status('Zbraně a předměty uložené do modu se zálohou.');
+    });
+    const preview = element('button', 'Náhled modelu předmětu'), caption = element('p'), container = element('div', undefined, 'viewport item-preview'); container.hidden = true;
+    preview.onclick = () => run(async () => {
+      const value = currentValue(record.entries.find(e => e.key === 'model'));
+      if (typeof value !== 'string' || !value) throw new Error('Tento předmět nemá model.');
+      const name = `models/${value.replaceAll('\\', '/').replace(/\.i3d$/i, '.4ds')}`.toLowerCase(), asset = state.project.assets.find(a => a.path.toLowerCase() === name);
+      if (!asset) throw new Error(`Model ${value} není v projektu.`);
+      const model = await api.inspect(asset.path); if (state.file !== file || state.itemIndex !== record.index) return;
+      if (model.type !== 'model') throw new Error(model.warning ?? 'Model zatím nelze zobrazit.');
+      state.viewport?.dispose(); container.hidden = false;
+      const view = new Viewport(container); state.viewport = view;
+      for (const object of view.addModel(model).values()) object.userData.frame.editable = false;
+      view.fit(); caption.textContent = asset.path;
+      await view.loadTextures(async texture => { const name = texture.replaceAll('\\', '/').toLowerCase(), match = state.project.assets.find(a => a.path.toLowerCase() === `maps/${name}` || a.path.toLowerCase() === name); return match ? api.media(match.path) : null; });
+    });
+    form.append(fields, element('p', 'Přesnost je uložený koeficient, nikoli procento. Příznaky jsou číselná bitová maska; ID zvuků a animací se nepřekládají odhadem.', 'notice'), save, preview, caption, container); fill();
+  }
+  search.oninput = fill; edit(file.records[state.itemIndex] ?? file.records[0]);
 }
 function renderTexts(main, file) {
   const workspace = element('div', undefined, 'text-workspace'), indexPanel = element('div', undefined, 'text-index');

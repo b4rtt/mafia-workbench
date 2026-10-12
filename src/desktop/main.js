@@ -120,6 +120,7 @@ app.whenReady().then(async () => {
   handle('asset:model', (name, changes, expectedHash) => operation(async () => { await current().saveModel(name, changes, expectedHash); return current().inspect(name); }));
   handle('asset:animation', (name, changes, expectedHash) => operation(async () => { await current().saveAnimation(name, changes, expectedHash); return current().inspect(name); }));
   handle('asset:cache', (name, changes, expectedHash) => operation(async () => { await current().saveCache(name, changes, expectedHash); return current().inspect(name); }));
+  handle('asset:items', (name, changes, expectedHash) => operation(async () => { await current().saveItems(name, changes, expectedHash); return current().inspect(name); }));
   handle('project:loose', () => operation(async () => { await current().importLoose(p => window.webContents.send('extraction:progress', p)); return current().list(); }));
   handle('mission:template', () => operation(async () => {
     const active = current();
