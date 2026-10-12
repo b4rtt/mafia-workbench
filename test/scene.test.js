@@ -49,6 +49,31 @@ test('kind 5 actor scripts preserve headers, tails and unknown actor payloads on
   assert.deepEqual(inspectScene(chunk(0x4c53,chunk(0xae20,actor(5,data.subarray(0,20))))).actorScripts,[]);
   const unknown=Buffer.from(data);unknown[5]=0;assert.deepEqual(inspectScene(chunk(0x4c53,chunk(0xae20,actor(5,unknown)))).actorScripts,[]);
 });
+test('human v6 scripts preserve actor parameters, sibling data and trailing source on edits',()=>{
+  const code=Buffer.from('enemy_move 77, walk\r\n'),header=Buffer.alloc(83,0xee);
+  header[0]=6;header[73]=header[74]=1;header.writeUInt32LE(0,75);header.writeUInt32LE(code.length,79);
+  const data=Buffer.concat([header,code,Buffer.from('opaque program tail')]);
+  const actor=(kind,payload)=>{const type=Buffer.alloc(4);type.writeUInt32LE(kind);return chunk(0xae21,Buffer.concat([chunk(0xae22,type),chunk(0xae23,Buffer.from('Walker\0')),chunk(0xae24,payload),chunk(0xbeef,Buffer.from('actor sibling'))]));};
+  const scene=(kind,payload)=>chunk(0x4c53,chunk(0xae20,actor(kind,payload)));
+  const source=scene(27,data),before=Buffer.from(source),entry=inspectScene(source).entries.find(e=>e.actorScript);
+  assert.equal(entry.actorKind,27);assert.deepEqual(entry.value,{name:'Walker',code:code.toString()});
+  assert.deepEqual(editScene(source,entry.id,entry.value),source);
+  const value={name:'Walker',code:'enemy_move 88, walk\r\n// změna postavy'};
+  const changed=editScene(source,entry.id,value);
+  assert.deepEqual(inspectScene(changed).actorScripts,[value]);assert.ok(changed.includes(header.subarray(0,79)));
+  assert.ok(changed.includes(Buffer.from('opaque program tail')));assert.ok(changed.includes(Buffer.from('actor sibling')));
+  assert.equal(changed.readUInt32LE(2),changed.length);assert.deepEqual(editScene(changed,entry.id,entry.value),source);assert.deepEqual(source,before);
+  assert.equal(inspectScene(editScene(source,entry.id,{name:'Walker',code:''})).actorScripts[0].code,'');
+  for(const invalid of [{name:'Other',code:'wait 1'},{name:'Walker',code:'emoji 🐱'},{name:'Walker',code:'nul\0'},{name:'Walker',code:'a'.repeat(1000001)}])assert.throws(()=>editScene(source,entry.id,invalid),/Scene/);
+  // Never find a script by scanning for signatures in opaque human data.
+  for(const [offset,value] of [[0,5],[73,0],[74,2],[75,1],[79,0xff]]){
+    const bad=Buffer.from(data);bad[offset]=value;
+    assert.deepEqual(inspectScene(scene(27,bad)).actorScripts,[]);
+    assert.throws(()=>editScene(scene(27,bad),entry.id,entry.value),/neexistuje/);
+  }
+  for(const kind of [2,3,5,28])assert.deepEqual(inspectScene(scene(kind,data)).actorScripts,[]);
+  for(const length of [0,73,82,83,100])assert.deepEqual(inspectScene(scene(27,data.subarray(0,length))).actorScripts,[]);
+});
 const modelOperation = { kind:'add-model', name:'WB_CRATE', model:'bedna02.i3d', position:[1,2,3], rotation:[Math.SQRT1_2,0,Math.SQRT1_2,0], scale:[1,2,3] };
 test('inserting and deleting a model recalculates sizes, preserves all original chunks and restores the exact scene', () => {
   const source = fixture(), before = Buffer.from(source), added = changeSceneObject(source,modelOperation), scene = inspectScene(added), object = scene.objects.at(-1);

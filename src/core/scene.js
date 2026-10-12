@@ -74,6 +74,20 @@ function tree(source) {
   }
   return parse(0, bytes.length);
 }
+function actorScriptLayout(kind, data) {
+  if (!data) return null;
+  let lengthOffset;
+  if (kind === 5 && data.length >= 14 && data[0] === 1 && data.readUInt32LE(1) <= 1 && data[5] === 1 && data.readUInt32LE(6) === 0) {
+    lengthOffset = 10;
+  } else if (kind === 27 && data.length >= 83 && data[0] === 6 && data[73] === 1 && data[74] === 1 && data.readUInt32LE(75) === 0) {
+    // C_human v6: 1 version byte, two dwords, 64 stats bytes. C_entity
+    // then stores its version and C_program v1 with an empty first string.
+    // The second source string is the script; preserve everything else.
+    lengthOffset = 79;
+  } else return null;
+  const codeStart = lengthOffset + 4, length = data.readUInt32LE(lengthOffset);
+  return length <= 1000000 && codeStart + length <= data.length ? { lengthOffset, codeStart, length } : null;
+}
 export function inspectScene(source) {
   const roots = tree(source), entries = [], objects = [], actorScripts = [];
   let opaque = 0;
@@ -86,15 +100,12 @@ export function inspectScene(source) {
         const kind = node.children.find(n => n.type === 0xae22)?.payload;
         const data = node.children.find(n => n.type === 0xae24)?.payload;
         const name = node.children.find(n => n.type === 0xae23)?.payload;
-        // Kind 5 script actor: mLib ExtractObjectScript documents the 10-byte
-        // header followed by u32 code length. Other actor layouts remain opaque.
-        if (kind?.length >= 4 && kind.readUInt32LE(0) === 5 && name && data?.length >= 14 && data[0] === 1 && data.readUInt32LE(1) <= 1 && data[5] === 1 && data.readUInt32LE(6) === 0) {
-          const length = data.readUInt32LE(10);
-          if (length <= 1000000 && 14 + length <= data.length) {
-            const value={name:string(name),code:iconv.decode(data.subarray(14,14+length),'windows-1250')};
-            actorScripts.push(value);
-            entries.push({id:node.children.find(n=>n.type===0xae24).id,label:'Skript aktéra',kind:'script',value,actorScript:true,context:`${context} / ${value.name}`.replace(/^ \/ /,''),bytes:data.length});
-          }
+        const actorKind = kind?.length >= 4 ? kind.readUInt32LE(0) : null;
+        const layout = actorScriptLayout(actorKind, data);
+        if (name && layout) {
+          const value={name:string(name),code:iconv.decode(data.subarray(layout.codeStart,layout.codeStart+layout.length),'windows-1250')};
+          actorScripts.push(value);
+          entries.push({id:node.children.find(n=>n.type===0xae24).id,label:'Skript aktéra',kind:'script',value,actorScript:true,actorKind,context:`${context} / ${value.name}`.replace(/^ \/ /,''),bytes:data.length});
         }
       }
       if (node.type === 0x4010 && node.children) {
@@ -130,8 +141,8 @@ export function editScene(source, id, value) {
       if(!value || value.name!==entry.value.name || typeof value.code!=='string')throw new Error('Scene: změňte pouze kód skriptu aktéra; název patří jeho frame.');
       found=true;
       if(value.code===entry.value.code)return node.raw;
-      const code=encode(value.code),header=Buffer.from(node.payload.subarray(0,14));header.writeUInt32LE(code.length,10);
-      payload=Buffer.concat([header,code,node.payload.subarray(14+node.payload.readUInt32LE(10))]);
+      const layout=actorScriptLayout(entry.actorKind,node.payload),code=encode(value.code),header=Buffer.from(node.payload.subarray(0,layout.codeStart));header.writeUInt32LE(code.length,layout.lengthOffset);
+      payload=Buffer.concat([header,code,node.payload.subarray(layout.codeStart+layout.length)]);
     } else if (node.id === id && fields.has(node.type)) {
       found = true;
       const kind = fields.get(node.type)[1];
