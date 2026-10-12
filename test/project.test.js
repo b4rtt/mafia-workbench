@@ -1,0 +1,62 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import os from 'node:os';
+import { ModProject } from '../src/core/project.js';
+import { hash, writeSafe, readSafe } from '../src/core/files.js';
+async function setup(t) {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'mafia-workbench-test-'));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const original = Buffer.from([0xde, 0xad, 0xbe, 0xef]);
+  const asset = { path: 'models/example.4ds', original: 'originals/a2/models/example.4ds', sha256: hash(original), archive: 'a2.dta', size: original.length, variants: [{}] };
+  const manifest = { format: 'mafia-workbench', version: 1, name: 'Fixture', assets: [asset], history: [] };
+  await writeSafe(root, asset.original, original);
+  await writeSafe(root, 'workbench.json', JSON.stringify(manifest));
+  return { root, asset, original, project: await ModProject.open(root) };
+}
+test('mod saves, reopen, undo, restore and export retain the original', async t => {
+  const { root, project, asset, original } = await setup(t);
+  const first = Buffer.from([1, 2, 3]);
+  await project.change(asset.path, first);
+  assert.deepEqual(await readSafe(root, asset.original), original);
+  assert.equal((await project.list()).assets[0].modified, true);
+  const reopened = await ModProject.open(root);
+  assert.deepEqual(await reopened.read(asset.path), first);
+  const destination = path.join(root, 'export');
+  assert.equal(await reopened.export(destination), 1);
+  assert.deepEqual(await fs.readFile(path.join(destination, asset.path)), first);
+  assert.equal((JSON.parse(await fs.readFile(path.join(destination, 'mafia-mod.json')))).files.length, 1);
+  await assert.rejects(() => reopened.export(destination), /EEXIST/);
+  await reopened.change(asset.path, Buffer.from('second'));
+  await reopened.undo(); assert.deepEqual(await reopened.read(asset.path), first);
+  await reopened.restore(asset.path); assert.deepEqual(await reopened.read(asset.path), original);
+  await reopened.undo(); assert.deepEqual(await reopened.read(asset.path), first);
+  await reopened.undo(); assert.deepEqual(await reopened.read(asset.path), original);
+  assert.equal((await reopened.list()).history, 0);
+  assert.deepEqual(await readSafe(root, asset.original), original);
+});
+test('project boundary rejects traversal, symlinks, hardlinks and altered originals', async t => {
+  const { root, project, asset } = await setup(t);
+  const outside = path.join(root, 'outside'); await fs.mkdir(outside);
+  const sentinel = path.join(outside, 'sentinel'); await fs.writeFile(sentinel, 'unchanged');
+  await fs.symlink(outside, path.join(root, 'mods'));
+  await assert.rejects(() => project.change(asset.path, Buffer.from('bad')), /odkaz/);
+  assert.equal(await fs.readFile(sentinel, 'utf8'), 'unchanged');
+  await fs.unlink(path.join(root, 'mods'));
+  await assert.rejects(() => writeSafe(root, '../escape', 'x'), /cesta/);
+  await fs.link(sentinel, path.join(root, 'linked'));
+  await assert.rejects(() => writeSafe(root, 'linked', 'bad'), /pevný odkaz/);
+  assert.equal(await fs.readFile(sentinel, 'utf8'), 'unchanged');
+  await fs.writeFile(path.join(root, asset.original), 'changed outside editor');
+  await assert.rejects(() => project.change(asset.path, Buffer.from('new')), /mimo editor/);
+});
+test('undo rejects stale external writes and corrupted backups', async t => {
+  const { root, project, asset } = await setup(t);
+  await project.change(asset.path, Buffer.from('edit'));
+  await fs.writeFile(path.join(root, 'mods', asset.path), 'external');
+  await assert.rejects(() => project.undo(), /neodpovídá/);
+  await fs.writeFile(path.join(root, 'mods', asset.path), 'edit');
+  await fs.writeFile(path.join(root, project.manifest.history[0].backup), 'corrupt');
+  await assert.rejects(() => project.undo(), /neodpovídá/);
+});

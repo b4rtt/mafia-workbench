@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'">
+<title>Mafia Workbench</title>
+<link rel="stylesheet" href="styles.css">
+<script src="app.js" defer></script>
+</head>
+<body>
+<header><div class="brand"><span class="mark">MW</span><div><h1>Mafia Workbench</h1><small>MAFIA · THE CITY OF LOST HEAVEN · 2002</small></div></div><nav><button id="create">Rozbalit hru</button><button id="open">Otevřít projekt</button><button id="undo" disabled>Vrátit změnu</button><button id="export" class="primary" disabled>Exportovat mod</button></nav></header>
+<div class="workspace"><aside><div class="section-label">PROJEKT</div><h2 id="project-name">Začněte se svou hrou</h2><p id="project-stats">Původní soubory zůstanou zachované.</p><input id="filter" type="search" placeholder="Hledat soubory…" aria-label="Hledat soubory"><div class="filters"><button id="all" class="selected">Vše</button><button id="changed">Upravené</button><button id="texts">Texty</button></div><div id="file-list" role="list" aria-label="Herní soubory"></div><div id="count" class="section-label"></div></aside>
+<main id="detail"><section class="welcome"><span class="eyebrow">VAŠE MAFIA. VAŠE ÚPRAVY.</span><h2>Otevřete Lost Heaven.</h2><p>Rozbalte DTA archivy do nového projektu. Procházejte herní soubory, upravujte české texty a ukládejte vlastní mod.</p><div class="cards"><article><strong>Originály zůstávají</strong><p>Úpravy se ukládají samostatně. Každý zápis má zálohu a lze jej vrátit.</p></article><article><strong>Celá hra v projektu</strong><p>Scény, modely, animace, tabulky, textury i záznamy. Všechny varianty archivů se uchovávají.</p></article><article><strong>První verze</strong><p>TextDB lze editovat. Ostatní formáty zatím umožňují binární náhled a nahrazení souboru.</p></article></div></section></main></div>
+<footer><span id="status" role="status">Připraveno</span><span>WORKBENCH 0.1 · LOKÁLNÍ DATA</span></footer>
+<dialog id="discard"><h2>Máte neuložené změny</h2><p>Chcete je zahodit a pokračovat?</p><form method="dialog"><button value="cancel">Zůstat</button><button class="primary" value="discard">Zahodit změny</button></form></dialog>
+</body>
+</html>

@@ -1,0 +1,24 @@
+{
+  "name": "mafia-workbench",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Desktop modding workbench for Mafia (2002)",
+  "type": "module",
+  "main": "src/desktop/main.js",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/*.test.js",
+    "check": "node tools/check.js",
+    "extract": "node tools/extract.js"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "dependencies": {
+    "iconv-lite": "0.7.3"
+  },
+  "devDependencies": {
+    "electron": "44.7.0"
+  }
+}

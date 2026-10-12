@@ -1,6 +1,6 @@
 {
   "title": "Komplexní editor Mafia 1 CZ (2002)",
-  "prerequisite": "Funkční spuštění původní hry na Macu. Hra nyní spouští videa a menu; test první mise čeká na systémové potvrzení Touch ID.",
+  "prerequisite": "Splněno: 12. října 2026 ověřeny dva starty Hra/Game.exe z Finderu, trénink s pohybem a první příběhová mise s jízdou taxi. Zvuk a celá kampaň nejsou zatím ověřené.",
   "objective": "Vytvořit komplexní editor celé hry, ideálně v Electronu, pro maximální modifikaci všech částí hry. Rozbalit data a vycházet z dodaných repozitářů a zdokumentovaných formátů, nepracovat naslepo.",
   "requirements": [
     "Uložit všech 16 unikátních dodaných repozitářů a vyhodnotit jejich formáty, implementace a licence.",
