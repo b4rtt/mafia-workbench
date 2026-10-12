@@ -74,7 +74,7 @@ function renderDetail() {
   state.viewport?.dispose(); state.viewport = null;
   for (const audio of $('detail').querySelectorAll('audio')) { audio.pause(); audio.removeAttribute('src'); audio.load(); }
   const main = $('detail'); main.replaceChildren();
-  const badges = { textdb: 'TEXTDB · EDITACE', scene: 'SCÉNA · EDITACE', map: 'MAPA · 3D EDITACE', model: '4DS · 3D EDITACE', animation: '5DS · ANIMACE', image: 'OBRÁZEK · NÁHLED', audio: 'ZVUK · PŘEHRÁVAČ' };
+  const badges = { textdb: 'TEXTDB · EDITACE', scene: 'SCÉNA · EDITACE', cache: 'CACHE · STATICKÉ MODELY', map: 'MAPA · 3D EDITACE', model: '4DS · 3D EDITACE', animation: '5DS · ANIMACE', image: 'OBRÁZEK · NÁHLED', audio: 'ZVUK · PŘEHRÁVAČ' };
   const head = element('div', undefined, 'file-header'); head.append(element('h2', file.path), element('span', badges[file.type] ?? 'BINÁRNÍ SOUBOR', 'badge')); main.append(head);
   const source = state.project.assets.find(a => a.path === file.path);
   main.append(element('div', `${file.size.toLocaleString('cs')} bajtů · ${source?.archive} · ${source?.variants ?? 1} variant archivů`, 'file-meta'));
@@ -98,6 +98,7 @@ function renderDetail() {
   }
   if (file.type === 'textdb') renderTexts(main, file);
   else if (file.type === 'scene') renderProperties(main, file, api.saveScene);
+  else if (file.type === 'cache') renderCache(main, file);
   else if (file.type === 'model') renderModel(main, file);
   else if (file.type === 'map') renderMap(main, file);
   else if (file.type === 'animation') renderProperties(main, file, api.saveAnimation);
@@ -215,6 +216,20 @@ function renderModel(main, file) {
   center.append(element('p', `${file.meshes.length} objektů · ${file.materials.length} materiálů · LOD 0. Skinning a morfování zatím nejsou v náhledu animované.`, 'notice'));
   properties = renderProperties(inspector, file, api.saveModel, (entry, value) => { const match = /^meshes\/(\d+)\/(position|rotation|scale)$/.exec(entry.id); if (match) view.update(String(Number(match[1]) + 1), { [match[2]]: value }); });
 }
+function renderCache(main, file) {
+  main.append(element('p', `${file.parts.length} částí města · ${file.parts.reduce((sum, part) => sum + part.objects.length, 0)} statických modelů. Vyberte část pro 3D editaci rozmístění modelů.`));
+  const tools = element('div', undefined, 'tools'), parts = element('select'), preview = element('button', 'Otevřít část ve 3D');
+  parts.setAttribute('aria-label', 'Část města v cache.bin');
+  for (const part of file.parts) { const option = element('option', `${part.name} · ${part.objects.length} modelů`); option.value = part.id; parts.append(option); }
+  preview.disabled = !file.parts.length;
+  preview.onclick = () => run(async () => {
+    if (!await discard()) return;
+    const part = file.parts.find(p => p.id === parts.value);
+    if (part.objects.length > 500) throw new Error('Tato část má přes 500 modelů; její 3D náhled zatím není podporovaný. Vlastnosti lze upravit v seznamu.');
+    state.texts.clear(); state.file = { ...file, type: 'map', cacheSource: true, geometry: { meshes: [], materials: [] }, objects: part.objects, entries: file.entries.filter(e => e.id.startsWith(part.id + '/')) }; renderDetail();
+  });
+  tools.append(parts, preview); main.append(tools); renderProperties(main, file, api.saveCache);
+}
 function renderMap(main, file) {
   const layout = element('div', undefined, 'model-workspace'), center = element('section', undefined, 'model-center'), inspector = element('section', undefined, 'model-inspector'); layout.append(center, inspector); main.append(layout);
   const tools = element('div', undefined, 'tools'), viewport = element('div', undefined, 'viewport'), selected = element('p', 'Vyberte objekt mapy.'), objects = element('select'); objects.setAttribute('aria-label', 'Objekt mapy'); objects.append(element('option', 'Vyberte objekt…')); center.append(tools, objects, selected, viewport);
@@ -224,7 +239,7 @@ function renderMap(main, file) {
     if (object) { objects.value = String(frame.id); properties?.select(object.fields.position ?? object.fields.name); }
   }, (frame, values, mode) => {
     const field = { translate: 'position', rotate: 'rotation', scale: 'scale' }[mode], id = frame.sceneObject?.fields[field];
-    if (!id) { status('Tato transformace nemá existující vlastnost ve scene2.bin. Zatím ji upravte ve scene.4ds.', true); return; }
+    if (!id) { status('Tato transformace nemá existující vlastnost ve zdrojovém souboru. Zatím ji upravte ve scene.4ds.', true); return; }
     state.texts.set(id, values[field]); properties?.select(id); status('Úprava mapy je rozepsaná. Uložte ji v inspektoru.');
   }); state.viewport = view;
   const overrides = new Map(file.objects.map(object => [object.name.toLowerCase(), object]));
@@ -265,8 +280,8 @@ function renderMap(main, file) {
   const sky = element('button', 'Obloha'); let showSky = false; sky.setAttribute('aria-pressed', 'false'); sky.onclick = () => { showSky = !showSky; view.showBackdrop(showSky); sky.setAttribute('aria-pressed', String(showSky)); };
   tools.append(fit, sky); objects.onchange = () => view.select(objects.value);
   view.loadTextures(resolveTexture);
-  properties = renderProperties(inspector, file, async (...args) => { await api.saveScene(...args); return api.map(file.path); }, (entry, value) => { const field = byField.get(entry.id); if (field && ['position','rotation','scale'].includes(field.kind)) view.update(field.id, { [field.kind]: value }); });
-  center.append(element('p', 'Geometrie scene.4ds a objekty scene2.bin. Modré body označují světla, zvuky a další objekty bez modelu; oranžové body chybějící model. Cache.bin, kolize a navigace se ještě doplňují.', 'notice'));
+  properties = renderProperties(inspector, file, file.cacheSource ? api.saveCache : async (...args) => { await api.saveScene(...args); return api.map(file.path); }, (entry, value) => { const field = byField.get(entry.id); if (field && ['position','rotation','scale'].includes(field.kind)) view.update(field.id, { [field.kind]: value }); });
+  center.append(element('p', file.cacheSource ? 'Statické modely vybrané části cache.bin. Transformace se ukládají do samostatného modu; oranžové body označují chybějící modely.' : 'Geometrie scene.4ds a objekty scene2.bin. Modré body označují světla, zvuky a další objekty bez modelu; oranžové body chybějící model. Statické modely lze upravit otevřením cache.bin; kolize a navigace se ještě doplňují.', 'notice'));
 }
 $('filter').oninput = renderFiles;
 $('tabs-left').onclick = () => $('categories').scrollBy({ left: -400, behavior: 'smooth' });

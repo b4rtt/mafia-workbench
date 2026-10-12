@@ -7,6 +7,7 @@ import { parseTextDb, editTextDb } from './textdb.js';
 import { inspectScene, editScene } from './scene.js';
 import { parseFourDs, editFourDs } from './fourds.js';
 import { parseFiveDs, editFiveDs } from './fiveds.js';
+import { inspectCache, editCache } from './cache.js';
 import { assetCategory } from '../shared/categories.js';
 
 const MANIFEST = 'workbench.json';
@@ -173,6 +174,10 @@ export class ModProject {
     if (/textdb_[a-z]{2}\.def$/i.test(name)) return { type: 'textdb', ...parseTextDb(bytes, name), path: asset.path, size: bytes.length, sha256: hash(bytes) };
     if (/scene2\.bin$/i.test(name)) return { type: 'scene', ...inspectScene(bytes), path: asset.path, size: bytes.length, sha256: hash(bytes) };
     let warning;
+    if (/\bcache\.bin$/i.test(name)) {
+      try { return { type: 'cache', ...common, ...inspectCache(bytes) }; }
+      catch (error) { warning = error.message; }
+    }
     if (/\.5ds$/i.test(name)) {
       try { return { type: 'animation', ...common, ...parseFiveDs(bytes) }; }
       catch (error) { warning = error.message; }
@@ -198,6 +203,13 @@ export class ModProject {
       if (expectedHash !== hash(before)) throw new Error('Soubor se od otevření změnil. Otevřete jej znovu.');
       return editFiveDs(before, changes);
     }, 'Úprava klíčů animace 5DS');
+  }
+  async saveCache(name, changes, expectedHash) {
+    if (!/\bcache\.bin$/i.test(name)) throw new Error('Soubor není cache.bin.');
+    await this.change(name, before => {
+      if (expectedHash !== hash(before)) throw new Error('Soubor se od otevření změnil. Otevřete jej znovu.');
+      return editCache(before, changes);
+    }, 'Úprava statických modelů cache.bin');
   }
   async inspectMap(name) {
     if (!/scene2\.bin$/i.test(name)) throw new Error('Vyberte scene2.bin mapy.');

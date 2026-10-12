@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld('workbench', {
   saveScene: (name, changes, expectedHash) => invoke('asset:scene', name, changes, expectedHash),
   saveModel: (name, changes, expectedHash) => invoke('asset:model', name, changes, expectedHash),
   saveAnimation: (name, changes, expectedHash) => invoke('asset:animation', name, changes, expectedHash),
+  saveCache: (name, changes, expectedHash) => invoke('asset:cache', name, changes, expectedHash),
   restore: name => invoke('asset:restore', name),
   undo: () => invoke('project:undo'),
   replace: name => invoke('asset:replace', name),

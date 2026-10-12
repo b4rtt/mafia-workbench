@@ -44,3 +44,7 @@ Barva diffuse tónuje diffuse texturu pouze při příznaku `0x08000000` (COLORE
 Některé dodané 4DS obsahují neplatné hodnoty nepoužitých normál nebo UV. Náhled nahrazuje neplatné UV nulami a dopočítá normály; editace zachovává původní bajty. Neplatné pozice vrcholů zůstávají chybou.
 
 Přímý start GOG 1.2 je implementovaný pouze v izolované kopii a byl ověřen v tréninku, na autodromu a v restauraci. Příprava dalších startů používá uložený index aplikovaných souborů; znovu nerozbaluje DTA ani nečte všechny původní assety. Na místním macOS přímý procesový start Wine z Electronu selhával při inicializaci desktopu. Ověřený start přes `/bin/zsh -f` obnovuje cestu místních DYLD knihoven z pozičního argumentu a pokračuje přes `exec`; cesty se nevkládají do zdrojového textu shellu.
+
+## Cache.bin
+
+Rozložení ověřeno podle mEdit `SceneEditor::LoadCacheBin` a všech 25 souborů místní hry: kořenový chunk typu 500 obsahuje verzi 1; části typu 1000 mají název s délkou uint32, 19 floatů oblasti a vložené chunky modelů typu 2000. Model má název s délkou uint32, pozici XYZ, rotaci WXYZ, měřítko XYZ, nerozpoznaný uint32 a druhou uloženou trojici měřítka. Transformace instancí jsou vůči hlavnímu sektoru, nikoli relativně k části města. Zápis reference nebyl převzat; vlastní writer přepočítá délky chunků a zachovává ostatní bajty. Úpravy pozice, modelové cesty a návrat k původním hodnotám byly ověřené přesným porovnáním dat.
