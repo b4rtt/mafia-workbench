@@ -88,6 +88,18 @@ function actorScriptLayout(kind, data) {
   const codeStart = lengthOffset + 4, length = data.readUInt32LE(lengthOffset);
   return length <= 1000000 && codeStart + length <= data.length ? { lengthOffset, codeStart, length } : null;
 }
+const humanFields = [
+  { key:'reactionsMask', label:'Reakce (dolní bajt příznaků)', kind:'byte', offset:1 },
+  { key:'voice', label:'Hlas (ID)', kind:'byte', offset:5 },
+  ...['Síla','Energie (maximum)','Energie levé ruky (maximum)','Energie pravé ruky (maximum)','Energie levé nohy (maximum)','Energie pravé nohy (maximum)','Reakce','Rychlost','Agresivita','Inteligence','Střelba','Zrak','Sluch','Řízení','Hmotnost','Doplňkový parametr chování'].map((label,index)=>({key:`stat${index}`,label,kind:'float',offset:9+4*index,maximum:index<15}))
+];
+function humanParameterLayout(kind, data) {
+  // mLib CScene2 character/player parameters; C_human v6 reads this exact
+  // 73-byte prefix. Upper flag/voice bytes and the entity program stay opaque.
+  if (![2,27].includes(kind) || !data || data.length < 73 || data[0] !== 6) return [];
+  if (humanFields.some(field=>field.kind==='float'&&!Number.isFinite(data.readFloatLE(field.offset)))) return [];
+  return humanFields;
+}
 export function inspectScene(source) {
   const roots = tree(source), entries = [], objects = [], actorScripts = [];
   let opaque = 0;
@@ -101,6 +113,10 @@ export function inspectScene(source) {
         const data = node.children.find(n => n.type === 0xae24)?.payload;
         const name = node.children.find(n => n.type === 0xae23)?.payload;
         const actorKind = kind?.length >= 4 ? kind.readUInt32LE(0) : null;
+        if (name) for (const field of humanParameterLayout(actorKind, data)) {
+          const nodeId=node.children.find(n=>n.type===0xae24).id;
+          entries.push({id:`${nodeId}:${field.key}`,nodeId,label:field.label,kind:field.kind,value:field.kind==='byte'?data[field.offset]:data.readFloatLE(field.offset),humanParameter:true,humanMaximum:Boolean(field.maximum),actorKind,offset:field.offset,context:`${context} / ${string(name)}`.replace(/^ \/ /,''),bytes:field.kind==='byte'?1:4});
+        }
         const layout = actorScriptLayout(actorKind, data);
         if (name && layout) {
           const value={name:string(name),code:iconv.decode(data.subarray(layout.codeStart,layout.codeStart+layout.length),'windows-1250')};
@@ -131,11 +147,20 @@ export function inspectScene(source) {
 }
 export function editScene(source, id, value) {
   if (typeof id !== 'string') throw new Error('Scene: neplatná vlastnost.');
-  const roots = tree(source), actorScripts = new Map(inspectScene(source).entries.filter(e=>e.actorScript).map(e=>[e.id,e]));
+  const roots = tree(source), scene=inspectScene(source), actorScripts = new Map(scene.entries.filter(e=>e.actorScript).map(e=>[e.id,e]));
+  const humanParameter=scene.entries.find(entry=>entry.id===id&&entry.humanParameter);
   let found = false;
   function write(node) {
     let payload;
     if (node.children) payload = Buffer.concat(node.children.map(write));
+    else if (humanParameter && node.id === humanParameter.nodeId) {
+      const entry=humanParameter;
+      if(typeof value!=='number'||!Number.isFinite(value)||(entry.kind==='byte'? !Number.isInteger(value)||value<0||value>255 : !Number.isFinite(Math.fround(value))))throw new Error('Scene: neplatná hodnota parametru postavy.');
+      found=true;
+      if(Object.is(value,entry.value))return node.raw;
+      payload=Buffer.from(node.payload);
+      if(entry.kind==='byte')payload[entry.offset]=value;else payload.writeFloatLE(value,entry.offset);
+    }
     else if (node.id === id && actorScripts.has(id)) {
       const entry=actorScripts.get(id);
       if(!value || value.name!==entry.value.name || typeof value.code!=='string')throw new Error('Scene: změňte pouze kód skriptu aktéra; název patří jeho frame.');

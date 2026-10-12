@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { inspectScene, editScene, changeSceneObject } from '../src/core/scene.js';
+import { groupSceneProperties } from '../src/shared/scene-properties.js';
 function chunk(type, payload) { const header = Buffer.alloc(6); header.writeUInt16LE(type); header.writeUInt32LE(payload.length + 6, 2); return Buffer.concat([header, payload]); }
 function script(name, code) { const head = Buffer.alloc(5), length = Buffer.alloc(4); head[0] = 0x73; head.writeUInt32LE(name.length, 1); length.writeUInt32LE(code.length); return Buffer.concat([head, Buffer.from(name), length, Buffer.from(code), Buffer.from([0xde, 0xad])]); }
 function fixture() {
@@ -75,6 +76,31 @@ test('human v6 scripts preserve actor parameters, sibling data and trailing sour
   for(const length of [0,73,82,83,100])assert.deepEqual(inspectScene(scene(27,data.subarray(0,length))).actorScripts,[]);
 });
 const modelOperation = { kind:'add-model', name:'WB_CRATE', model:'bedna02.i3d', position:[1,2,3], rotation:[Math.SQRT1_2,0,Math.SQRT1_2,0], scale:[1,2,3] };
+test('human parameter edits change only the selected bytes and keep programs and upper flags intact',()=>{
+  const header=Buffer.alloc(83,0xee);header[0]=6;header[1]=32;header[5]=7;
+  for(let i=0;i<16;i++)header.writeFloatLE(i+0.5,9+4*i);
+  header[73]=header[74]=1;header.writeUInt32LE(0,75);
+  const code=Buffer.from('enemy_move 77, walk\r\n');header.writeUInt32LE(code.length,79);
+  const data=Buffer.concat([header,code,Buffer.from('opaque tail')]);
+  const sourceFor=(kind,payload)=>{const type=Buffer.alloc(4);type.writeUInt32LE(kind);return chunk(0x4c53,Buffer.concat([chunk(0x4000,chunk(0x4010,chunk(0x10,Buffer.from('Walker\0')))),chunk(0xae20,chunk(0xae21,Buffer.concat([chunk(0xae22,type),chunk(0xae23,Buffer.from('Walker\0')),chunk(0xae24,payload),chunk(0xbeef,Buffer.from('opaque sibling'))])))]));};
+  for(const kind of [2,27]){
+    const source=sourceFor(kind,data),scene=inspectScene(source),entries=scene.entries.filter(e=>e.humanParameter),start=source.indexOf(data);
+    assert.equal(entries.length,18);assert.deepEqual(entries.map(e=>e.value),[32,7,...Array.from({length:16},(_,i)=>i+0.5)]);
+    const group=groupSceneProperties(scene).find(g=>g.name==='Walker');assert.equal(group.entries.filter(e=>e.entry.humanParameter).length,18);
+    for(const [index,entry] of entries.entries()){
+      assert.deepEqual(editScene(source,entry.id,entry.value),source);
+      const value=index<2?entry.value+1:entry.value+0.25,changed=editScene(source,entry.id,value),expected=Buffer.from(source),offset=index<2?[1,5][index]:9+(index-2)*4;
+      if(index<2)expected[start+offset]=value;else expected.writeFloatLE(value,start+offset);
+      assert.deepEqual(changed,expected);assert.equal(inspectScene(changed).entries.find(e=>e.id===entry.id).value,value);
+      assert.deepEqual(editScene(changed,entry.id,entry.value),source);
+      for(const invalid of [null,'3',NaN,Infinity,...(index<2?[-1,256,1.5]:[1e100])])assert.throws(()=>editScene(source,entry.id,invalid),/parametru postavy/);
+    }
+    const invalid=Buffer.from(data);invalid.writeFloatLE(NaN,13);assert.equal(inspectScene(sourceFor(kind,invalid)).entries.filter(e=>e.humanParameter).length,0);
+    const otherVersion=Buffer.from(data);otherVersion[0]=5;assert.equal(inspectScene(sourceFor(kind,otherVersion)).entries.filter(e=>e.humanParameter).length,0);
+    assert.equal(inspectScene(sourceFor(kind,data.subarray(0,72))).entries.filter(e=>e.humanParameter).length,0);
+  }
+  assert.equal(inspectScene(sourceFor(5,data)).entries.filter(e=>e.humanParameter).length,0);
+});
 test('inserting and deleting a model recalculates sizes, preserves all original chunks and restores the exact scene', () => {
   const source = fixture(), before = Buffer.from(source), added = changeSceneObject(source,modelOperation), scene = inspectScene(added), object = scene.objects.at(-1);
   assert.equal(object.frameType,9); assert.equal(object.actorBound,false); assert.equal(object.name,'WB_CRATE'); assert.equal(object.model,'bedna02.i3d');
