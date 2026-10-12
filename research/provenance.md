@@ -1,5 +1,7 @@
 # Původ implementace a reference
 
+REP parser, writer a náhled časové osy jsou vlastní implementace podle loaderů a spotřebitelů záznamů v uloženém exportu st0rm94. Referenční C/C++ zdroj ani starší šablony nebyly kopírované do editoru. Konkrétní funkce, rozdíly verzí a neinterpretované části jsou v `formats.md`; lineární náhled drah není implementací herních kamerových křivek.
+
 Všech 16 dodaných repozitářů je uložených lokálně mimo veřejné repo; přesné revize jsou v `repositories.json`. Duplicitní awesome-mafia je uložený jednou. Soukromé repozitáře uživatele zůstávají soukromými referencemi.
 
 Nové modové projekty, bezpečné zápisy, editor TextDB, Electron IPC a UI jsou implementací tohoto projektu. Tabulka klíčů DTA a numerické tabulky zvukových delt vycházejí z uživatelova `b4rtt/mafia-editor`. DTA parser byl nově napsaný s přísnými kontrolami, podle struktury ISD0 ověřené porovnáním uložených referencí a skutečnými archivy. Nepoužívá Windows DLL ani heuristické fallbacky původního extraktoru.

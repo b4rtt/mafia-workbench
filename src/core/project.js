@@ -12,6 +12,7 @@ import { parseItems, editItems } from './items.js';
 import { parseNavigation, editNavigation } from './navigation.js';
 import { parseTrack, editTrack } from './track.js';
 import { inspectDifference, editDifference } from './difference.js';
+import { inspectReplay, editReplay } from './replay.js';
 import { assetCategory } from '../shared/categories.js';
 import { readEmptyMissionZip, configureEmptyMission, missionName } from './mission.js';
 
@@ -245,6 +246,10 @@ export class ModProject {
       try { return { type: 'difference', ...common, ...inspectDifference(bytes) }; }
       catch (error) { warning = error.message; }
     }
+    if (/\.rep$/i.test(name)) {
+      try { return { type: 'replay', ...common, ...inspectReplay(bytes) }; }
+      catch (error) { warning = error.message; }
+    }
     if (/^missions\/[^/]+\/check\.bin$/i.test(name)) {
       try { return { type: 'navigation', ...common, ...parseNavigation(bytes) }; }
       catch (error) { warning = error.message; }
@@ -303,6 +308,13 @@ export class ModProject {
       if (expectedHash !== hash(before)) throw new Error('Soubor se od otevření změnil. Otevřete jej znovu.');
       return editDifference(before, changes);
     }, 'Úprava objektů a skriptů CHG');
+  }
+  async saveReplay(name, changes, expectedHash) {
+    if (!/\.rep$/i.test(name)) throw new Error('Soubor není REP záznam.');
+    await this.change(name, before => {
+      if (expectedHash !== hash(before)) throw new Error('Soubor se od otevření změnil. Otevřete jej znovu.');
+      return editReplay(before, changes);
+    }, 'Úprava časové osy REP');
   }
   async saveAnimation(name, changes, expectedHash) {
     if (!/\.5ds$/i.test(name)) throw new Error('Soubor není 5DS animace.');

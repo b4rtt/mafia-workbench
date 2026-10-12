@@ -3,6 +3,7 @@ import { Viewport } from './viewport.js';
 import { AnimationPreview } from './animation.js';
 import { NavigationViewport } from './navigation.js';
 import { TrackViewport } from './track.js';
+import { ReplayViewport } from './replay.js';
 import { Group } from 'three';
 const api = window.workbench;
 const $ = id => document.getElementById(id);
@@ -80,6 +81,7 @@ function renderDetail() {
   for (const audio of $('detail').querySelectorAll('audio')) { audio.pause(); audio.removeAttribute('src'); audio.load(); }
   const main = $('detail'); main.replaceChildren();
   const badges = { difference: 'CHG · OBJEKTY A SKRIPTY', track: 'TCK · POHYBOVÁ STOPA', navigation: 'CHECK · NAVIGACE', items: 'PŘEDMĚTY · ZBRANĚ', textdb: 'TEXTDB · EDITACE', scene: 'SCÉNA · EDITACE', cache: 'CACHE · STATICKÉ MODELY', map: 'MAPA · 3D EDITACE', model: '4DS · 3D EDITACE', animation: '5DS · ANIMACE', image: 'OBRÁZEK · NÁHLED', audio: 'ZVUK · PŘEHRÁVAČ' };
+  badges.replay = 'REP · ČASOVÁ OSA';
   const head = element('div', undefined, 'file-header'); head.append(element('h2', file.path), element('span', badges[file.type] ?? 'BINÁRNÍ SOUBOR', 'badge')); main.append(head);
   const source = state.project.assets.find(a => a.path === file.path);
   main.append(element('div', `${file.size.toLocaleString('cs')} bajtů · ${source?.archive} · ${source?.variants ?? 1} variant archivů`, 'file-meta'));
@@ -106,6 +108,7 @@ function renderDetail() {
   else if (file.type === 'navigation') renderNavigation(main, file);
   else if (file.type === 'track') renderTrack(main, file);
   else if (file.type === 'difference') renderDifference(main, file);
+  else if (file.type === 'replay') renderReplay(main, file);
   else if (file.type === 'scene') renderProperties(main, file, api.saveScene);
   else if (file.type === 'cache') renderCache(main, file);
   else if (file.type === 'model') renderModel(main, file);
@@ -122,6 +125,33 @@ function renderDetail() {
     }
     main.append(element('pre', rows, 'binary'));
   }
+}
+function renderReplay(main, file) {
+  main.append(element('p', `${file.tracks.length} objektových stop · ${file.cameras.length} klíčů kamery · ${file.focus.length} klíčů cíle · ${file.duration} ms. Modrá: kamera, zelená: její cíl. 3D náhled spojuje polohy lineárně; herní křivky, pohyb modelů, zvuky a skripty nepřehrává.`, 'notice'));
+  for (const warning of file.warnings.slice(0,10)) main.append(element('p',warning,'notice'));
+  main.append(element('p', `${file.clockCount} záznamů mapování času · ${file.fadeCount} efektů obrazu · ${file.opaqueKeyBytes.toLocaleString('cs')} nerozpoznaných bajtů objektových klíčů. Počty, pořadí, typy klíčů, časování pohybu a neznámá data se zachovají. Časy skriptových, zvukových a dialogových událostí lze změnit při zachování jejich pořadí.`, 'muted'));
+  const layout = element('div',undefined,'model-workspace'), center = element('section',undefined,'model-center'), inspector = element('section',undefined,'model-inspector'); layout.append(center,inspector);main.append(layout);
+  const tools = element('div',undefined,'tools'), play = element('button','Přehrát dráhy'), fit = element('button','Zarámovat dráhy'), seek = element('input'), clock = element('output'), timeline = element('canvas'), viewport = element('div',undefined,'viewport');
+  seek.type='range';seek.min='0';seek.max=String(file.duration);seek.step='1';seek.value='0';seek.setAttribute('aria-label','Čas náhledu REP v ms');play.disabled=!file.duration;timeline.width=800;timeline.height=64;timeline.style.width='100%';timeline.setAttribute('aria-label','Časová osa vybraného kanálu REP; kliknutí vybere nejbližší klíč');
+  tools.append(play,fit);center.append(tools,seek,clock,timeline,viewport);const view=new ReplayViewport(viewport);state.viewport=view;view.loadReplay(file);
+  const channels=structuredClone(file.channels), channel=element('select'), number=element('input'), choose=element('button','Vybrat záznam'), recordInfo=element('p',undefined,'muted'), fields=element('div'), keyTools=element('div',undefined,'tools');
+  channel.setAttribute('aria-label','Kanál časové osy REP');for(const c of channels){const option=element('option',`${c.label} (${c.records.length})`);option.value=c.id;channel.append(option);}channel.value=channels.some(c=>c.id===state.replayChannel)?state.replayChannel:'camera';
+  number.type='number';number.step='1';number.min='0';number.setAttribute('aria-label','Číslo záznamu REP');number.value=String(state.replayIndex??0);keyTools.append(number,choose);inspector.append(channel,keyTools,recordInfo,fields);
+  let playing=false,previous,duration=file.duration;
+  const selectedChannel=()=>channels.find(c=>c.id===channel.value);
+  function draw() {const ctx=timeline.getContext('2d');ctx.clearRect(0,0,800,64);ctx.fillStyle='#88929c';ctx.fillRect(0,30,800,1);const length=Math.max(duration,1);for(const r of selectedChannel().records){ctx.fillStyle=r.index===Number(number.value)?'#007aff':'#8396a8';ctx.fillRect(r.time/length*796,20,3,22);}ctx.fillStyle='#dc8025';ctx.fillRect(view.time/length*796,5,2,50);}
+  function pause(){playing=false;previous=undefined;play.textContent='Přehrát dráhy';}
+  function show(time){view.seek(time);seek.value=String(time);clock.textContent=`${Math.round(time)} / ${duration} ms`;draw();}
+  function selectKey(index) {
+    pause();const c=selectedChannel();number.max=String(Math.max(0,c.records.length-1));index=Math.min(Math.max(0,index),Math.max(0,c.records.length-1));number.value=String(index);state.replayChannel=c.id;state.replayIndex=index;fields.replaceChildren();const r=c.records[index];choose.disabled=!r;number.disabled=!r;
+    if(!r){recordInfo.textContent='Kanál je prázdný.';show(0);return;}
+    const info=file.events[c.id]?.[index]??(c.id.startsWith('objects/')?file.tracks[Number(c.id.split('/')[1])].keys[index]:null);recordInfo.textContent=`${r.label} · ${r.time} ms${info ? ` · ${JSON.stringify(info)}` : ''}`;show(r.time);
+    renderProperties(fields,{...file,entries:file.entries.filter(e=>e.id.startsWith(r.prefix))},api.saveReplay,(entry,value)=>{pause();view.updateEntry(entry.id,value);if(entry.id.endsWith('/time')&&Number.isInteger(value)&&value>=0&&value<=0xffffffff){r.time=value;duration=Math.max(file.duration,...channels.map(c=>c.records.reduce((max,key)=>Math.max(max,key.time),0)));seek.max=String(duration);play.disabled=!duration;draw();}});
+  }
+  channel.onchange=()=>selectKey(0);choose.onclick=()=>{const index=Number(number.value);if(number.value!==''&&Number.isInteger(index)&&index>=0&&index<selectedChannel().records.length)selectKey(index);else status('Číslo záznamu je mimo rozsah.',true);};
+  timeline.onclick=event=>{const c=selectedChannel();if(!c.records.length)return;const box=timeline.getBoundingClientRect(),time=(event.clientX-box.left)/box.width*duration;let nearest=c.records[0];for(const r of c.records)if(Math.abs(r.time-time)<Math.abs(nearest.time-time))nearest=r;selectKey(nearest.index);};
+  seek.oninput=()=>{pause();show(Number(seek.value));};fit.onclick=()=>view.fit(view.paths);play.onclick=()=>{if(playing)pause();else{if(view.time>=duration)show(0);playing=true;previous=undefined;play.textContent='Pozastavit dráhy';}};
+  view.onFrame=time=>{if(!playing)return;const next=Math.min(duration,view.time+(previous===undefined?0:time-previous));previous=time;show(next);if(next>=duration)pause();};selectKey(Number(number.value));
 }
 function renderDifference(main, file) {
   main.append(element('p', `${file.blocks} bloků · ${file.objects.length} objektů · ${file.actors.length} popisů aktérů · ${file.bindings.length} vazeb. Lze upravit transformace a existující skripty. Přidávání objektů, data aktérů a přehrávání celé cutscény zatím nejsou podporované.`, 'notice'));
