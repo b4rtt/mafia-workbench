@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "documents": [
+    {
+      "id": "msdr-cz",
+      "title": "Mafia script & data reference",
+      "language": "cs",
+      "author": "Tomáš Růžička (djbozkosz)",
+      "version": "2012.11.03",
+      "pages": 64,
+      "savedDate": "2026-10-12",
+      "source": "User-supplied MSDR.CZ.pdf",
+      "localFile": "../.editor-references/documentation/MSDR.CZ.pdf",
+      "localText": "../.editor-references/documentation/MSDR.CZ.txt",
+      "localCommandCandidates": "../.editor-references/documentation/MSDR.CZ.command-index.json",
+      "sha256": "fcf419f2d2beec2b16139eccdcd9e60e8fd8c9cc769b8dd59ad9a398eb49e89b",
+      "bytes": 328300,
+      "catalogUrl": "https://github.com/user-attachments/files/16228218/MSDR.CZ.pdf",
+      "catalogFileIdentityVerified": false
+    }
+  ],
+  "resourceCatalog": {
+    "source": "https://github.com/MafiaHub/awesome-mafia/blob/main/README.md",
+    "snapshotCommit": "4f6eda8703c0d73f1c3019a42e9cb376eaf49b8e",
+    "localIndex": "../.editor-references/documentation/awesome-mafia.resources.json",
+    "links": 115,
+    "pageReviewedDate": "2026-10-12"
+  }
+}

@@ -8,6 +8,7 @@ Rozcestník: [MafiaHub/awesome-mafia](https://github.com/MafiaHub/awesome-mafia/
 | 4DS | Modely, materiály, hierarchie, kostra; Mafia4Blender_4ds, MafiaFormats, mafia-formats | Boz 4ds Full Manager, 4ds View, ZModeler, Noesis plugin |
 | 5DS | Animační uzly a klíče; Mafia4Blender_5ds, MafiaFormats, mafia-formats | 5ds Converter |
 | scene2.bin | Objekty, aktéři, skripty mise; DCED2, mEdit, mLib, MafiaFormats | Boz Scene Tree Editor, BScriptView, Scena2 Editor |
+| Mafia Script | Příkazy a herní ID; místně uložené MSDR CZ | [Dokumentace a index pro další práci](scripting.md) |
 | cache.bin | Umístění statických modelů a související hodnoty; DCED2, mLib, MafiaFormats | Cache.bin Editor, CacheRE |
 | check.bin | Navigační body a propojení pro pěší/vozidla; MafiaFormats, mafia-formats | CheckBIN Editor, CheckRE |
 | road.bin | Síť navigace aut; MafiaFormats, mafia-formats | Road.bin Creator, Road.bin Editor, RoadRE |

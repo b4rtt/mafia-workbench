@@ -74,5 +74,6 @@ REP parser a writer prošly 92 z 93 skutečných záznamů: 33 988 objektových 
 - [Všech 16 uložených referenčních repozitářů a přesné revize](research/repositories.json)
 - [Původ implementace a poznámky k referencím](research/provenance.md)
 - [Formáty, nástroje a šablona prázdné mise](research/formats.md)
+- [Uložená česká dokumentace skriptování a katalog dalších zdrojů](research/scripting.md)
 
 Herní data, instalátory, Wine, zálohy, místní projekty a soukromé snapshoty referencí se do tohoto repozitáře neukládají. MIT licence editoru nepřelicencovává hru ani kód referenčních projektů.
