@@ -1,5 +1,6 @@
 import { categories, groupAssets } from '../shared/categories.js';
 import { groupSceneProperties } from '../shared/scene-properties.js';
+import { roadGraph, roadEntries, roadReference } from '../shared/roads.js';
 import { Viewport } from './viewport.js';
 import { AnimationPreview } from './animation.js';
 import { NavigationViewport } from './navigation.js';
@@ -81,7 +82,7 @@ function renderDetail() {
   state.viewport?.dispose(); state.viewport = null;
   for (const audio of $('detail').querySelectorAll('audio')) { audio.pause(); audio.removeAttribute('src'); audio.load(); }
   const main = $('detail'); main.replaceChildren();
-  const badges = { difference: 'CHG · OBJEKTY A SKRIPTY', track: 'TCK · POHYBOVÁ STOPA', navigation: 'CHECK · NAVIGACE', items: 'PŘEDMĚTY · ZBRANĚ', textdb: 'TEXTDB · EDITACE', scene: 'SCÉNA · EDITACE', cache: 'CACHE · STATICKÉ MODELY', map: 'MAPA · 3D EDITACE', model: '4DS · 3D EDITACE', animation: '5DS · ANIMACE', image: 'OBRÁZEK · NÁHLED', audio: 'ZVUK · PŘEHRÁVAČ' };
+  const badges = { roads: 'ROAD · SILNIČNÍ SÍŤ', difference: 'CHG · OBJEKTY A SKRIPTY', track: 'TCK · POHYBOVÁ STOPA', navigation: 'CHECK · NAVIGACE', items: 'PŘEDMĚTY · ZBRANĚ', textdb: 'TEXTDB · EDITACE', scene: 'SCÉNA · EDITACE', cache: 'CACHE · STATICKÉ MODELY', map: 'MAPA · 3D EDITACE', model: '4DS · 3D EDITACE', animation: '5DS · ANIMACE', image: 'OBRÁZEK · NÁHLED', audio: 'ZVUK · PŘEHRÁVAČ' };
   badges.replay = 'REP · ČASOVÁ OSA';
   const head = element('div', undefined, 'file-header'); head.append(element('h2', file.path), element('span', badges[file.type] ?? 'BINÁRNÍ SOUBOR', 'badge')); main.append(head);
   const source = state.project.assets.find(a => a.path === file.path);
@@ -107,6 +108,7 @@ function renderDetail() {
   if (file.type === 'textdb') renderTexts(main, file);
   else if (file.type === 'items') renderItems(main, file);
   else if (file.type === 'navigation') renderNavigation(main, file);
+  else if (file.type === 'roads') renderRoads(main, file);
   else if (file.type === 'track') renderTrack(main, file);
   else if (file.type === 'difference') renderDifference(main, file);
   else if (file.type === 'replay') renderReplay(main, file);
@@ -216,6 +218,41 @@ function renderTrack(main, file) {
   }
   select.onclick = () => { const index = Number(number.value); if (number.value!==''&&Number.isInteger(index)&&index>=0&&index<file.positions.length) editKey(index); else status('Číslo klíče je mimo rozsah.',true); };
   editKey(Number(number.value));
+}
+function renderRoads(main, file) {
+  const graph=roadGraph(file);
+  main.append(element('p',`${file.crossings.length.toLocaleString('cs')} křižovatek · ${file.nodes.length.toLocaleString('cs')} silničních bodů. Modré body: křižovatky, žluté: silniční body. Čáry zobrazují uložené sousední vazby. Rychlosti jsou v původních herních jednotkách.`, 'notice'));
+  main.append(element('p','Lze upravit rychlosti, příznak semaforu, raw priority směrů a typy pruhů. Pozice a vazby jsou zatím pouze ke čtení; změna geometrie vyžaduje i přepočet vzdáleností a seřazení bodů enginem.', 'notice'));
+  for(const warning of file.warnings)main.append(element('p',warning,'notice'));
+  const layout=element('div',undefined,'model-workspace'),center=element('section',undefined,'model-center'),inspector=element('section',undefined,'model-inspector');layout.append(center,inspector);main.append(layout);
+  const tools=element('div',undefined,'tools'),section=element('select'),number=element('input'),jump=element('button','Vybrat bod'),fit=element('button','Zarámovat síť'),focus=element('button','Přiblížit bod'),background=element('button','Zobrazit geometrii mise'),viewport=element('div',undefined,'viewport');
+  section.setAttribute('aria-label','Tabulka silniční sítě');
+  for(const [value,label] of [['crossings','Křižovatky'],['nodes','Silniční body']]){const option=element('option',label);option.value=value;section.append(option);}
+  number.type='number';number.min='0';number.step='1';number.value='0';number.setAttribute('aria-label','Pořadí silničního bodu');
+  const range=()=>{number.max=String(Math.max(0,file[section.value].length-1));};section.onchange=range;range();
+  tools.append(section,number,jump,fit,focus,background);center.append(tools,viewport);
+  const view=new NavigationViewport(viewport,frame=>{
+    const point=graph.points[frame.navigationIndex],record=file[point.section][point.recordIndex];section.value=point.section;number.value=String(point.recordIndex);range();state.roadIndex=point.index;
+    inspector.replaceChildren(element('h3',`${point.section==='crossings'?'Křižovatka':'Bod'} ${point.recordIndex}`),element('p',`Pozice XYZ: ${record.position.join(', ')}`,'notice'));
+    const bindings=point.section==='crossings'?record.links.map((value,i)=>`Výjezd ${i}: ${roadReference(value)}`):[['Předchozí',record.previous],['Následující',record.next],['Předchozí křižovatka',record.previousCrossing],['Následující křižovatka',record.nextCrossing]].map(([label,value])=>`${label}: ${roadReference(value)}`);
+    inspector.append(element('p',bindings.join(' · '),'notice'));
+    renderProperties(inspector,{...file,entries:roadEntries(file,point.section,point.recordIndex)},api.saveRoads);
+  },()=>{});
+  state.viewport=view;view.loadNavigation(graph);focus.disabled=!graph.points.length;
+  jump.onclick=()=>{const index=Number(number.value);if(number.value===''||!Number.isInteger(index)||index<0||index>=file[section.value].length)return status('Číslo bodu je mimo rozsah.',true);view.select(String(index+(section.value==='nodes'?file.crossings.length:0)));};
+  fit.onclick=()=>view.fit(view.markers);focus.onclick=()=>{if(view.selectedPoint!==null)view.fit(view.proxy);};
+  let geometry;
+  background.onclick=()=>run(async()=>{
+    if(geometry){geometry.visible=!geometry.visible;background.textContent=geometry.visible?'Skrýt geometrii mise':'Zobrazit geometrii mise';return;}
+    const model=await api.inspect(file.path.replace(/road\.bin$/i,'scene.4ds'));if(state.file!==file)return;
+    if(model.type!=='model')throw new Error(model.warning??'Geometrii mise zatím nelze načíst.');
+    geometry=new Group();view.root.add(geometry);
+    for(const object of view.addModel(model,geometry,'road-context/').values())object.userData.frame.editable=false;
+    geometry.traverse(object=>{object.raycast=()=>{};});
+    await view.loadTextures(async texture=>{const path=texture.replaceAll('\\','/').toLowerCase(),asset=state.project.assets.find(a=>a.path.toLowerCase()===`maps/${path}`||a.path.toLowerCase()===path);return asset?api.media(asset.path):null;});
+    background.textContent='Skrýt geometrii mise';
+  });
+  if(graph.points.length)view.select(String(Math.min(state.roadIndex??0,graph.points.length-1)));else inspector.append(element('p','Tato mise nemá silniční síť.','notice'));
 }
 function renderNavigation(main, file) {
   main.append(element('p', `${file.points.length.toLocaleString('cs')} bodů · ${file.linkCount.toLocaleString('cs')} směrovaných vazeb. Číslo bodu je jeho pořadí od nuly, uložené ID se může opakovat. Modrá: chodci, žlutá: AI, oranžová: vozidla, fialová: zastávky.`, 'notice'));

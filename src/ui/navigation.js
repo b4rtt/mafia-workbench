@@ -3,6 +3,7 @@ import { Viewport } from './viewport.js';
 
 export class NavigationViewport extends Viewport {
   loadNavigation(file) {
+    this.navigationEditable = file.editable !== false;
     this.positions = file.points.map(point => [...point.position]); this.edges = []; this.incident = file.points.map(() => []); this.selectedPoint = null;
     const material = new THREE.MeshBasicMaterial(), geometry = new THREE.SphereGeometry(.35, 8, 6);
     this.markers = new THREE.InstancedMesh(geometry, material, file.points.length); this.markers.userData.navigation = true;
@@ -31,7 +32,8 @@ export class NavigationViewport extends Viewport {
   select(id) {
     const index = Number(id); if (!Number.isInteger(index) || !this.positions[index]) return;
     this.selectedPoint = index; this.proxy.visible = true; this.proxy.position.fromArray(this.positions[index]);
-    this.proxy.userData.frame = {id:String(index),navigationIndex:index,editable:true}; this.gizmo.attach(this.proxy);
+    this.proxy.userData.frame = {id:String(index),navigationIndex:index,editable:this.navigationEditable};
+    if(this.navigationEditable)this.gizmo.attach(this.proxy);else this.gizmo.detach();
     this.drawHighlight(); this.onSelect(this.proxy.userData.frame);
   }
   drawHighlight() {

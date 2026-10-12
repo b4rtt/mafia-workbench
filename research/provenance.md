@@ -12,7 +12,7 @@ Pozorované rozdíly referencí:
 - `Richard01CZ/Mafia_DTAExtractor`: struktura DTA a dekódování; jeho WAV fallback vytváří syntetickou hlavičku a stereo kopíruje raw. Nový parser chybnou hlavičku odmítá a stereo dekóduje po kanálech.
 - `Marvisak/mafia-re`: porovnání faktů o DTA layoutu, big-endian LZ řídicích bitech, přímých vzdálenostech odkazů a WAV blocích. Zdroj reverse engineeringu nebyl kopírovaný do editoru.
 - `MafiaHub/MafiaFormats`: specifikace TextDB: počet, neznámé pole, ID, absolutní offsety a nulou ukončené řetězce. Repo uvádí Apache-2.0; zdroj parseru nebyl převzatý.
-- `RoadTrain/mafia-formats`: porovnání binárního layoutu TextDB a budoucích formátů; šablony nebyly kopírované.
+- `RoadTrain/mafia-formats`: porovnání binárního layoutu TextDB, check.bin a road.bin; šablony nebyly kopírované.
 - `Richard01CZ/mEdit`: referenční Windows editor a rozsah scén/aktorů/skriptů. Obsahuje GPL-3.0. Jeho C++ kód nebyl vložený do tohoto MIT projektu.
 - `Richard01CZ/Mafia4Blender_4ds` a `Mafia4Blender_5ds`: referenční čtení/zápis modelů a animací; před převzetím zdroje je nutné zachovat jeho licenční podmínky.
 - `st0rm94/mafia-reverse-engineering-export`: exporty pro různé verze. Adresy z Game 1.0 se automaticky nepoužívají pro testovanou GOG 1.2.

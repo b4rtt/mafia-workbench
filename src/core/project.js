@@ -10,6 +10,7 @@ import { parseFiveDs, editFiveDs } from './fiveds.js';
 import { inspectCache, editCache } from './cache.js';
 import { parseItems, editItems } from './items.js';
 import { parseNavigation, editNavigation } from './navigation.js';
+import { parseRoads, editRoads } from './roads.js';
 import { parseTrack, editTrack } from './track.js';
 import { inspectDifference, editDifference } from './difference.js';
 import { inspectReplay, editReplay } from './replay.js';
@@ -254,6 +255,10 @@ export class ModProject {
       try { return { type: 'navigation', ...common, ...parseNavigation(bytes) }; }
       catch (error) { warning = error.message; }
     }
+    if (/^missions\/[^/]+\/road\.bin$/i.test(name)) {
+      try { return { type: 'roads', ...common, ...parseRoads(bytes) }; }
+      catch (error) { warning = error.message; }
+    }
     if (/^tables\/predmety\.def$/i.test(name)) {
       try { return { type: 'items', ...common, ...parseItems(bytes) }; }
       catch (error) { warning = error.message; }
@@ -301,6 +306,13 @@ export class ModProject {
       if (expectedHash !== hash(before)) throw new Error('Soubor se od otevření změnil. Otevřete jej znovu.');
       return editTrack(before, changes);
     }, 'Úprava pohybové stopy TCK');
+  }
+  async saveRoads(name, changes, expectedHash) {
+    if (!/^missions\/[^/]+\/road\.bin$/i.test(name)) throw new Error('Soubor není road.bin mise.');
+    await this.change(name, before => {
+      if (expectedHash !== hash(before)) throw new Error('Soubor se od otevření změnil. Otevřete jej znovu.');
+      return editRoads(before, changes);
+    }, 'Úprava parametrů silniční sítě');
   }
   async saveDifference(name, changes, expectedHash) {
     if (!/\.chg$/i.test(name)) throw new Error('Soubor není CHG rozdíl scény.');
