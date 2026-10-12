@@ -1,5 +1,6 @@
 import iconv from 'iconv-lite';
 import { humanFields } from '../shared/human-parameters.js';
+import { inspectDoor, editDoor } from './doors.js';
 const containers = new Set([0x4c53, 0x4000, 0x4010, 0x4020, 0x4040, 0x4060, 0xae20, 0xae21, 0xae50]);
 const names = new Map([[0x4c53, 'Scéna'], [0x4000, 'Objekty'], [0x4010, 'Objekt'], [0x4020, 'Rodič'], [0x4040, 'Světlo'], [0x4060, 'Zvuk'], [0xae20, 'Aktéři'], [0xae21, 'Aktér'], [0xae50, 'Skripty'], [0xae51, 'Skript']]);
 const fields = new Map([
@@ -109,6 +110,10 @@ export function inspectScene(source) {
         const data = node.children.find(n => n.type === 0xae24)?.payload;
         const name = node.children.find(n => n.type === 0xae23)?.payload;
         const actorKind = kind?.length >= 4 ? kind.readUInt32LE(0) : null;
+        if(name&&actorKind===6)for(const field of inspectDoor(data)){
+          const nodeId=node.children.find(n=>n.type===0xae24).id;
+          entries.push({...field,id:`${nodeId}:door.${field.key}`,nodeId,doorParameter:true,actorKind,context:`${context} / ${string(name)}`.replace(/^ \/ /,'')});
+        }
         if (name) for (const field of humanParameterLayout(actorKind, data)) {
           const nodeId=node.children.find(n=>n.type===0xae24).id;
           entries.push({id:`${nodeId}:${field.key}`,nodeId,label:field.label,kind:field.kind,value:field.kind==='byte'?data[field.offset]:data.readFloatLE(field.offset),humanParameter:true,humanMaximum:Boolean(field.maximum),actorKind,offset:field.offset,context:`${context} / ${string(name)}`.replace(/^ \/ /,''),bytes:field.kind==='byte'?1:4});
@@ -145,10 +150,14 @@ export function editScene(source, id, value) {
   if (typeof id !== 'string') throw new Error('Scene: neplatná vlastnost.');
   const roots = tree(source), scene=inspectScene(source), actorScripts = new Map(scene.entries.filter(e=>e.actorScript).map(e=>[e.id,e]));
   const humanParameter=scene.entries.find(entry=>entry.id===id&&entry.humanParameter);
+  const doorParameter=scene.entries.find(entry=>entry.id===id&&entry.doorParameter);
   let found = false;
   function write(node) {
     let payload;
     if (node.children) payload = Buffer.concat(node.children.map(write));
+    else if(doorParameter&&node.id===doorParameter.nodeId){
+      found=true;payload=editDoor(node.payload,doorParameter.key,value);
+    }
     else if (humanParameter && node.id === humanParameter.nodeId) {
       const entry=humanParameter;
       if(typeof value!=='number'||!Number.isFinite(value)||(entry.kind==='byte'? !Number.isInteger(value)||value<0||value>255 : !Number.isFinite(Math.fround(value))))throw new Error('Scene: neplatná hodnota parametru postavy.');

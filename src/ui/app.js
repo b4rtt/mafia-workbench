@@ -438,13 +438,14 @@ function renderProperties(main, file, saveAPI, onEdit = () => {}) {
     selected = entry.id; markSelection();
     form.replaceChildren();
     const label = element('label', `${entry.context} / ${entry.label}`); label.htmlFor = 'scene-value';
-    const input = element('textarea'); input.id = 'scene-value';
+    const input = element(entry.doorParameter ? 'input' : 'textarea'); input.id = 'scene-value';
     const draft = state.texts.get(entry.id) ?? entry.value;
     const isString = ['string', 'string8'].includes(entry.kind);
+    if(entry.doorParameter){input.type=entry.kind==='boolean'?'checkbox':isString?'text':'number';if(input.type==='number'){input.step='any';input.min='0';if(entry.max!==undefined)input.max=String(entry.max);}if(isString)input.maxLength=15;if(entry.kind==='boolean')input.checked=draft;}
     input.value = draft?.invalid ? draft.raw : entry.kind === 'script' ? draft.code : isString ? draft : JSON.stringify(draft);
     const name = element('input'); name.setAttribute('aria-label', 'Název skriptu'); name.value = entry.kind === 'script' ? draft.name : '';
     name.disabled = Boolean(entry.actorScript);
-    function value() { return entry.kind === 'script' ? { name: name.value, code: input.value } : isString ? input.value : JSON.parse(input.value); }
+    function value() { return entry.doorParameter&&entry.kind==='boolean' ? input.checked : entry.kind === 'script' ? { name: name.value, code: input.value } : isString ? input.value : JSON.parse(input.value); }
     function track() {
       try { const next = value(); if (JSON.stringify(next) === JSON.stringify(entry.value)) state.texts.delete(entry.id); else state.texts.set(entry.id, next); save.disabled = !state.texts.size; save.textContent = `Uložit změny (${state.texts.size})`; onEdit(entry, next); status('Rozepsaná úprava.'); }
       catch { state.texts.set(entry.id, { invalid: true, raw: input.value }); save.disabled = false; status('Číselné hodnoty zapisujte jako číslo nebo pole, např. [1, 2, 3].', true); }
@@ -457,7 +458,7 @@ function renderProperties(main, file, saveAPI, onEdit = () => {}) {
       if(state.file.type==='navigation'&&state.file.navigationMapping)state.navigationIndex=state.file.navigationMapping[state.navigationIndex??0]??0;
       state.texts.clear(); await refresh(); renderDetail(); status('Změny uložené do modu se zálohou.');
     });
-    form.append(label); if (entry.kind === 'script') form.append(name); form.append(input, element('p', entry.humanParameter ? `${entry.kind==='byte'?'Celé číslo 0–255.':entry.humanMaximum?'Základní/maximální hodnota vlastnosti. Skripty human_getproperty a human_setproperty pracují s procenty tohoto maxima; např. plné zdraví se ve hře ukáže jako 100 i při jiném maximu.':'Uložený doplňkový parametr chování.'} Ostatní parametry, horní bajty příznaků a skript zůstanou zachované. Změna se projeví při novém načtení mise.` : entry.kind === 'script' ? entry.actorScript ? 'Zdroj skriptového aktéra. Hlavička a další nerozpoznaná data zůstanou zachovaná. Název je svázaný s aktérem; zde se upravuje pouze kód. Změny se projeví při novém načtení mise.' : 'Zdroj skriptu mise. První bajt a další nerozpoznaná data zůstanou zachovaná.' : `Typ: ${entry.kind}. Souřadnice: X, Y, Z; rotace: W, X, Y, Z. Ostatní vlastnosti zůstanou zachované.`), save);
+    form.append(label); if (entry.kind === 'script') form.append(name); form.append(input, element('p', entry.doorParameter ? 'Nastavení dveří se projeví při novém načtení mise. Úhel je ve stupních, rychlosti ve stupních za sekundu. Otevírání na obě strany volí směr podle postavy, která dveře použije. Název zvuku může být prázdný nebo mít nejvýše 15 bajtů. Závěs, ostatní příznaky a další data zůstanou zachované.' : entry.humanParameter ? `${entry.kind==='byte'?'Celé číslo 0–255.':entry.humanMaximum?'Základní/maximální hodnota vlastnosti. Skripty human_getproperty a human_setproperty pracují s procenty tohoto maxima; např. plné zdraví se ve hře ukáže jako 100 i při jiném maximu.':'Uložený doplňkový parametr chování.'} Ostatní parametry, horní bajty příznaků a skript zůstanou zachované. Změna se projeví při novém načtení mise.` : entry.kind === 'script' ? entry.actorScript ? 'Zdroj skriptového aktéra. Hlavička a další nerozpoznaná data zůstanou zachovaná. Název je svázaný s aktérem; zde se upravuje pouze kód. Změny se projeví při novém načtení mise.' : 'Zdroj skriptu mise. První bajt a další nerozpoznaná data zůstanou zachovaná.' : `Typ: ${entry.kind}. Souřadnice: X, Y, Z; rotace: W, X, Y, Z. Ostatní vlastnosti zůstanou zachované.`), save);
   }
   function fill() {
     const query = search.value.toLowerCase(), fragment = document.createDocumentFragment();

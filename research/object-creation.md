@@ -45,6 +45,18 @@ Dialog **Přidat auto…** vloží frame a aktéra v jedné historické změně.
 
 V oddělené kopii prázdné mise bylo taxi00 vloženo přes UI. `iscarusable` potvrdilo použitelnost, `human_force_settocar` umístilo hráče za volant a `car_setspeed` rozhýbalo auto s rychloměrem. Druhý test běžného nástupu přes `enemy_move_to_car`/`enemy_usecar` a jízdy `enemy_car_moveto` k cíli skončil HUD 90. UI undo odstranilo přesně celý nově vložený model i aktéra; export scény odpovídal modu a KLZ zůstalo shodné. Ověření proběhlo na taxi00; ruční vstupy řidiče a ostatní varianty nejsou tímto testem doložené.
 
+## Nastavení dveří
+
+Audit místní instalace našel 709 aktérů typu 6; všech 709 mělo 70bajtovou konfiguraci s uint32 verzí 8. Ověření všech 7 090 čtených vlastností potvrdilo přesné no-op zápisy. Engine `door_load_data` kolem řádku 114226 rozlišuje verze 5–8 a čte verzi jako DWORD. První čtyři bajty v mEdit `unk1` tedy nejsou libovolný parametr. Konstruktory mLib skládají tutéž verzi z bajtu 8 a tří nul. Starší verze zatím zůstávají opaque.
+
+V8 layout: verze na 0; pomocný příznak na 4; otevírání podle strany postavy na 5; obrácený směr na 6; float úhel na 7; start-open na 11; zámek na 12; float rychlosti na 13 a 17; tři 16bajtové NUL-terminated názvy zvuků od 21, 37 a 53; další příznak závěsu na 69. Engine `door_ai` přičítá uplynulé milisekundy krát uloženou rychlost. Editor proto zobrazuje úhel v stupních a rychlosti v stupních za sekundu, přičemž soubor dál obsahuje radiány a radiány/ms. `door_game_init` vytvoří dynamickou kolizi a vyřeší závěs a propojená křídla. Samotný nový model s aktérem není dostatečnou specifikací správných dveří.
+
+Vlastní `doors.js` nabízí deset ověřených polí. Boolean zapisuje jen jeden bajt, float jen čtyři, zvuk jen nové znaky a NUL; zbytek původního 16bajtového pole se zachovává. Verze, pomocné příznaky a tail nejsou přestavované. Názvy musí být zapsatelné do Windows-1250 a vejít se do 15 bajtů plus NUL. Parser odmítne interpretaci neúplné hlavičky, jiné verze, nekanonického booleanu, nekonečného floatu nebo názvu bez NUL. Původní byte 4 a 69 se nemění; jejich přepínače vyžadují samostatné ověření dopadu na kolizi, použitelnost a závěs.
+
+UI používá checkbox, číslo a text místo psaní JSON. Nastavení patří pod existující aktér a při jednoznačném odkazu také pod odpovídající frame. Vytváření nových dveří, volba jejich pohyblivého dílu/závěsu, propojená křídla a preview pohybu jsou další části stejného rozsahu editoru.
+
+Ověření přes Electron v oddělené kopii MISE01 přepnulo počáteční otevření dvere_frontX. Soubor měl jediný změněný bajt 0→1; export byl přesný. Skript v soukromé kopii zavolal `door_getstate` a zobrazil jeho výsledek + 50 jako energii hráče: při zapnutí HUD 50, po UI undo HUD 51. Výsledek potvrzuje stavy 0/1 po GameInit, nikoli ruční interakci hráče nebo všechny parametry dveří. Jednotkové testy pokrývají všech deset polí, převody jednotek, odmítnutí vadných dat, lokálnost zápisu, zachování paddingu/tail, skupiny aktéra, export a undo.
+
 ## Generování kolizí přidaných modelů
 
 Statické KLZ a dynamické kolize aktérů nejsou jedna věc. `tree.klz` má signaturu GifC a pro Mafii verzi 5. Obsahuje tabulku odkazů na framy, prostorovou mřížku, pole kolizních primitiv a buňky s odkazy na tato pole. Přidání objemu bez zahrnutí do správných buněk není funkční kolize.
