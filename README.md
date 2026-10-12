@@ -30,9 +30,12 @@ npm run extract -- /cesta/ke/hre /existujici/rodic/novy-projekt
 - Editor TextDB včetně češtiny Windows-1250. Změněné řetězce se přidávají na konec; pořadí, ID, neznámé části a sdílené původní řetězce se zachovají. Chybně kódovatelné znaky se odmítnou.
 - Binární náhled a import náhradního souboru pro ostatní formáty.
 - Samostatné modifikace, záloha před každým zápisem, vrácení poslední změny, obnovení originálu a export změněných souborů.
+- **Spustit level** u souborů mise: připraví samostatnou testovací kopii, použije uložené modifikace a načte vybraný level bez úvodních videí, výběru profilu a hlavního menu. **Ukončit test** zavře pouze tento test. Herní soubory i uložené hry původní instalace zůstávají zachované.
 - Izolovaný Electron renderer bez Node.js; omezené IPC, místní protokol a CSP. Zápisy jsou omezené na projekt a odmítají symbolické i pevné odkazy.
 
-Export vytvoří složku s upravenými soubory a `mafia-mod.json`. Spuštění konkrétní mise v izolované testovací kopii se ještě doplňuje. Nepodporované varianty formátů zůstávají dostupné jako binární soubory s vysvětlením; specializované editory zatím nepokrývají celou hru.
+Export vytvoří složku s upravenými soubory a `mafia-mod.json`. Nepodporované varianty formátů zůstávají dostupné jako binární soubory s vysvětlením; specializované editory zatím nepokrývají celou hru.
+
+Přímé spouštění zatím vyžaduje macOS, místní ověřený Wine runtime ve vedlejší složce `../.runtime` a přesnou GOG verzi Game.exe 1.2 (SHA-256 `303eb95ee2de3433511ce0cb518921dcb96b62b0f64ebfcc436723ff5083f298`). Jiná verze se odmítne. Editor upraví pouze kopii EXE v projektu `playtest/game`, vytvoří vlastní Wine prefix a samostatné uložené hry. První příprava kopíruje všechna projektová data; další starty synchronizují změny. Vlastní skriptované scény vybrané mise se přehrávají podle jejího nastavení; celé mise mohou vyžadovat stav z předchozího průchodu kampaní.
 
 ## Ověření
 
@@ -41,7 +44,7 @@ npm test
 npm run check
 ```
 
-16 testů kontroluje dekompresi, chybné archivy, české texty, zachování neznámých bajtů při editaci scén/modelů/animací, zálohy, undo, export a odmítnutí nebezpečných cest. Na místní instalaci bylo 12. října 2026 rozbaleno všech 13 DTA archivů (27 027 unikátních souborů) a importováno 9 181 volných souborů: celkem 36 208. Podrobný 4DS parser přečetl 3 210 z 3 223 modelů a scén; 5DS parser 2 715 z 2 731 animací. Nepodporované soubory se neinterpretují odhadem. České, německé a anglické TextDB mají při uložení beze změn shodný SHA-256; česká úprava a undo byly ověřené nad skutečnými daty. V běžícím UI byly ověřeny záložky s posunem, texturovaný model a BMP náhled. Ověření dalších editorů a změn ve hře pokračuje.
+18 testů kontroluje dekompresi, chybné archivy, české texty, zachování neznámých bajtů při editaci scén/modelů/animací, zálohy, undo, export, odmítnutí nebezpečných cest a hlídání běžícího testu levelu. Na místní instalaci bylo 12. října 2026 rozbaleno všech 13 DTA archivů (27 027 unikátních souborů) a importováno 9 181 volných souborů: celkem 36 208. Podrobný 4DS parser přečetl 3 210 z 3 223 modelů a scén; 5DS parser 2 715 z 2 731 animací. Nepodporované soubory se neinterpretují odhadem. České, německé a anglické TextDB mají při uložení beze změn shodný SHA-256; česká úprava a undo byly ověřené nad skutečnými daty. V běžícím UI byly ověřeny záložky s posunem, texturovaný model a BMP náhled. Přímý start byl ověřen v tréninku, na autodromu a v restauraci; tlačítka start/stop a ochrana před souběžným startem také v běžícím UI. Ověření dalších editorů a změn ve hře pokračuje.
 
 ## Reference a rozsah
 

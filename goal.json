@@ -11,7 +11,7 @@
     "Vytvořit veřejné repo editoru na GitHubu b4rtt a průběžně commitovat a pushovat smysluplné dokončené změny. Do repozitáře neukládat herní data, instalátory, runtime Wine, přístupové údaje ani soukromé snapshoty referencí.",
     "Přehledné kategorie a náhledy BMP, 4DS, animací, hudby a zvuků.",
     "3D pohled a editor map včetně manipulace objekty.",
-    "Tlačítko Spustit level s izolovanou testovací kopií nebo přesměrováním dat; původní herní soubory neměnit.",
+    "Tlačítko Spustit level s izolovanou testovací kopií nebo přesměrováním dat; původní herní soubory neměnit. Pro rychlý test přeskočit úvodní videa, výběr profilu a hlavní menu a načíst rovnou vybraný level.",
     "Průvodce novou prázdnou misí s volitelným základním nastavením; referencí je Empty_Mission.zip z awesome-mafia."
   ],
   "validation": [

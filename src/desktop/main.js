@@ -6,6 +6,7 @@ import { Worker } from 'node:worker_threads';
 import { ModProject } from '../core/project.js';
 import { parseTextDb } from '../core/textdb.js';
 import { randomUUID } from 'node:crypto';
+import { Playtest } from '../core/playtest.js';
 const directory = path.dirname(fileURLToPath(import.meta.url));
 const uiRoot = path.resolve(directory, '../ui');
 const profileRoot = path.resolve(directory, '../../local/electron-profile');
@@ -14,6 +15,9 @@ app.setPath('userData', profileRoot);
 app.setPath('sessionData', profileRoot);
 protocol.registerSchemesAsPrivileged([{ scheme: 'workbench', privileges: { standard: true, secure: true, supportFetchAPI: true } }]);
 let window, project, busy = false;
+// The user's verified runtime stays local, outside the public repository.
+const runtimeRoot = path.resolve(directory, '../../../.runtime');
+const playtest = new Playtest({ wine: path.join(runtimeRoot, 'wine-cx/wswine.bundle/bin/wine'), server: path.join(runtimeRoot, 'wine-cx/wswine.bundle/bin/wineserver'), dependencies: path.join(runtimeRoot, 'wine-cx/dependencies'), prefixTemplate: path.join(runtimeRoot, 'prefix-cx') });
 const mediaToken = randomUUID();
 const mediaTypes = new Map([['.bmp', 'image/bmp'], ['.png', 'image/png'], ['.jpg', 'image/jpeg'], ['.jpeg', 'image/jpeg'], ['.wav', 'audio/wav'], ['.ogg', 'audio/ogg'], ['.mp3', 'audio/mpeg']]);
 async function operation(task) {
@@ -101,6 +105,9 @@ app.whenReady().then(async () => {
   }));
   handle('asset:inspect', name => current().inspect(name));
   handle('asset:map', name => current().inspectMap(name));
+  handle('playtest:get', () => playtest.attach(project));
+  handle('playtest:start', name => operation(() => playtest.start(current(), name, p => window.webContents.send('extraction:progress', p), state => { if (!window.isDestroyed()) window.webContents.send('playtest:state', state); })));
+  handle('playtest:stop', () => operation(() => playtest.stop()));
   handle('asset:media', name => {
     current().asset(name);
     if (!mediaTypes.has(path.extname(name).toLowerCase())) throw new Error('Náhled tohoto média není podporovaný.');

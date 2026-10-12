@@ -14,6 +14,7 @@ function buttons() {
   for (const id of ['create', 'open']) $(id).disabled = state.busy;
   $('undo').disabled = state.busy || !state.project?.history;
   $('export').disabled = state.busy || !state.project;
+  $('stop-level').disabled = state.busy;
 }
 async function run(action) {
   if (state.busy) return;
@@ -83,6 +84,15 @@ function renderDetail() {
   const replace = element('button', 'Nahradit souborem…');
   replace.onclick = () => run(async () => { if (!await discard()) return; const replacement = await api.replace(file.path); if (!replacement) return; state.file = replacement; state.texts.clear(); await refresh(); renderDetail(); status('Soubor nahrazen se zálohou.'); });
   toolbar.append(restore, replace); main.append(toolbar);
+  if (/^missions\/[^/]+\//i.test(file.path)) {
+    const launch = element('button', 'Spustit level', 'primary');
+    launch.onclick = () => run(async () => {
+      if (state.texts.size) throw new Error('Před spuštěním levelu uložte rozepsané změny.');
+      status('Připravuji oddělenou testovací kopii…');
+      const test = await api.startLevel(file.path); $('stop-level').hidden = !test.running;
+      status(`Spuštěno: ${test.level} · bez videí a menu · oddělené ukládání.`);
+    }); toolbar.append(launch);
+  }
   if (file.type === 'scene') {
     const map = element('button', 'Otevřít 3D mapu'); map.onclick = () => run(async () => { if (!await discard()) return; state.texts.clear(); status('Načítám geometrii mapy…'); state.file = await api.map(file.path); renderDetail(); status('3D mapa načtená.'); }); toolbar.append(map);
   }
@@ -272,5 +282,7 @@ $('export').onclick = () => run(async () => {
   const result = await api.export(); if (result) status(`Export: ${result.files} souborů → ${result.destination}`);
 });
 api.onProgress(p => status(`Rozbaluji ${p.archive}: ${p.current}/${p.total} · ${p.files} souborů v projektu`));
+api.onPlaytest(test => { $('stop-level').hidden = !test.running; if (test.error || test.code) status(`Test skončil chybou. ${test.error ?? `Kód ${test.code}; viz playtest/game.log.`}`, true); else if (!test.running) status('Test levelu ukončen.'); });
+$('stop-level').onclick = () => run(async () => { await api.stopLevel(); $('stop-level').hidden = true; status('Test levelu ukončen; původní hra zůstala zachovaná.'); });
 window.addEventListener('beforeunload', event => { if (state.texts.size || state.busy) { event.preventDefault(); event.returnValue = ''; } });
-run(async () => { await refresh(); status(state.project ? 'Projekt otevřený.' : 'Připraveno'); });
+run(async () => { await refresh(); const test = await api.playtestState(); $('stop-level').hidden = !test.running; status(state.project ? 'Projekt otevřený.' : 'Připraveno'); });
