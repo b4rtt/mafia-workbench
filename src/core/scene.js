@@ -1,6 +1,7 @@
 import iconv from 'iconv-lite';
 import { humanFields } from '../shared/human-parameters.js';
 import { inspectDoor, editDoor, createDoor } from './doors.js';
+import { sceneSectors, validateNewLight } from '../shared/lights.js';
 const containers = new Set([0x4c53, 0x4000, 0x4010, 0x4020, 0x4040, 0x4060, 0xae20, 0xae21, 0xae50]);
 const names = new Map([[0x4c53, 'Scéna'], [0x4000, 'Objekty'], [0x4010, 'Objekt'], [0x4020, 'Rodič'], [0x4040, 'Světlo'], [0x4060, 'Zvuk'], [0xae20, 'Aktéři'], [0xae21, 'Aktér'], [0xae50, 'Skripty'], [0xae51, 'Skript']]);
 const fields = new Map([
@@ -192,7 +193,7 @@ export function editScene(source, id, value) {
 // Existing opaque actor data, scripts, geometry overrides and sibling chunks
 // remain intact. New human actors use the verified C_human v6 layout.
 export function changeSceneObject(source, operation, geometryNames = [], geometryFrames = []) {
-  if (!operation || !['add-model', 'add-human', 'add-car', 'attach-door', 'duplicate', 'delete'].includes(operation.kind)) throw new Error('Scene: neplatná operace s objektem.');
+  if (!operation || !['add-model', 'add-human', 'add-car', 'add-light', 'attach-door', 'duplicate', 'delete'].includes(operation.kind)) throw new Error('Scene: neplatná operace s objektem.');
   const scene = inspectScene(source), roots = tree(source), all = [];
   function collect(nodes) { for (const node of nodes) { all.push(node); if (node.children) collect(node.children); } }
   collect(roots);
@@ -207,7 +208,16 @@ export function changeSceneObject(source, operation, geometryNames = [], geometr
     const used = [...scene.objects.map(o => o.name), ...geometryNames, ...scene.entries.filter(e => e.label === 'Název aktéra').map(e => e.value), 'Primary sector', 'Backdrop sector'];
     if (used.some(value => key(value) === key(name))) throw new Error('Scene: název objektu již existuje ve scéně nebo geometrii.');
   }
-  if(operation.kind==='attach-door'){
+  if(operation.kind==='add-light'){
+    const {name,position,rotation}=operation, sectors=sceneSectors(scene.objects,geometryFrames), p=validateNewLight(operation.parameters,sectors);
+    if(!Array.isArray(rotation)||rotation.length!==4||rotation.some(n=>typeof n!=='number'||!Number.isFinite(n))||Math.abs(Math.hypot(...rotation)-1)>.0001)throw new Error('Scene: rotace musí být jednotkový quaternion WXYZ.');
+    const numeric=(type,kind,value,size)=>chunk(type,encodeField(kind,value,Buffer.alloc(size))), text=(type,value)=>chunk(type,Buffer.concat([encode(value),Buffer.from([0])]));
+    added=chunk(0x4010,Buffer.concat([
+      numeric(0x4011,'uint',2,4),text(0x10,name),numeric(0x20,'vec3',position,12),numeric(0x2c,'vec3',position,12),numeric(0x22,'quat',rotation,16),numeric(0x2d,'vec3',[1,1,1],12),
+      chunk(0x4020,text(0x10,'Primary sector')),
+      chunk(0x4040,Buffer.concat([numeric(0x4041,'uint',p.type,4),numeric(0x26,'vec3',p.color,12),numeric(0x4042,'float',p.power,4),numeric(0x4043,'vec2',p.cone,8),numeric(0x4044,'vec2',p.range,8),numeric(0x4045,'uint',p.mode,4),...p.sectors.map(name=>text(0x4046,name))]))
+    ]));
+  }else if(operation.kind==='attach-door'){
     const target=operation.target;
     if(typeof target!=='string'||!target||target.includes('\0')||encode(target).length>255)throw new Error('Dveře: neplatný odkaz na frame.');
     const objects=scene.objects.filter(object=>key(object.name)===key(target)),geometry=geometryFrames.filter(frame=>key(frame.name)===key(target));
@@ -258,7 +268,7 @@ export function changeSceneObject(source, operation, geometryNames = [], geometr
     }
   } else {
     const object = scene.objects.find(o => o.id === operation.id);
-    if (!object || ![6,9].includes(object.frameType) || object.actorBound || geometryNames.some(name => key(name) === key(object.name))) throw new Error('Scene: lze upravit pouze samostatný model nebo pomocný bod bez navázaného aktéra a původní geometrie.');
+    if (!object || ![2,6,9].includes(object.frameType) || object.actorBound || geometryNames.some(name => key(name) === key(object.name))) throw new Error('Scene: lze upravit pouze samostatný model, světlo nebo pomocný bod bez navázaného aktéra a původní geometrie.');
     if (scene.objects.filter(o => key(o.name) === key(object.name)).length !== 1) throw new Error('Scene: název vybraného objektu není jednoznačný.');
     const node = container.children.find(n => n.id === object.id);
     if (!node) throw new Error('Scene: objekt není v hlavním seznamu.');

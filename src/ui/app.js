@@ -2,6 +2,7 @@ import { categories, groupAssets } from '../shared/categories.js';
 import { groupSceneProperties } from '../shared/scene-properties.js';
 import { humanFields } from '../shared/human-parameters.js';
 import { doorFields } from '../shared/door-parameters.js';
+import { lightTypes, lightDefaults, sceneSectors } from '../shared/lights.js';
 import { roadGraph, roadEntries, roadReference } from '../shared/roads.js';
 import { Viewport } from './viewport.js';
 import { AnimationPreview } from './animation.js';
@@ -596,7 +597,7 @@ function renderMap(main, file, previous = null) {
   let properties, selectedObject, selectedId, selectedFrame;
   const add = element('button', 'Vložit model…'), addHuman=element('button','Přidat postavu…'), addCar=element('button','Přidat auto…'), duplicate = element('button', 'Duplikovat…'), remove = element('button', 'Odstranit…'), focus = element('button', 'Zarámovat objekt'), collision=element('button','Kolize modelu…');
   duplicate.disabled = remove.disabled = focus.disabled = collision.disabled = true;
-  const addDoor=element('button','Vytvořit dveře…');addDoor.disabled=true;
+  const addDoor=element('button','Vytvořit dveře…'),addLight=element('button','Přidat světlo…');addDoor.disabled=true;
   const view = new Viewport(viewport, frame => {
     const object = frame.sceneObject; selected.textContent = object ? object.name : `${frame.name} · geometrie ve scene.4ds`;
     selectedObject = object;
@@ -604,7 +605,7 @@ function renderMap(main, file, previous = null) {
     selectedId = frame.id;
     cameraMoved = true;
     view.selectedName = object?.name ?? frame.name;
-    const independent = object && [6,9].includes(object.frameType) && !object.actorBound && !file.geometry.meshes.some(mesh => mesh.name.toLowerCase() === object.name.toLowerCase());
+    const independent = object && [2,6,9].includes(object.frameType) && !object.actorBound && !file.geometry.meshes.some(mesh => mesh.name.toLowerCase() === object.name.toLowerCase());
     duplicate.disabled = remove.disabled = !independent; focus.disabled = false;
     collision.disabled=!independent||object.frameType!==9||!file.collision||Boolean(file.collision.warning);
     const actorBound=file.entries.some(entry=>entry.label==='Název aktéra'&&entry.value.toLowerCase()===(object?.name??frame.name).toLowerCase());
@@ -679,11 +680,35 @@ function renderMap(main, file, previous = null) {
       sceneObjectDialog(file, kind, selectedObject,cars);
     });
     addDoor.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před vytvořením dveří uložte rozepsané vlastnosti.');if(!selectedFrame)throw new Error('Nejdřív vyberte křídlo dveří.');doorActorDialog(file,selectedFrame);});
-    tools.append(add, addHuman, addCar, addDoor, duplicate, remove,collision);
+    addLight.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před vložením světla uložte rozepsané vlastnosti.');lightDialog(file,selectedObject?.position);});
+    tools.append(add, addHuman, addCar, addDoor, addLight, duplicate, remove,collision);
   }
   view.loadTextures(resolveTexture);
   properties = renderProperties(inspector, file, file.cacheSource ? api.saveCache : async (...args) => { await api.saveScene(...args); return api.map(file.path); }, (entry, value) => { const field = byField.get(entry.id); if (field && ['position','rotation','scale'].includes(field.kind)) view.update(field.id, { [field.kind]: value }); });
   center.append(element('p', file.cacheSource ? 'Statické modely vybrané části cache.bin. Transformace se ukládají do samostatného modu; oranžové body označují chybějící modely.' : 'Geometrie scene.4ds a objekty scene2.bin. Modré body označují objekty bez modelu; oranžové body chybějící model. Generované kolizní boxy se přepočítají při uložení transformace a vracejí se společně s objektem.', 'notice'));
+}
+function lightDialog(file,position=[0,0,0]){
+  const dialog=element('dialog',undefined,'light-dialog'),form=element('form',undefined,'mission-form'),fields=element('div',undefined,'mission-fields');
+  dialog.append(element('h2','Přidat světlo'),element('p','Světlo se uloží do samostatného modu. Vložení lze vrátit jedním krokem.'),form);
+  function field(label,input){const row=element('label',label);input.setAttribute('aria-label',label);row.append(input);fields.append(row);return input;}
+  function number(label,value,min,max){const input=element('input');input.type='number';input.step='any';input.required=true;input.value=String(value);if(min!==undefined)input.min=String(min);if(max!==undefined)input.max=String(max);return field(label,input);}
+  const name=field('Jedinečný název světla',element('input'));name.required=true;name.maxLength=63;name.value='WB_LIGHT';
+  const type=field('Typ světla',element('select'));for(const item of lightTypes){const option=element('option',item.label);option.value=String(item.value);type.append(option);}
+  const coordinates=['X','Y','Z'].map((axis,i)=>number(`Pozice světla ${axis}`,position[i]));
+  const heading=number('Natočení světla kolem Y (stupně)',0),pitch=number('Náklon světla kolem X (stupně)',0);
+  const color=field('Barva světla',element('input'));color.type='color';color.value='#ffffff';
+  const power=number('Intenzita světla',lightDefaults.power,0),near=number('Vnitřní dosah (herní jednotky)',lightDefaults.range[0],.00000002),far=number('Vnější dosah (herní jednotky)',lightDefaults.range[1],.00000002);
+  const inner=number('Vnitřní kužel (stupně)',lightDefaults.cone[0],0,180),outer=number('Vnější kužel (stupně)',lightDefaults.cone[1],0,180),mode=number('Režim světla (číselná maska)',lightDefaults.mode,0,4294967295);mode.step='1';
+  const sectors=element('fieldset',undefined,'light-sectors'),legend=element('legend','Osvětlené sektory'),sectorInputs=[];sectors.append(legend);
+  for(const sector of sceneSectors(file.objects,file.geometry.meshes)){const input=element('input'),row=element('label',sector);input.type='checkbox';input.checked=sector==='Primary sector';input.setAttribute('aria-label',`Sektor světla ${sector}`);row.append(input);sectors.append(row);sectorInputs.push({name:sector,input});}
+  const hint=element('p','','notice');const explain=()=>{hint.textContent=`${Number(type.value)===2?'Reflektor míří podél lokální osy +Z. ':''}Vnější dosah musí být větší než vnitřní. Dosah mlhy a bodového okolního světla používá vlastní jednotky LS3D. Režim je původní číselná maska, její bity zde nepřekládáme. Účinek světla určí hra po načtení mise; 3D pohled zatím používá studiové nasvícení.`;};type.onchange=explain;explain();
+  const message=element('p','','notice'),actions=element('div',undefined,'tools'),cancel=element('button','Zrušit'),submit=element('button','Vložit světlo','primary');cancel.type='button';cancel.onclick=()=>dialog.close();submit.type='submit';actions.append(cancel,submit);form.append(fields,sectors,hint,message,actions);
+  form.onsubmit=event=>{event.preventDefault();if(!form.reportValidity()||state.busy)return;run(async()=>{submit.disabled=cancel.disabled=true;try{
+    const yaw=Number(heading.value)%360*Math.PI/360,x=Number(pitch.value)%360*Math.PI/360,c=Number.parseInt(color.value.slice(1),16);
+    const request={kind:'add-light',name:name.value,position:coordinates.map(input=>Number(input.value)),rotation:[Math.cos(yaw)*Math.cos(x),Math.cos(yaw)*Math.sin(x),Math.sin(yaw)*Math.cos(x),-Math.sin(yaw)*Math.sin(x)],parameters:{type:Number(type.value),color:[(c>>16)&255,(c>>8)&255,c&255].map(n=>n/255),power:Number(power.value),range:[Number(near.value),Number(far.value)],cone:[Number(inner.value),Number(outer.value)],mode:Number(mode.value),sectors:sectorInputs.filter(s=>s.input.checked).map(s=>s.name)}};
+    state.file=await api.changeSceneObject(file.path,request,file.sha256);state.selectSceneName=name.value;dialog.close();await refresh();renderDetail();status('Světlo vložené do modu se zálohou.');
+  }catch(error){message.textContent=error.message;throw error;}finally{submit.disabled=cancel.disabled=false;}});};
+  dialog.addEventListener('cancel',event=>{if(state.busy)event.preventDefault();});dialog.addEventListener('close',()=>dialog.remove(),{once:true});document.body.append(dialog);dialog.showModal();name.select();
 }
 function doorActorDialog(file,frame){
   const target=frame.sceneObject?.name??frame.name,dialog=element('dialog'),form=element('form',undefined,'mission-form'),fields=element('div',undefined,'mission-fields'),inputs=new Map();

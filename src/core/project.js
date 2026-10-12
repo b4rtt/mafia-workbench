@@ -276,6 +276,7 @@ export class ModProject {
     const folder = this.asset(name).path.slice(0, this.asset(name).path.lastIndexOf('/'));
     const geometryPath=`${folder}/scene.4ds`,geometryBytes=await this.read(geometryPath),geometry = parseFourDs(geometryBytes);
     let request = operation;const dependencies=[];
+    if(operation?.kind==='add-light')dependencies.push({path:geometryPath,data:geometryBytes,expectedHash:hash(geometryBytes)});
     if(operation?.kind==='attach-door'){
       dependencies.push({path:geometryPath,data:geometryBytes,expectedHash:hash(geometryBytes)});
       const object=inspectScene(before).objects.find(object=>key(object.name)===key(operation.target));
@@ -311,7 +312,7 @@ export class ModProject {
       if(owned){const klz=parseCollision(await this.read(`${folder}/tree.klz`)),record=ownedCollisionRecords(klz,[owned])[0];requests.push({name:operation.name,kind:'aabb',material:record.material});}
     }
     const collision=await prepareSceneCollision(this,name,before,after,{requests,expectedHash:operation?.collisionHash});
-    const label={ 'add-model': 'Vložení modelu do mise', 'add-human':'Vložení postavy a jejího skriptu','add-car':'Vložení automobilu a jeho aktéra','attach-door':'Vytvoření dveřního aktéra', duplicate: 'Duplikace objektu mise', delete: 'Odstranění objektu mise',collision:'Generování kolize modelu' }[operation?.kind]??'Úprava objektů mise';
+    const label={ 'add-model': 'Vložení modelu do mise', 'add-human':'Vložení postavy a jejího skriptu','add-car':'Vložení automobilu a jeho aktéra','add-light':'Vložení světla do mise','attach-door':'Vytvoření dveřního aktéra', duplicate: 'Duplikace objektu mise', delete: 'Odstranění objektu mise',collision:'Generování kolize modelu' }[operation?.kind]??'Úprava objektů mise';
     const files=new Map([{path:name,data:after,expectedHash},...dependencies,...(collision?.files??[])].map(file=>[key(file.path),file]));
     await this.changeBatch([...files.values()],label,collision?.ownership);
   }
