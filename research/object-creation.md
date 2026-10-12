@@ -53,9 +53,19 @@ V8 layout: verze na 0; pomocný příznak na 4; otevírání podle strany postav
 
 Vlastní `doors.js` nabízí deset ověřených polí. Boolean zapisuje jen jeden bajt, float jen čtyři, zvuk jen nové znaky a NUL; zbytek původního 16bajtového pole se zachovává. Verze, pomocné příznaky a tail nejsou přestavované. Názvy musí být zapsatelné do Windows-1250 a vejít se do 15 bajtů plus NUL. Parser odmítne interpretaci neúplné hlavičky, jiné verze, nekanonického booleanu, nekonečného floatu nebo názvu bez NUL. Původní byte 4 a 69 se nemění; jejich přepínače vyžadují samostatné ověření dopadu na kolizi, použitelnost a závěs.
 
-UI používá checkbox, číslo a text místo psaní JSON. Nastavení patří pod existující aktér a při jednoznačném odkazu také pod odpovídající frame. Vytváření nových dveří, volba jejich pohyblivého dílu/závěsu, propojená křídla a preview pohybu jsou další části stejného rozsahu editoru.
+UI používá checkbox, číslo a text místo psaní JSON. Nastavení patří pod existující aktér a při jednoznačném odkazu také pod odpovídající frame. „Vytvořit dveře…“ připojí novou konfiguraci ke křídlu vybranému ve 3D mapě. Vlastní závěs, propojená křídla a preview pohybu zůstávají dalšími částmi stejného rozsahu editoru.
 
 Ověření přes Electron v oddělené kopii MISE01 přepnulo počáteční otevření dvere_frontX. Soubor měl jediný změněný bajt 0→1; export byl přesný. Skript v soukromé kopii zavolal `door_getstate` a zobrazil jeho výsledek + 50 jako energii hráče: při zapnutí HUD 50, po UI undo HUD 51. Výsledek potvrzuje stavy 0/1 po GameInit, nikoli ruční interakci hráče nebo všechny parametry dveří. Jednotkové testy pokrývají všech deset polí, převody jednotek, odmítnutí vadných dat, lokálnost zápisu, zachování paddingu/tail, skupiny aktéra, export a undo.
+
+## Vytváření dveří
+
+mEdit `SceneEditor::CreateActor` dovoluje ACTOR_DOOR na FRAME_MODEL (9) i FRAME_VISUAL (1) a odmítá frame s existujícím aktérem. Vlastní operace `attach-door` proto připne AE21 s názvem vybraného framu, typem 6 a novou 70bajtovou konfigurací v8. Transformace, geometrie, ostatní aktéři a neznámé chunky zůstanou zachované. Odkaz musí být jednoznačný bez ohledu na velikost písmen; samostatný model musí obsahovat statickou geometrii bez kostry či morfování. Původní vizuální díl podporuje standardní/singlemesh typ. Vnořené díly samostatně načteného modelu zatím UI nenabízí, protože jejich lokální názvy nelze vždy jednoznačně navázat v celé misi.
+
+Nový aktér má pomocné bajty 4 a 69 nulové. `door_game_init` kolem řádku 113494 odvozuje závěs z lokálního obalu framu, upravuje pivot a vytváří pohyblivou kolizi; nenulový bajt 4 mění registraci kolize a použitelnost a bajt 69 ovlivňuje umístění závěsu. Výchozí hodnoty editoru jsou 90° a 90°/s, zavřeno, odemčeno, otevírání od postavy na obě strany a dřevěné zvuky. Dialog dovoluje jejich změnu. Vybrání celé budovy místo křídla by roztočilo celý vybraný frame.
+
+Generovaný statický AABB editoru na vybraném modelu se odstraní ve stejné transakci jako přidání aktéra, aby otevřené křídlo neblokoval původní pevný box. Undo obnoví scénu, KLZ i vlastnictví boxu. Původní importované kolize se nemění; jejich ruční úprava může být u původní mapy nutná. Transakce hlídá hash scény, geometrie, samostatného modelu a KLZ. Testy ověřují odmítnutí duplicitních aktérů, nejednoznačných nebo nepodporovaných framů a zastaralé kolize, zachování původních dat a přesné undo.
+
+Datový audit v oddělené kopii testovací mise WB_NAV_ENGINE použil model FMVdoor04d.4ds vložený z Electronu jako WB_DOOR s generovaným AABB. Připojení dveří přes projektové API vytvořilo všech deset parametrů, zachovalo objekt beze změn a odstranilo pouze jeho box; jiný generovaný box zůstal. Export scény a KLZ byl bajtově přesný, stejně jako undo. Mac se během UI ověření zamkl, takže vytvoření aktéra přes nový dialog a jeho otevření/zavření ve hře ještě čeká na ověření. Tento datový audit není potvrzením ruční interakce nebo pohyblivé kolize ve hře.
 
 ## Generování kolizí přidaných modelů
 

@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
-import {inspectDoor,editDoor} from '../src/core/doors.js';
-import {inspectScene,editScene} from '../src/core/scene.js';
+import {inspectDoor,editDoor,createDoor} from '../src/core/doors.js';
+import {inspectScene,editScene,changeSceneObject} from '../src/core/scene.js';
 import {groupSceneProperties} from '../src/shared/scene-properties.js';
 import {ModProject} from '../src/core/project.js';
 import {hash,writeSafe} from '../src/core/files.js';
@@ -36,4 +36,14 @@ test('scene binds door properties to the frame, preserves actor and chunks, and 
   const locked=door.find(e=>e.key==='locked'),start=original.indexOf(payload),after=editScene(original,locked.id,true);const expected=Buffer.from(original);expected[start+12]=1;assert.deepEqual(after,expected);assert.deepEqual(editScene(after,locked.id,false),original);
   const root=await fs.mkdtemp(path.join(os.tmpdir(),'mafia-door-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));await writeSafe(root,'workbench.json',JSON.stringify({format:'mafia-workbench',version:1,name:'Doors',assets:[],history:[]}));const p=await ModProject.open(root),name='missions/DOOR/scene2.bin';await p.createFiles([{path:name,data:original}]);await p.saveScene(name,[{id:locked.id,value:true}],hash(original));assert.deepEqual(await p.read(name),expected);
   const reopened=await ModProject.open(root),dest=path.join(root,'export');await reopened.export(dest);assert.deepEqual(await fs.readFile(path.join(dest,name)),expected);await reopened.undo();assert.deepEqual(await reopened.read(name),original);
+});
+test('new doors bind existing geometry with validated v8 settings without rewriting frames or existing actors',()=>{
+  const original=scene(data()),frames=[{name:'Door.Leaf',type:1,visual:0}],parameters={locked:true,angle:120,openSpeed:45,openSound:''};
+  const result=changeSceneObject(original,{kind:'attach-door',target:'door.leaf',parameters},frames.map(f=>f.name),frames),parsed=inspectScene(result);
+  assert.deepEqual(parsed.objects,inspectScene(original).objects);assert.equal(parsed.entries.find(e=>e.doorParameter&&e.key==='locked'&&e.context.endsWith('Door.Leaf')).value,true);
+  assert.equal(parsed.entries.find(e=>e.doorParameter&&e.key==='openSound'&&e.context.endsWith('Door.Leaf')).value,'');assert.ok(result.includes(chunk(0x4010,chunk(0x10,Buffer.from('Leaf\0')))));assert.ok(result.includes(chunk(0xae24,data())));assert.ok(result.includes(chunk(0xface,Buffer.from('opaque'))));
+  assert.throws(()=>changeSceneObject(result,{kind:'attach-door',target:'DOOR.LEAF'},frames.map(f=>f.name),frames),/už má/);
+  for(const geometry of [[],[...frames,...frames],[{name:'Door.Leaf',type:6}],[{name:'Door.Leaf',type:1,visual:2}]])assert.throws(()=>changeSceneObject(original,{kind:'attach-door',target:'Door.Leaf'},geometry.map(f=>f.name),geometry),/Dveře/);
+  const created=createDoor(parameters);assert.equal(created.length,70);assert.equal(created.readUInt32LE(),8);assert.equal(created[4],0);assert.equal(created[69],0);assert.equal(created[12],1);assert.equal(created.readFloatLE(7),Math.fround(120*Math.PI/180));assert.equal(inspectDoor(created).find(f=>f.key==='closeSound').value,'d_woodcl.wav');
+  for(const parameters of [null,[],{unknown:1},{locked:1},{angle:361}])assert.throws(()=>createDoor(parameters),/Dveře/);
 });

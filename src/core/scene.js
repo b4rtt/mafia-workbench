@@ -1,6 +1,6 @@
 import iconv from 'iconv-lite';
 import { humanFields } from '../shared/human-parameters.js';
-import { inspectDoor, editDoor } from './doors.js';
+import { inspectDoor, editDoor, createDoor } from './doors.js';
 const containers = new Set([0x4c53, 0x4000, 0x4010, 0x4020, 0x4040, 0x4060, 0xae20, 0xae21, 0xae50]);
 const names = new Map([[0x4c53, 'Scéna'], [0x4000, 'Objekty'], [0x4010, 'Objekt'], [0x4020, 'Rodič'], [0x4040, 'Světlo'], [0x4060, 'Zvuk'], [0xae20, 'Aktéři'], [0xae21, 'Aktér'], [0xae50, 'Skripty'], [0xae51, 'Skript']]);
 const fields = new Map([
@@ -191,8 +191,8 @@ export function editScene(source, id, value) {
 
 // Existing opaque actor data, scripts, geometry overrides and sibling chunks
 // remain intact. New human actors use the verified C_human v6 layout.
-export function changeSceneObject(source, operation, geometryNames = []) {
-  if (!operation || !['add-model', 'add-human', 'add-car', 'duplicate', 'delete'].includes(operation.kind)) throw new Error('Scene: neplatná operace s objektem.');
+export function changeSceneObject(source, operation, geometryNames = [], geometryFrames = []) {
+  if (!operation || !['add-model', 'add-human', 'add-car', 'attach-door', 'duplicate', 'delete'].includes(operation.kind)) throw new Error('Scene: neplatná operace s objektem.');
   const scene = inspectScene(source), roots = tree(source), all = [];
   function collect(nodes) { for (const node of nodes) { all.push(node); if (node.children) collect(node.children); } }
   collect(roots);
@@ -201,13 +201,24 @@ export function changeSceneObject(source, operation, geometryNames = []) {
   const containers = all.filter(n => n.type === 0x4000);
   if (containers.length !== 1) throw new Error('Scene: scéna nemá jednoznačný seznam objektů.');
   const container = containers[0]; let added, removed, actorAdded, actorContainer;
-  if (operation.kind !== 'delete') {
+  if (!['delete','attach-door'].includes(operation.kind)) {
     const name = operation.name;
     if (typeof name !== 'string' || name !== name.trim() || !/^[a-zA-Z0-9_#][a-zA-Z0-9_# -]{0,62}$/.test(name)) throw new Error('Název objektu: 1–63 znaků, písmena bez diakritiky, číslice, mezera, #, pomlčka nebo podtržítko.');
     const used = [...scene.objects.map(o => o.name), ...geometryNames, ...scene.entries.filter(e => e.label === 'Název aktéra').map(e => e.value), 'Primary sector', 'Backdrop sector'];
     if (used.some(value => key(value) === key(name))) throw new Error('Scene: název objektu již existuje ve scéně nebo geometrii.');
   }
-  if (['add-model','add-human','add-car'].includes(operation.kind)) {
+  if(operation.kind==='attach-door'){
+    const target=operation.target;
+    if(typeof target!=='string'||!target||target.includes('\0')||encode(target).length>255)throw new Error('Dveře: neplatný odkaz na frame.');
+    const objects=scene.objects.filter(object=>key(object.name)===key(target)),geometry=geometryFrames.filter(frame=>key(frame.name)===key(target));
+    if(objects.length>1||geometry.length>1||!objects.length&&!geometry.length)throw new Error('Dveře: vybraný frame chybí nebo není jednoznačný.');
+    if(scene.entries.some(e=>e.label==='Název aktéra'&&key(e.value)===key(target)))throw new Error('Dveře: frame už má navázaného aktéra.');
+    if(geometry.length?geometry[0].type!==1||![0,1].includes(geometry[0].visual):objects[0].frameType!==9||!objects[0].model)throw new Error('Dveře: vyberte statický vizuální díl nebo model.');
+    const actors=all.filter(node=>node.type===0xae20);
+    if(actors.length>1||roots.length!==1)throw new Error('Scene: nejednoznačný seznam aktérů.');
+    actorContainer=actors[0];const name=geometry[0]?.name??objects[0].name,type=Buffer.alloc(4);type.writeUInt32LE(6);
+    actorAdded=chunk(0xae21,Buffer.concat([chunk(0xae23,Buffer.concat([encode(name),Buffer.from([0])])),chunk(0xae22,type),chunk(0xae24,createDoor(operation.parameters))]));
+  }else if (['add-model','add-human','add-car'].includes(operation.kind)) {
     const { name, model, position, rotation, scale } = operation;
     if (typeof model !== 'string' || !/\.i3d$/i.test(model) || model.length > 255 || /[\x00-\x1f/\\:*?"<>|]/.test(model)) throw new Error('Scene: neplatná cesta modelu.');
     if (!Array.isArray(rotation) || rotation.length !== 4 || rotation.some(v => typeof v !== 'number' || !Number.isFinite(v)) || Math.abs(Math.hypot(...rotation) - 1) > .0001) throw new Error('Scene: rotace musí být jednotkový quaternion WXYZ.');

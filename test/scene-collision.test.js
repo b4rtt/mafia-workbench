@@ -62,3 +62,12 @@ test('replacing a scene removes its generated colliders atomically and undo rest
   await p.change(scenePath,scene,'Replace scene');assert.deepEqual(collisionOwnership(p.manifest,scenePath),[]);assert.equal(parseCollision(await p.read(klzPath)).primitives.aabbs.count,1);
   await p.undo();assert.deepEqual(await p.read(scenePath),added);assert.deepEqual(await p.read(klzPath),collision);assert.equal(collisionOwnership(p.manifest,scenePath).length,1);
 });
+test('creating a door replaces its owned static box atomically and undo restores the model and collision',async t=>{
+  const {p,scene}=await setup(t),before=await add(p,scene),box=await p.read(klzPath),map=await p.inspectMap(scenePath),history=p.manifest.history.length;
+  const door={kind:'attach-door',target:'wb_crate',parameters:{angle:110,locked:true},collisionHash:map.collision.sha256};
+  await assert.rejects(p.changeSceneObject(scenePath,{...door,collisionHash:'stale'},hash(before)),/Kolize se/);assert.deepEqual(await p.read(scenePath),before);assert.deepEqual(await p.read(klzPath),box);assert.equal(p.manifest.history.length,history);
+  await p.changeSceneObject(scenePath,door,hash(before));const after=await p.read(scenePath),parsed=inspectScene(after);assert.equal(parsed.objects[0].actorBound,true);assert.deepEqual(parsed.objects[0].position,map.objects[0].position);assert.equal(parsed.entries.find(e=>e.doorParameter&&e.key==='locked').value,true);assert.equal(parsed.entries.find(e=>e.label==='Typ aktéra').value,6);
+  assert.deepEqual(collisionOwnership(p.manifest,scenePath),[]);assert.equal(parseCollision(await p.read(klzPath)).primitives.aabbs.count,1);assert.deepEqual(p.manifest.history.at(-1).files.map(f=>f.path),[scenePath,klzPath]);
+  await assert.rejects(p.changeSceneObject(scenePath,door,hash(after)),/už má/);assert.deepEqual(await p.read(scenePath),after);
+  const reopened=await ModProject.open(p.root);await reopened.undo();assert.deepEqual(await reopened.read(scenePath),before);assert.deepEqual(await reopened.read(klzPath),box);assert.equal(collisionOwnership(reopened.manifest,scenePath).length,1);
+});

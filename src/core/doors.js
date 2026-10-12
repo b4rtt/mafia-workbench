@@ -1,18 +1,7 @@
 import iconv from 'iconv-lite';
+import { doorFields as fields } from '../shared/door-parameters.js';
 
 // C_door saved configuration v8; version and two auxiliary flags stay opaque.
-const fields = [
-  {key:'bothDirections',label:'Otevírat od postavy na obě strany',kind:'boolean',offset:5},
-  {key:'reverse',label:'Obrácený směr otevření',kind:'boolean',offset:6},
-  {key:'angle',label:'Úhel otevření (stupně)',kind:'float',offset:7,factor:180/Math.PI,max:360},
-  {key:'opened',label:'Na začátku otevřené',kind:'boolean',offset:11},
-  {key:'locked',label:'Zamčené',kind:'boolean',offset:12},
-  {key:'openSpeed',label:'Rychlost otevření (stupně/s)',kind:'float',offset:13,factor:180000/Math.PI},
-  {key:'closeSpeed',label:'Rychlost zavření (stupně/s)',kind:'float',offset:17,factor:180000/Math.PI},
-  {key:'openSound',label:'Zvuk otevření',kind:'string',offset:21},
-  {key:'closeSound',label:'Zvuk zavření',kind:'string',offset:37},
-  {key:'lockedSound',label:'Zvuk zamčených dveří',kind:'string',offset:53}
-];
 export function inspectDoor(data) {
   if(!data||data.length<70||data.readUInt32LE(0)!==8)return [];
   const result=[];
@@ -41,4 +30,10 @@ export function editDoor(source,key,value) {
     encoded.copy(bytes,field.offset);bytes[field.offset+encoded.length]=0;
   }
   return Object.is(value,field.value)?Buffer.from(source):bytes;
+}
+export function createDoor(parameters = {}) {
+  if(!parameters||typeof parameters!=='object'||Array.isArray(parameters)||Object.keys(parameters).some(key=>!fields.some(field=>field.key===key)))throw new Error('Dveře: neplatné parametry nového aktéra.');
+  let data=Buffer.alloc(70);data.writeUInt32LE(8);
+  for(const field of fields)data=editDoor(data,field.key,Object.hasOwn(parameters,field.key)?parameters[field.key]:field.default);
+  return data;
 }

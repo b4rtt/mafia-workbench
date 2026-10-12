@@ -1,6 +1,7 @@
 import { categories, groupAssets } from '../shared/categories.js';
 import { groupSceneProperties } from '../shared/scene-properties.js';
 import { humanFields } from '../shared/human-parameters.js';
+import { doorFields } from '../shared/door-parameters.js';
 import { roadGraph, roadEntries, roadReference } from '../shared/roads.js';
 import { Viewport } from './viewport.js';
 import { AnimationPreview } from './animation.js';
@@ -592,18 +593,22 @@ function renderCache(main, file) {
 function renderMap(main, file, previous = null) {
   const layout = element('div', undefined, 'model-workspace'), center = element('section', undefined, 'model-center'), inspector = element('section', undefined, 'model-inspector'); layout.append(center, inspector); main.append(layout);
   const tools = element('div', undefined, 'tools'), viewport = element('div', undefined, 'viewport'), selected = element('p', 'Vyberte objekt mapy.'), objects = element('select'); objects.setAttribute('aria-label', 'Objekt mapy'); objects.append(element('option', 'Vyberte objekt…')); center.append(tools, objects, selected, viewport);
-  let properties, selectedObject, selectedId;
+  let properties, selectedObject, selectedId, selectedFrame;
   const add = element('button', 'Vložit model…'), addHuman=element('button','Přidat postavu…'), addCar=element('button','Přidat auto…'), duplicate = element('button', 'Duplikovat…'), remove = element('button', 'Odstranit…'), focus = element('button', 'Zarámovat objekt'), collision=element('button','Kolize modelu…');
   duplicate.disabled = remove.disabled = focus.disabled = collision.disabled = true;
+  const addDoor=element('button','Vytvořit dveře…');addDoor.disabled=true;
   const view = new Viewport(viewport, frame => {
     const object = frame.sceneObject; selected.textContent = object ? object.name : `${frame.name} · geometrie ve scene.4ds`;
     selectedObject = object;
+    selectedFrame=frame;
     selectedId = frame.id;
     cameraMoved = true;
     view.selectedName = object?.name ?? frame.name;
     const independent = object && [6,9].includes(object.frameType) && !object.actorBound && !file.geometry.meshes.some(mesh => mesh.name.toLowerCase() === object.name.toLowerCase());
     duplicate.disabled = remove.disabled = !independent; focus.disabled = false;
     collision.disabled=!independent||object.frameType!==9||!file.collision||Boolean(file.collision.warning);
+    const actorBound=file.entries.some(entry=>entry.label==='Název aktéra'&&entry.value.toLowerCase()===(object?.name??frame.name).toLowerCase());
+    addDoor.disabled=Boolean(frame.ownerId)||actorBound||!(object?.frameType===9||frame.type===1&&[0,1].includes(frame.visual));
     if (object) { objects.value = String(frame.id); properties?.select(object.fields.position ?? object.fields.name); }
   }, (frame, values, mode) => {
     const field = { translate: 'position', rotate: 'rotation', scale: 'scale' }[mode], id = frame.sceneObject?.fields[field];
@@ -673,11 +678,28 @@ function renderMap(main, file, previous = null) {
       if(cars&&!cars.models.length)throw new Error('Projekt nemá dostupný automobilový model s fyzikální tabulkou a potřebnými částmi.');
       sceneObjectDialog(file, kind, selectedObject,cars);
     });
-    tools.append(add, addHuman, addCar, duplicate, remove,collision);
+    addDoor.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před vytvořením dveří uložte rozepsané vlastnosti.');if(!selectedFrame)throw new Error('Nejdřív vyberte křídlo dveří.');doorActorDialog(file,selectedFrame);});
+    tools.append(add, addHuman, addCar, addDoor, duplicate, remove,collision);
   }
   view.loadTextures(resolveTexture);
   properties = renderProperties(inspector, file, file.cacheSource ? api.saveCache : async (...args) => { await api.saveScene(...args); return api.map(file.path); }, (entry, value) => { const field = byField.get(entry.id); if (field && ['position','rotation','scale'].includes(field.kind)) view.update(field.id, { [field.kind]: value }); });
   center.append(element('p', file.cacheSource ? 'Statické modely vybrané části cache.bin. Transformace se ukládají do samostatného modu; oranžové body označují chybějící modely.' : 'Geometrie scene.4ds a objekty scene2.bin. Modré body označují objekty bez modelu; oranžové body chybějící model. Generované kolizní boxy se přepočítají při uložení transformace a vracejí se společně s objektem.', 'notice'));
+}
+function doorActorDialog(file,frame){
+  const target=frame.sceneObject?.name??frame.name,dialog=element('dialog'),form=element('form',undefined,'mission-form'),fields=element('div',undefined,'mission-fields'),inputs=new Map();
+  dialog.append(element('h2','Vytvořit dveře'),element('p',`Pohyblivý díl: ${target}. Vyberte samotné křídlo, aby se spolu s dveřmi neotáčel rám nebo okolní budova.`),form);
+  for(const field of doorFields){const input=element('input');input.type=field.kind==='boolean'?'checkbox':field.kind==='string'?'text':'number';input.setAttribute('aria-label',field.label);
+    if(field.kind==='boolean')input.checked=field.default;else{input.value=String(field.default);if(field.kind==='float'){input.step='any';input.min='0';input.required=true;if(field.max!==undefined)input.max=String(field.max);}else input.maxLength=15;}
+    const row=element('label',field.label);row.append(input);fields.append(row);inputs.set(field.key,input);
+  }
+  const box=file.collision?.boxes.some(box=>box.name.toLowerCase()===target.toLowerCase()),message=element('p','','notice'),actions=element('div',undefined,'tools'),cancel=element('button','Zrušit'),submit=element('button','Vytvořit dveře','primary');
+  form.append(fields,element('p',`Hra vytvoří pohyblivou kolizi a určí závěs podle vybraného dílu. ${box?'Generovaný statický box tohoto modelu se odstraní ve stejném kroku. ':''}Původní statické kolize mapy tato akce neupravuje. Aktér i nastavení se uloží do modu s jedním undo.`),message,actions);
+  cancel.type='button';cancel.onclick=()=>dialog.close();submit.type='submit';actions.append(cancel,submit);
+  form.onsubmit=event=>{event.preventDefault();if(!form.reportValidity()||state.busy)return;run(async()=>{submit.disabled=cancel.disabled=true;try{
+    const parameters=Object.fromEntries(doorFields.map(field=>[field.key,field.kind==='boolean'?inputs.get(field.key).checked:field.kind==='string'?inputs.get(field.key).value:Number(inputs.get(field.key).value)]));
+    state.file=await api.changeSceneObject(file.path,{kind:'attach-door',target,parameters,collisionHash:file.collision?.sha256},file.sha256);state.selectSceneName=target;dialog.close();await refresh();renderDetail();status('Dveře vytvořeny v modu se zálohou.');
+  }catch(error){message.textContent=error.message;throw error;}finally{submit.disabled=cancel.disabled=false;}});};
+  dialog.addEventListener('cancel',event=>{if(state.busy)event.preventDefault();});dialog.addEventListener('close',()=>dialog.remove(),{once:true});document.body.append(dialog);dialog.showModal();inputs.get('angle').focus();
 }
 function sceneObjectDialog(file, kind, object, cars = null) {
   const adding=['add-model','add-human','add-car'].includes(kind);
