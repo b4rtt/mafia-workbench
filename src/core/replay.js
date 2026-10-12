@@ -50,6 +50,7 @@ function layout(source) {
     for(let i=0;i<count;i++) {
       const s=start+i*stride,time=bytes.readUInt32LE(s),r=record(c,i,time,`${label} / klíč ${i}`),key={index:i,time,curveTime:bytes.readUInt32LE(s+4),flags:bytes.readUInt32LE(s+8)};
       if(id==='camera'&&bytes.readFloatLE(s+52)===666){key.stop=true;key.fov=666;r.label='Konec přehrávání kamery';keys.push(key);continue;}
+      if(key.flags===2){if(i+2>=count||bytes.readUInt32LE(s+stride+8)!==4||bytes.readUInt32LE(s+stride*2+8)!==8)throw new Error('REP: střih nemá dvojici kamerových poloh.');key.cut=true;r.label=`${label} / střih ${i}`;keys.push(key);continue;}
       key.position=field(r,'position','Pozice XYZ','vec3',s+12,3);key.tangentOut=field(r,'tangentOut','Odchozí tangenta XYZ','vec3',s+24,3);key.tangentIn=field(r,'tangentIn','Příchozí tangenta XYZ','vec3',s+36,3);
       if(id==='camera'){key.roll=field(r,'roll','Náklon kamery (radiány)','float',s+48);key.fov=field(r,'fov','FOV (radiány)','float',s+52);}
       keys.push(key);

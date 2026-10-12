@@ -127,13 +127,13 @@ function renderDetail() {
   }
 }
 function renderReplay(main, file) {
-  main.append(element('p', `${file.tracks.length} objektových stop · ${file.cameras.length} klíčů kamery · ${file.focus.length} klíčů cíle · ${file.duration} ms. Modrá: kamera, zelená: její cíl. 3D náhled spojuje polohy lineárně; herní křivky, pohyb modelů, zvuky a skripty nepřehrává.`, 'notice'));
+  main.append(element('p', `${file.tracks.length} objektových stop · ${file.cameras.length} klíčů kamery · ${file.focus.length} klíčů cíle · ${file.duration} ms. Modrá: kamera, zelená: její cíl. 3D náhled spojuje polohy lineárně uvnitř jednotlivých záběrů; střihy a konec kamery jsou pouze ke čtení. Herní křivky, pohyb modelů, zvuky a skripty nepřehrává.`, 'notice'));
   for (const warning of file.warnings.slice(0,10)) main.append(element('p',warning,'notice'));
   main.append(element('p', `${file.clockCount} záznamů mapování času · ${file.fadeCount} efektů obrazu · ${file.opaqueKeyBytes.toLocaleString('cs')} nerozpoznaných bajtů objektových klíčů. Počty, pořadí, typy klíčů, časování pohybu a neznámá data se zachovají. Časy skriptových, zvukových a dialogových událostí lze změnit při zachování jejich pořadí.`, 'muted'));
   const layout = element('div',undefined,'model-workspace'), center = element('section',undefined,'model-center'), inspector = element('section',undefined,'model-inspector'); layout.append(center,inspector);main.append(layout);
-  const tools = element('div',undefined,'tools'), play = element('button','Přehrát dráhy'), fit = element('button','Zarámovat dráhy'), seek = element('input'), clock = element('output'), timeline = element('canvas'), viewport = element('div',undefined,'viewport');
+  const tools = element('div',undefined,'tools'), play = element('button','Přehrát dráhy'), fit = element('button','Zarámovat dráhy'), fitShot = element('button','Zarámovat záběr'), seek = element('input'), clock = element('output'), timeline = element('canvas'), viewport = element('div',undefined,'viewport');
   seek.type='range';seek.min='0';seek.max=String(file.duration);seek.step='1';seek.value='0';seek.setAttribute('aria-label','Čas náhledu REP v ms');play.disabled=!file.duration;timeline.width=800;timeline.height=64;timeline.style.width='100%';timeline.setAttribute('aria-label','Časová osa vybraného kanálu REP; kliknutí vybere nejbližší klíč');
-  tools.append(play,fit);center.append(tools,seek,clock,timeline,viewport);const view=new ReplayViewport(viewport);state.viewport=view;view.loadReplay(file);
+  tools.append(play,fit,fitShot);center.append(tools,seek,clock,timeline,viewport);const view=new ReplayViewport(viewport);state.viewport=view;view.loadReplay(file);
   const channels=structuredClone(file.channels), channel=element('select'), number=element('input'), choose=element('button','Vybrat záznam'), recordInfo=element('p',undefined,'muted'), fields=element('div'), keyTools=element('div',undefined,'tools');
   channel.setAttribute('aria-label','Kanál časové osy REP');for(const c of channels){const option=element('option',`${c.label} (${c.records.length})`);option.value=c.id;channel.append(option);}channel.value=channels.some(c=>c.id===state.replayChannel)?state.replayChannel:'camera';
   number.type='number';number.step='1';number.min='0';number.setAttribute('aria-label','Číslo záznamu REP');number.value=String(state.replayIndex??0);keyTools.append(number,choose);inspector.append(channel,keyTools,recordInfo,fields);
@@ -150,7 +150,7 @@ function renderReplay(main, file) {
   }
   channel.onchange=()=>selectKey(0);choose.onclick=()=>{const index=Number(number.value);if(number.value!==''&&Number.isInteger(index)&&index>=0&&index<selectedChannel().records.length)selectKey(index);else status('Číslo záznamu je mimo rozsah.',true);};
   timeline.onclick=event=>{const c=selectedChannel();if(!c.records.length)return;const box=timeline.getBoundingClientRect(),time=(event.clientX-box.left)/box.width*duration;let nearest=c.records[0];for(const r of c.records)if(Math.abs(r.time-time)<Math.abs(nearest.time-time))nearest=r;selectKey(nearest.index);};
-  seek.oninput=()=>{pause();show(Number(seek.value));};fit.onclick=()=>view.fit(view.paths);play.onclick=()=>{if(playing)pause();else{if(view.time>=duration)show(0);playing=true;previous=undefined;play.textContent='Pozastavit dráhy';}};
+  seek.oninput=()=>{pause();show(Number(seek.value));};fit.onclick=()=>view.fit(view.paths);fitShot.onclick=()=>view.fitShot();play.onclick=()=>{if(playing)pause();else{if(view.time>=duration)show(0);playing=true;previous=undefined;play.textContent='Pozastavit dráhy';}};
   view.onFrame=time=>{if(!playing)return;const next=Math.min(duration,view.time+(previous===undefined?0:time-previous));previous=time;show(next);if(next>=duration)pause();};selectKey(Number(number.value));
 }
 function renderDifference(main, file) {

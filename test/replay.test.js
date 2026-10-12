@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import * as THREE from 'three';
 import { inspectReplay, editReplay } from '../src/core/replay.js';
-import { ReplayViewport, sampleReplayPath } from '../src/ui/replay.js';
+import { ReplayViewport, sampleReplayPath, replayPathSegments } from '../src/ui/replay.js';
 import { ModProject } from '../src/core/project.js';
 import { hash, writeSafe } from '../src/core/files.js';
 function fixture(type=1) {
@@ -38,6 +38,18 @@ test('REP path preview clamps duplicate keys, reflects LS3D Z and updates drafts
   const file=inspectReplay(fixture()),before=structuredClone(file);assert.deepEqual(sampleReplayPath(file.cameras,50),[5,3,-8]);assert.deepEqual(sampleReplayPath(file.cameras,-50),[0,3,-8]);assert.equal(sampleReplayPath(file.cameras,500),null);assert.equal(sampleReplayPath([],0),null);
   assert.deepEqual(sampleReplayPath([{time:0,position:[0,0,0]},{time:0,position:[1,2,3]}],0),[1,2,3]);
   const view=Object.create(ReplayViewport.prototype);Object.assign(view,{root:new THREE.Group(),materials:new Set(),camera:new THREE.PerspectiveCamera(),controls:{target:new THREE.Vector3(),update(){}}});view.root.scale.z=-1;view.loadReplay(file);view.seek(50);view.root.updateMatrixWorld(true);assert.deepEqual(view.markers[0].marker.getWorldPosition(new THREE.Vector3()).toArray(),[5,3,8]);view.updateEntry('camera/1/position',[1e40,3,-8]);assert.deepEqual(view.markers[0].marker.position.toArray(),[5,3,-8]);view.updateEntry('camera/1/position',[14,3,-8]);assert.deepEqual(view.markers[0].marker.position.toArray(),[7,3,-8]);assert.equal(view.markers[0].line.geometry.attributes.position.count,2);view.seek(200);assert.ok(view.markers.every(m=>!m.marker.visible));assert.deepEqual(file,before);
+});
+test('REP cuts preserve opaque markers and use outgoing/incoming poses without a line across the cut',()=>{
+  const bytes=fixture(),incoming=Buffer.alloc(64);incoming.writeUInt32LE(100);incoming.writeUInt32LE(100,4);incoming.writeUInt32LE(8,8);[100,3,-8].forEach((n,i)=>incoming.writeFloatLE(n,12+i*4));incoming.writeFloatLE(1,52);
+  // The marker's opaque pose bytes deliberately contain NaN float patterns.
+  const marker=Buffer.alloc(64,0xcd);marker.writeUInt32LE(100);marker.writeUInt32LE(100,4);marker.writeUInt32LE(2,8);marker.writeUInt32LE(0x7fc00000,12);marker.writeFloatLE(0,52);
+  const outgoing=Buffer.from(bytes.subarray(376,440));outgoing.writeUInt32LE(4,8);
+  const withCut=Buffer.concat([bytes.subarray(0,376),marker,outgoing,incoming,bytes.subarray(440)]);withCut.writeUInt32LE(5,20);
+  const parsed=inspectReplay(withCut);assert.equal(parsed.cameras[1].cut,true);assert.equal(parsed.cameras[1].position,undefined);assert.ok(!parsed.entries.some(e=>e.id.startsWith('camera/1/')));assert.deepEqual(editReplay(withCut,[]),withCut);assert.throws(()=>editReplay(withCut,[{id:'camera/1/position',value:[0,0,0]}]));
+  const invalid=Buffer.from(withCut);invalid.writeUInt32LE(1,504+8);assert.throws(()=>inspectReplay(invalid),/střih/);
+  const keys=[{time:0,curveTime:0,flags:1,position:[10,3,-8]},{time:100,flags:2,cut:true},{time:100,curveTime:100,flags:4,position:[20,3,-8]},{time:60,curveTime:100,flags:8,position:[100,3,-8]},{time:200,curveTime:200,flags:1,position:[200,3,-8]},{time:300,curveTime:300,flags:1,position:[300,3,-8]},{time:350,stop:true}];
+  assert.deepEqual(replayPathSegments(keys).segments,[{start:0,end:100,from:0,to:2},{start:100,end:200,from:3,to:4},{start:200,end:300,from:4,to:5}]);assert.deepEqual(sampleReplayPath(keys,50),[15,3,-8]);assert.deepEqual(sampleReplayPath(keys,100),[100,3,-8]);assert.deepEqual(sampleReplayPath(keys,150),[150,3,-8]);assert.equal(sampleReplayPath(keys,350),null);
+  const view=Object.create(ReplayViewport.prototype);Object.assign(view,{root:new THREE.Group(),materials:new Set(),camera:new THREE.PerspectiveCamera(),controls:{target:new THREE.Vector3(),update(){}}});view.root.scale.z=-1;view.loadReplay({cameras:keys,focus:[]});const line=view.markers[0].line;assert.equal(line.isLineSegments,true);assert.deepEqual(view.markers[0].indices,[0,2,3,4,4,5]);view.seek(150);view.updateEntry('camera/4/position',[220,3,-8]);assert.equal(line.geometry.attributes.position.getX(3),220);assert.equal(line.geometry.attributes.position.getX(4),220);assert.deepEqual(view.markers[0].marker.position.toArray(),[160,3,-8]);const count=view.root.children.length;view.fitShot();assert.deepEqual(view.controls.target.toArray(),[160,3,8]);assert.equal(view.root.children.length,count);assert.ok(view.markers[0].marker.scale.x<2);
 });
 test('REP project saves with stale guards, reopens, exports, undoes and preserves originals',async t=>{
   const root=await fs.mkdtemp(path.join(os.tmpdir(),'mafia-rep-test-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));const bytes=fixture(),asset={path:'records/Test.rep',original:'originals/a5/records/Test.rep',sha256:hash(bytes),size:bytes.length,archive:'A5.dta',variants:[{}]};await writeSafe(root,asset.original,bytes);await writeSafe(root,'workbench.json',JSON.stringify({format:'mafia-workbench',version:1,name:'Replay',assets:[asset],history:[]}));
