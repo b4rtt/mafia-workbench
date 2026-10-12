@@ -256,6 +256,7 @@ function renderRoads(main, file) {
 }
 function renderNavigation(main, file) {
   main.append(element('p', `${file.points.length.toLocaleString('cs')} bodů · ${file.linkCount.toLocaleString('cs')} směrovaných vazeb. Číslo bodu je jeho pořadí od nuly, uložené ID se může opakovat. Modrá: chodci, žlutá: AI, oranžová: vozidla, fialová: zastávky.`, 'notice'));
+  main.append(element('p','Uložení posunu přepočítá délky navazujících cest. Při změně pořadí bodů se jejich čísla a odkazy aktualizují společně; vybraný bod zůstane vybraný.','notice'));
   for (const warning of file.warnings.slice(0,10)) main.append(element('p',warning,'notice'));
   const layout = element('div', undefined, 'model-workspace'), center = element('section', undefined, 'model-center'), inspector = element('section', undefined, 'model-inspector'); layout.append(center, inspector); main.append(layout);
   const tools = element('div', undefined, 'tools'), number = element('input'), jump = element('button', 'Vybrat bod'), fit = element('button', 'Zarámovat síť'), focus = element('button', 'Přiblížit bod'), background = element('button', 'Zobrazit geometrii mise'), viewport = element('div', undefined, 'viewport');
@@ -449,6 +450,7 @@ function renderProperties(main, file, saveAPI, onEdit = () => {}) {
     save.onclick = () => run(async () => {
       if ([...state.texts.values()].some(v => v?.invalid)) throw new Error('Opravte neplatnou číselnou hodnotu před uložením.');
       state.file = await saveAPI(file.path, [...state.texts].map(([id, value]) => ({ id, value })), file.sha256);
+      if(state.file.type==='navigation'&&state.file.navigationMapping)state.navigationIndex=state.file.navigationMapping[state.navigationIndex??0]??0;
       state.texts.clear(); await refresh(); renderDetail(); status('Změny uložené do modu se zálohou.');
     });
     form.append(label); if (entry.kind === 'script') form.append(name); form.append(input, element('p', entry.kind === 'script' ? entry.actorScript ? 'Zdroj skriptového aktéra. Hlavička a další nerozpoznaná data zůstanou zachovaná. Název je svázaný s aktérem; zde se upravuje pouze kód. Změny se projeví při novém načtení mise.' : 'Zdroj skriptu mise. První bajt a další nerozpoznaná data zůstanou zachovaná.' : `Typ: ${entry.kind}. Souřadnice: X, Y, Z; rotace: W, X, Y, Z. Ostatní vlastnosti zůstanou zachované.`), save);

@@ -1,4 +1,10 @@
 const MAGIC = 0x01abcedf, POINT_SIZE = 30, LINK_SIZE = 8;
+function navigationDistance(a,b) {
+  const distance=Math.hypot(...a.map((value,i)=>value-b[i]));
+  const result=distance*distance<Math.fround(1e-8)?0:Math.fround(distance);
+  if(!Number.isFinite(result))throw new Error('Check: vzdálenost bodů překračuje rozsah hry.');
+  return result;
+}
 
 export function parseNavigation(source) {
   const bytes = Buffer.from(source);
@@ -44,8 +50,7 @@ export function changeNavigationConnection(source, request) {
     kind = navigationLinkType(a.type,b.type);
     if (kind === null) throw new Error('Check: hra nedovoluje spojení těchto kategorií bodů.');
     if (a.links.length === 255 || b.links.length === 255) throw new Error('Check: bod už má maximálních 255 vazeb.');
-    distance = Math.fround(Math.hypot(...a.position.map((value,i) => value - b.position[i])));
-    if (!Number.isFinite(distance)) throw new Error('Check: vzdálenost bodů překračuje rozsah hry.');
+    distance = navigationDistance(a.position,b.position);
   } else if (!ab.length && !ba.length) throw new Error('Check: mezi těmito body není spojení.');
   const bytes = Buffer.from(source), start = 8 + parsed.points.length * POINT_SIZE, records = [];
   for (const point of parsed.points) {
@@ -120,4 +125,26 @@ export function editNavigation(source, changes) {
     }
   }
   parseNavigation(result); return result;
+}
+
+export function prepareNavigationEdits(source, changes) {
+  const before=parseNavigation(source),data=editNavigation(source,changes),after=parseNavigation(data),moved=new Set(),pairs=new Set(),start=8+after.points.length*POINT_SIZE;
+  const pair=(a,b)=>a<b?`${a}:${b}`:`${b}:${a}`;
+  for(const point of after.points){
+    const original=before.points[point.index];
+    if(point.position.some((value,i)=>value!==original.position[i]))moved.add(point.index);
+    for(let i=0;i<point.links.length;i++)if(point.links[i].target!==original.links[i].target)pairs.add(pair(point.index,point.links[i].target));
+  }
+  // Update both incoming and outgoing paths; untouched legacy distances remain byte-exact.
+  for(const point of after.points)for(const link of point.links)if(moved.has(point.index)||moved.has(link.target)||pairs.has(pair(point.index,link.target)))data.writeFloatLE(navigationDistance(point.position,after.points[link.target].position),start+link.index*LINK_SIZE+4);
+  const order=after.points.map(point=>point.index);
+  if(moved.size)order.sort((a,b)=>after.points[a].position[0]-after.points[b].position[0]);
+  const mapping=new Array(order.length);order.forEach((old,index)=>mapping[old]=index);
+  if(mapping.every((index,old)=>index===old))return {data,mapping};
+  const nodes=[],connections=[];
+  for(const index of order){
+    const point=after.points[index];nodes.push(data.subarray(8+index*POINT_SIZE,8+(index+1)*POINT_SIZE));
+    for(const link of point.links){const record=Buffer.from(data.subarray(start+link.index*LINK_SIZE,start+(link.index+1)*LINK_SIZE));record.writeUInt16LE(mapping[link.target]);connections.push(record);}
+  }
+  const result=Buffer.concat([data.subarray(0,8),...nodes,...connections]);parseNavigation(result);return {data:result,mapping};
 }

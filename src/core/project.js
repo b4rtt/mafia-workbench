@@ -9,7 +9,7 @@ import { parseFourDs, editFourDs } from './fourds.js';
 import { parseFiveDs, editFiveDs } from './fiveds.js';
 import { inspectCache, editCache } from './cache.js';
 import { parseItems, editItems } from './items.js';
-import { parseNavigation, editNavigation, changeNavigationConnection, changeNavigationPoint } from './navigation.js';
+import { parseNavigation, prepareNavigationEdits, changeNavigationConnection, changeNavigationPoint } from './navigation.js';
 import { remapSegments } from './segments.js';
 import { parseRoads, editRoads } from './roads.js';
 import { parseTrack, editTrack } from './track.js';
@@ -330,10 +330,14 @@ export class ModProject {
   }
   async saveNavigation(name, changes, expectedHash) {
     if (!/^missions\/[^/]+\/check\.bin$/i.test(name)) throw new Error('Soubor není check.bin mise.');
-    await this.change(name, before => {
-      if (expectedHash !== hash(before)) throw new Error('Soubor se od otevření změnil. Otevřete jej znovu.');
-      return editNavigation(before, changes);
-    }, 'Úprava navigačních bodů a vazeb');
+    const source=await this.read(name);if(expectedHash!==hash(source))throw new Error('Soubor se od otevření změnil. Otevřete jej znovu.');
+    const prepared=prepareNavigationEdits(source,changes),label='Úprava navigačních bodů a vazeb';
+    if(prepared.mapping.some((index,old)=>index!==old)){
+      const files=[{path:name,data:prepared.data,expectedHash}],segment=this.index.get(key(name.replace(/check\.bin$/i,'clusters.seg')));
+      if(segment){const before=await this.read(segment.path);files.push({path:segment.path,data:remapSegments(before,prepared.mapping,prepared.mapping.length),expectedHash:hash(before)});}
+      await this.changeBatch(files,label);
+    }else await this.change(name,before=>{if(expectedHash!==hash(before))throw new Error('Soubor se od otevření změnil. Otevřete jej znovu.');return prepared.data;},label);
+    return prepared.mapping;
   }
   async changeNavigationConnection(name, request, expectedHash) {
     if (!/^missions\/[^/]+\/check\.bin$/i.test(name)) throw new Error('Soubor není check.bin mise.');
