@@ -35,6 +35,10 @@ export function missionFolder(name) {
   if (parts[0].toLowerCase() !== 'missions' || parts.length < 3 || !parts[1] || parts[1].toLowerCase() === 'wbtest') throw new Error('Vyberte soubor konkrétní mise.');
   return `missions/${parts[1]}`;
 }
+export function wineStartupError(log) {
+  if (/nodrv_CreateWindow|The explorer process failed to start\./.test(log)) return 'Wine nedokázalo vytvořit grafické okno hry; viz playtest/game.log.';
+  if (/Library not loaded:/.test(log)) return 'Wine nedokázalo načíst potřebnou knihovnu; viz playtest/game.log.';
+}
 function command(binary, args, options = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(binary, args, { ...options, stdio: 'ignore', shell: false });
@@ -50,6 +54,52 @@ async function cloneFile(sourceRoot, sourceName, destinationRoot, name) {
   const input = await safePath(sourceRoot, sourceName), output = await safePath(destinationRoot, name, true);
   // APFS clone is independent; never a hard link to an original or project asset.
   await fs.copyFile(input, output, constants.COPYFILE_EXCL | constants.COPYFILE_FICLONE);
+}
+const canonical = name => relativeAssetPath(name).normalize('NFC').toLowerCase();
+async function inventory(root) {
+  const files = new Map();
+  let stat;
+  try { stat = await fs.lstat(root); } catch (error) { if (error.code === 'ENOENT') return files; throw error; }
+  if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error('Neplatný adresář synchronizace.');
+  async function visit(folder = '') {
+    for (const entry of await fs.readdir(path.join(root, folder), { withFileTypes: true })) {
+      const name = folder ? `${folder}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) await visit(name);
+      else if (entry.isFile()) files.set(canonical(name), name);
+      else throw new Error(`Synchronizace odmítla odkaz nebo jiný typ souboru: ${name}`);
+    }
+  }
+  await visit(); return files;
+}
+export async function synchronizeAssets(project, game, previous = {}, progress = () => {}) {
+  const existing = await inventory(game), mods = await inventory(path.join(project.root, 'mods')), files = Object.create(null);
+  const validHash = value => typeof value === 'string' && /^[0-9a-f]{64}$/.test(value);
+  const pending = [];
+  for (const asset of project.manifest.assets) {
+    const target = canonical(asset.path), old = previous[target];
+    // The owned snapshot is the baseline. Inventory checks missing files and links
+    // without reopening every unchanged original and test copy on every launch.
+    if (existing.has(target) && !mods.has(target) && old?.source === asset.sha256 && old.applied === asset.sha256 && validHash(old.applied)) files[target] = old;
+    else pending.push({ asset, target, old });
+  }
+  let copied = 0;
+  for (let i = 0; i < pending.length; i++) {
+    const { asset, target, old } = pending[i], bytes = await project.read(asset.path), applied = hash(bytes);
+    let currentHash = old?.source === asset.sha256 && validHash(old.applied) && existing.has(target) ? old.applied : null;
+    if (!currentHash && existing.has(target)) currentHash = hash(await readSafe(game, target));
+    if (currentHash !== applied) {
+      if (existing.has(target)) await writeSafe(game, target, bytes);
+      else {
+        const origin = mods.has(target) ? `mods/${mods.get(target)}` : asset.original;
+        await cloneFile(project.root, origin, game, target);
+        if (hash(await readSafe(game, target)) !== applied) throw new Error('Data projektu se změnila během přípravy testu. Spusťte přípravu znovu.');
+      }
+      copied++;
+    }
+    files[target] = { source: asset.sha256, applied };
+    if (i % 500 === 0 || i === pending.length - 1) progress({ phase: 'playtest', current: i + 1, total: pending.length, files: copied });
+  }
+  return { files, checked: pending.length, copied };
 }
 export class Playtest {
   constructor(runtime) { this.runtime = runtime; this.child = null; this.session = null; }
@@ -90,23 +140,7 @@ export class Playtest {
       record = { format: 'mafia-workbench-playtest', project: project.root, source, alias: [], initialized: false };
       await writeSafe(root, 'snapshot.json', JSON.stringify(record), true);
     }
-    // Incomplete initial copies are recoverable: each file is compared before reuse.
-    for (let i = 0; i < project.manifest.assets.length; i++) {
-      const asset = project.manifest.assets[i], bytes = await project.read(asset.path), target = asset.path.toLowerCase();
-      let current;
-      try { current = await readSafe(game, target); } catch (error) { if (error.code !== 'ENOENT') throw error; }
-      if (!current || hash(current) !== hash(bytes)) {
-        if (current) await writeSafe(game, target, bytes);
-        else {
-          // Original bytes have already passed their hash check in project.read().
-          let origin = asset.original;
-          try { await safePath(project.root, `mods/${asset.path}`); await fs.access(path.join(project.root, `mods/${asset.path}`)); origin = `mods/${asset.path}`; } catch (error) { if (error.code !== 'ENOENT') throw error; }
-          await cloneFile(project.root, origin, game, target);
-          if (hash(await readSafe(game, target)) !== hash(bytes)) throw new Error('Data projektu se změnila během přípravy testu. Spusťte přípravu znovu.');
-        }
-      }
-      if (i % 500 === 0 || i === project.manifest.assets.length - 1) progress({ archive: 'Testovací kopie', current: i + 1, total: project.manifest.assets.length, files: i + 1 });
-    }
+    const sync = await synchronizeAssets(project, game, record.files ?? {}, progress);
     for (const filename of await fs.readdir(source)) {
       if (!/\.dll$/i.test(filename)) continue;
       const bytes = await readSafe(source, filename); await writeSafe(game, filename.toLowerCase(), bytes);
@@ -144,12 +178,16 @@ export class Playtest {
       await fs.unlink(link);
     }
     await fs.symlink(game, path.join(devices, 'z:'));
-    await writeSafe(root, 'snapshot.json', JSON.stringify({ format: 'mafia-workbench-playtest', project: project.root, source, level, alias, initialized: true, sourceExe: SUPPORTED_GAME_HASH, testExe: hash(executable), updated: new Date().toISOString() }, null, 2));
+    await writeSafe(root, 'snapshot.json', JSON.stringify({ format: 'mafia-workbench-playtest', project: project.root, source, level, alias, initialized: true, files: sync.files, sourceExe: SUPPORTED_GAME_HASH, testExe: hash(executable), updated: new Date().toISOString() }));
     this.session = { root, game, prefix, level }; return this.session;
   }
   async start(project, name, progress, onExit = () => {}) {
     const session = await this.prepare(project, name, progress), log = await fs.open(path.join(session.root, 'game.log'), 'w');
-    const child = spawn(this.runtime.wine, ['Game.exe'], { cwd: session.game, env: this.environment(session.prefix), stdio: ['ignore', log.fd, log.fd], shell: false });
+    // A direct Electron -> Wine launch fails to initialise its desktop on macOS.
+    // A fresh shell fixes the verified launch path. SIP strips DYLD variables on
+    // entering the system shell, so restore this local dependency path there.
+    // Paths are positional arguments, never interpolated into shell source.
+    const child = spawn('/bin/zsh', ['-f', '-c', 'export DYLD_LIBRARY_PATH="$2"; exec "$1" Game.exe', 'mafia-playtest', this.runtime.wine, this.runtime.dependencies], { cwd: session.game, env: this.environment(session.prefix), stdio: ['ignore', log.fd, log.fd], shell: false, detached: true });
     this.child = child;
     let resolveFinished;
     this.finished = new Promise(resolve => { resolveFinished = resolve; });
@@ -159,8 +197,10 @@ export class Playtest {
       await writeSafe(session.root, 'run.json', JSON.stringify({ pid: child.pid, exited: true })).catch(() => {});
       if (this.child === child) this.child = null;
       await log.close().catch(() => {});
+      let startupError;
+      try { startupError = wineStartupError((await readSafe(session.root, 'game.log')).toString()); } catch { /* Keep the process error if its diagnostic log is unavailable. */ }
       resolveFinished();
-      onExit({ ...this.state(), code, error: error?.message });
+      onExit({ ...this.state(), code, error: error?.message ?? startupError });
     };
     child.once('error', error => finished(null, error)); child.once('exit', code => finished(code));
     await new Promise((resolve, reject) => { child.once('spawn', resolve); child.once('error', reject); });
@@ -171,6 +211,7 @@ export class Playtest {
     if (!this.child || !this.session) return this.state();
     const child = this.child, session = this.session;
     await command(this.runtime.server, ['-k'], { env: this.environment(this.session.prefix) });
+    await command(this.runtime.server, ['-w'], { env: this.environment(this.session.prefix) });
     if (!child.attached) await this.finished;
     else await writeSafe(session.root, 'run.json', JSON.stringify({ pid: child.pid, exited: true }));
     if (this.child === child) this.child = null;

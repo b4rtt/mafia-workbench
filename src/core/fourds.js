@@ -29,7 +29,12 @@ function object(reader, geometry) {
     const positions = geometry && lod === 0 ? Array.from({ length: vertices * 3 }, (_, i) => reader.bytes.readFloatLE(start + Math.floor(i / 3) * 32 + i % 3 * 4)) : [];
     const normals = geometry && lod === 0 ? Array.from({ length: vertices * 3 }, (_, i) => reader.bytes.readFloatLE(start + Math.floor(i / 3) * 32 + 12 + i % 3 * 4)) : [];
     const uv = geometry && lod === 0 ? Array.from({ length: vertices * 2 }, (_, i) => reader.bytes.readFloatLE(start + Math.floor(i / 2) * 32 + 24 + i % 2 * 4)) : [];
-    if ([...positions, ...normals, ...uv].some(v => !Number.isFinite(v))) throw new Error('4DS: geometrie obsahuje neplatná čísla.');
+    if (positions.some(v => !Number.isFinite(v))) throw new Error('4DS: vrcholy obsahují neplatná čísla.');
+    // Some shipped meshes have uninitialised, unused UVs/normals. Retain source bytes;
+    // only the preview substitutes UV zeroes and recomputes invalid normals.
+    const invalidNormals = normals.some(v => !Number.isFinite(v)), invalidUV = uv.some(v => !Number.isFinite(v));
+    if (invalidNormals) normals.fill(0);
+    if (invalidUV) uv.forEach((v, i) => { if (!Number.isFinite(v)) uv[i] = 0; });
     const groups = reader.u8(), faces = [];
     for (let group = 0; group < groups; group++) {
       const count = reader.u16(), begin = reader.pos; reader.skip(count * 6); const material = reader.u16();
@@ -39,7 +44,7 @@ function object(reader, geometry) {
         faces.push({ material, indices });
       }
     }
-    lods.push({ distance, vertices, positions, normals, uv, faces });
+    lods.push({ distance, vertices, positions, normals, uv, faces, invalidNormals, invalidUV });
   }
   return { instance, lods };
 }

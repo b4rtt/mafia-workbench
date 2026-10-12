@@ -34,3 +34,13 @@ Licence herní šablony není doložená; archiv ani jeho soubory se nevkládaj�
 ## Spuštění levelu
 
 Export reverse engineeringu st0rm94 uvádí starší Game 1.0; jeho adresy nejsou použitelné bez ověření na jiném EXE. U místní GOG 1.2 byl v disassembly dohledán hlavní dispatcher menu a větev tréninku. Případný workaround musí nejdříve ověřit celý hash a konkrétní instrukce, upravovat pouze samostatnou kopii EXE a používat oddělená herní data i ukládání. Původní instalace se nesmí patchovat.
+
+## Podmínky renderování LS3D
+
+Barva diffuse tónuje diffuse texturu pouze při příznaku `0x08000000` (COLORED). Ověřeno v uloženém b4rtt/mafia-webgl-renderer, `mafia.js`, definice `MATERIALFLAG_COLORED`, a v referenci Mafia4Blender_4ds. U skutečného modelu Sarah2HIGHnaha jsou modré authoring barvy hlavy a nohou uložené bez tohoto příznaku; jejich bezpodmínečné násobení způsobovalo modrý náhled. Model ani barvy uložené v souboru se opravou náhledu nemění.
+
+`scene2.bin` obsahuje odkazy na pojmenované rodiče. mEdit, `Source/Editors/SceneEditor.cpp`, větev `CT_LINK`, řeší zvlášť `Backdrop sector`. Náhled editoru jej odděluje od hlavní mapy a nezahrnuje oblohu do zarámování kamery. Cyklické vazby se odmítnou; chybějící nebo nejednoznačné vazby se oznámí.
+
+Některé dodané 4DS obsahují neplatné hodnoty nepoužitých normál nebo UV. Náhled nahrazuje neplatné UV nulami a dopočítá normály; editace zachovává původní bajty. Neplatné pozice vrcholů zůstávají chybou.
+
+Přímý start GOG 1.2 je implementovaný pouze v izolované kopii a byl ověřen v tréninku, na autodromu a v restauraci. Příprava dalších startů používá uložený index aplikovaných souborů; znovu nerozbaluje DTA ani nečte všechny původní assety. Na místním macOS přímý procesový start Wine z Electronu selhával při inicializaci desktopu. Ověřený start přes `/bin/zsh -f` obnovuje cestu místních DYLD knihoven z pozičního argumentu a pokračuje přes `exec`; cesty se nevkládají do zdrojového textu shellu.

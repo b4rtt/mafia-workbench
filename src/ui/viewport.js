@@ -29,7 +29,7 @@ export class Viewport {
       if (this.gizmo.dragging || this.gizmo.axis || !this.start || Math.hypot(event.clientX - this.start[0], event.clientY - this.start[1]) > 4) return;
       const rect = this.renderer.domElement.getBoundingClientRect();
       this.raycaster.setFromCamera(new THREE.Vector2((event.clientX - rect.left) / rect.width * 2 - 1, 1 - (event.clientY - rect.top) / rect.height * 2), this.camera);
-      const hit = this.raycaster.intersectObjects(this.root.children, true)[0];
+      const hit = this.raycaster.intersectObjects(this.root.children, true).find(hit => { for (let o = hit.object; o; o = o.parent) if (!o.visible) return false; return true; });
       if (!hit) return;
       let object = hit.object; while (object && !object.userData.frame) object = object.parent;
       if (object) this.select(object.userData.frame.ownerId ?? object.userData.frame.id);
@@ -67,7 +67,9 @@ export class Viewport {
             base.addGroup(indices.length, face.indices.length, materials.length); for (const index of face.indices) indices.push(index);
             const source = model.materials[face.material - 1];
             const material = new THREE.MeshStandardMaterial({ color: source ? new THREE.Color(...source.diffuse) : 0xb0bc9e, roughness: .85, side: THREE.DoubleSide, opacity: source?.opacity ?? 1, transparent: (source?.opacity ?? 1) < 1 });
-            material.userData.texture = source?.texture; materials.push(material); this.materials.add(material);
+            material.userData.texture = source?.texture;
+            material.userData.textureColored = Boolean(source?.flags & 0x08000000);
+            materials.push(material); this.materials.add(material);
           }
           base.setIndex(indices); if (!lod.normals.some(n => n !== 0)) base.computeVertexNormals();
           geometry.set(lod, { base, materials });
@@ -88,13 +90,26 @@ export class Viewport {
         if (!cache.has(name)) cache.set(name, (async () => { const url = await resolveUrl(name); if (!url) return null; return loader.loadAsync(url); })());
         const texture = await cache.get(name); if (!texture) return;
         if (this.disposed) { texture.dispose(); return; }
-        texture.colorSpace = THREE.SRGBColorSpace; texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
-        this.textures.add(texture); material.map = texture; material.needsUpdate = true;
+        this.applyTexture(material, texture);
       } catch { /* Missing or unsupported texture leaves its material colour visible. */ }
     }));
   }
+  applyTexture(material, texture) {
+    texture.colorSpace = THREE.SRGBColorSpace; texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+    // LS3D diffuse RGB tints a diffuse texture only with MTL_DIFFUSE_COLORED.
+    // Otherwise authoring colours (e.g. blue face/legs) must not stain the image.
+    if (!material.userData.textureColored) material.color.set(0xffffff);
+    this.textures.add(texture); material.map = texture; material.needsUpdate = true;
+  }
   fit(object = this.root) {
-    object.updateWorldMatrix(true, true); const box = new THREE.Box3().setFromObject(object);
+    object.updateWorldMatrix(true, true); const box = new THREE.Box3();
+    // Hidden backdrop geometry must not expand the map bounds or enclose its camera.
+    const visit = node => {
+      if (!node.visible || node.userData.backdrop) return;
+      if (node.geometry) { node.geometry.computeBoundingBox(); box.union(node.geometry.boundingBox.clone().applyMatrix4(node.matrixWorld)); }
+      for (const child of node.children) visit(child);
+    };
+    visit(object);
     if (box.isEmpty()) box.setFromCenterAndSize(new THREE.Vector3(), new THREE.Vector3(4, 4, 4));
     const center = box.getCenter(new THREE.Vector3()), size = Math.max(...box.getSize(new THREE.Vector3()).toArray(), .1);
     this.controls.target.copy(center); this.camera.position.copy(center).add(new THREE.Vector3(size * .9, size * .6, size * 1.1));
@@ -126,6 +141,29 @@ export class Viewport {
     }
     return id;
   }
+  linkScene() {
+    if (!this.backdrop) { this.backdrop = new THREE.Group(); this.backdrop.userData.backdrop = true; this.backdrop.visible = false; this.root.add(this.backdrop); }
+    const names = new Map(), links = new Map(), warnings = [];
+    for (const object of this.frames.values()) if (!object.userData.frame.ownerId) {
+      const name = object.name.toLowerCase();
+      if (names.has(name)) names.set(name, null); else names.set(name, object);
+    }
+    for (const object of this.frames.values()) {
+      const source = object.userData.frame.sceneObject; if (!source?.parent) continue;
+      const name = source.parent.toLowerCase();
+      const parent = name === 'primary sector' ? this.root : name === 'backdrop sector' ? this.backdrop : names.get(name);
+      if (!parent) { warnings.push(`${source.name}: rodič ${source.parent} chybí nebo je nejednoznačný`); continue; }
+      links.set(object, parent);
+    }
+    // Validate all proposed links before changing an existing valid 4DS hierarchy.
+    for (const [object, parent] of links) {
+      const visited = new Set([object]); let current = parent;
+      while (current) { if (visited.has(current)) throw new Error('Scene: cyklická hierarchie objektů mapy.'); visited.add(current); current = links.get(current) ?? current.parent; }
+    }
+    for (const [object, parent] of links) parent.add(object);
+    return warnings;
+  }
+  showBackdrop(value) { if (this.backdrop) this.backdrop.visible = value; }
   wireframe(value) { for (const material of this.materials) material.wireframe = value; }
   dispose() {
     this.disposed = true; this.observer.disconnect(); this.renderer.setAnimationLoop(null); this.controls.dispose(); this.gizmo.dispose();

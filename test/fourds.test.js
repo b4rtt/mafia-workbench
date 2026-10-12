@@ -27,3 +27,13 @@ test('4DS refuses malformed geometry, incompatible versions, cycles and invalid 
   assert.throws(() => editFourDs(source, [{ id:'meshes/0/position', value:[Infinity,0,0] }]), /hodnota/);
   const old = Buffer.from(source); old.writeUInt16LE(27,4); assert.throws(() => parseFourDs(old), /verze 27/);
 });
+test('nonfinite normals and UVs use a preview fallback while preserving every original byte', () => {
+  const source = fixture(), vertices = floats([0,0,0,0,1,0,0,0, 1,0,0,0,1,0,1,0, 0,1,0,0,1,0,0,1]);
+  const start = source.indexOf(vertices); assert.ok(start >= 0);
+  source.writeFloatLE(NaN, start + 12); source.writeFloatLE(Infinity, start + 24);
+  const parsed = parseFourDs(source, true), lod = parsed.meshes[0].lods[0];
+  assert.equal(lod.invalidNormals, true); assert.equal(lod.invalidUV, true);
+  assert.ok(lod.normals.every(n => n === 0)); assert.ok(lod.uv.every(Number.isFinite));
+  assert.deepEqual(editFourDs(source, []), source);
+  source.writeFloatLE(Infinity, start); assert.throws(() => parseFourDs(source, true), /vrcholy/);
+});

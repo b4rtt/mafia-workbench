@@ -90,7 +90,7 @@ function renderDetail() {
       if (state.texts.size) throw new Error('Před spuštěním levelu uložte rozepsané změny.');
       status('Připravuji oddělenou testovací kopii…');
       const test = await api.startLevel(file.path); $('stop-level').hidden = !test.running;
-      status(`Spuštěno: ${test.level} · bez videí a menu · oddělené ukládání.`);
+      status(`Spouštím: ${test.level} · bez videí a menu · oddělené ukládání.`);
     }); toolbar.append(launch);
   }
   if (file.type === 'scene') {
@@ -189,6 +189,7 @@ function renderMedia(main, file) {
   container.append(media); api.media(file.path).then(url => { if (state.file === file) media.src = url; }).catch(error => { caption.textContent = error.message; });
 }
 function renderModel(main, file) {
+  if (file.meshes.some(mesh => mesh.lods?.some(lod => lod.invalidNormals || lod.invalidUV))) main.append(element('p', 'Model obsahuje neplatné normály nebo souřadnice textur. Náhled používá náhradní hodnoty; původní model zůstává zachovaný.', 'notice'));
   const layout = element('div', undefined, 'model-workspace'), center = element('section', undefined, 'model-center'), inspector = element('section', undefined, 'model-inspector');
   layout.append(center, inspector); main.append(layout);
   const tools = element('div', undefined, 'tools'), viewport = element('div', undefined, 'viewport'), selected = element('p', 'Vyberte objekt ve 3D pohledu nebo podle názvu.'), objects = element('select');
@@ -255,11 +256,14 @@ function renderMap(main, file) {
       if (view.disposed) return;
       const id = view.addSceneObject(object, model); addOption(id, object);
     }
-    view.loadTextures(resolveTexture); status('3D mapa: geometrie a dostupné objekty načtené.');
+    const warnings = view.linkScene(); view.fit();
+    view.loadTextures(resolveTexture); status(warnings.length ? `3D mapa načtená; ${warnings.length} vazeb má chybějícího nebo nejednoznačného rodiče.` : '3D mapa: geometrie a dostupné objekty načtené.');
   }
   addObjects().catch(error => status(error.message, true));
   for (const [mode, label] of [['translate', 'Posun'], ['rotate', 'Rotace'], ['scale', 'Měřítko']]) { const button = element('button', label); button.onclick = () => view.gizmo.setMode(mode); tools.append(button); }
-  const fit = element('button', 'Zarámovat mapu'); fit.onclick = () => view.fit(); tools.append(fit); objects.onchange = () => view.select(objects.value);
+  const fit = element('button', 'Zarámovat mapu'); fit.onclick = () => view.fit();
+  const sky = element('button', 'Obloha'); let showSky = false; sky.setAttribute('aria-pressed', 'false'); sky.onclick = () => { showSky = !showSky; view.showBackdrop(showSky); sky.setAttribute('aria-pressed', String(showSky)); };
+  tools.append(fit, sky); objects.onchange = () => view.select(objects.value);
   view.loadTextures(resolveTexture);
   properties = renderProperties(inspector, file, async (...args) => { await api.saveScene(...args); return api.map(file.path); }, (entry, value) => { const field = byField.get(entry.id); if (field && ['position','rotation','scale'].includes(field.kind)) view.update(field.id, { [field.kind]: value }); });
   center.append(element('p', 'Geometrie scene.4ds a objekty scene2.bin. Modré body označují světla, zvuky a další objekty bez modelu; oranžové body chybějící model. Cache.bin, kolize a navigace se ještě doplňují.', 'notice'));
@@ -281,7 +285,7 @@ $('export').onclick = () => run(async () => {
   if (state.texts.size) throw new Error('Před exportem uložte rozepsané změny.');
   const result = await api.export(); if (result) status(`Export: ${result.files} souborů → ${result.destination}`);
 });
-api.onProgress(p => status(`Rozbaluji ${p.archive}: ${p.current}/${p.total} · ${p.files} souborů v projektu`));
+api.onProgress(p => status(p.phase === 'playtest' ? `Synchronizuji test: ${p.current}/${p.total} · ${p.files} změněných souborů` : `Rozbaluji ${p.archive}: ${p.current}/${p.total} · ${p.files} souborů v projektu`));
 api.onPlaytest(test => { $('stop-level').hidden = !test.running; if (test.error || test.code) status(`Test skončil chybou. ${test.error ?? `Kód ${test.code}; viz playtest/game.log.`}`, true); else if (!test.running) status('Test levelu ukončen.'); });
 $('stop-level').onclick = () => run(async () => { await api.stopLevel(); $('stop-level').hidden = true; status('Test levelu ukončen; původní hra zůstala zachovaná.'); });
 window.addEventListener('beforeunload', event => { if (state.texts.size || state.busy) { event.preventDefault(); event.returnValue = ''; } });
