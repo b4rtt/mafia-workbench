@@ -14,6 +14,11 @@ export class Viewport {
     this.renderer.domElement.setAttribute('aria-label', '3D pohled: levé tlačítko otáčí, pravé posouvá, kolečko přibližuje');
     container.append(this.renderer.domElement);
     this.controls = new OrbitControls(this.camera, this.renderer.domElement); this.controls.enableDamping = true;
+    this.controls.zoomToCursor = true; this.controls.minDistance = .02;
+    this.controls.addEventListener('change', () => {
+      this.camera.near = Math.max(.001, Math.min(.02, this.camera.position.distanceTo(this.controls.target) / 1000));
+      this.camera.updateProjectionMatrix();
+    });
     this.gizmo = new TransformControls(this.camera, this.renderer.domElement); this.scene.add(this.gizmo.getHelper());
     this.gizmo.addEventListener('dragging-changed', event => { this.controls.enabled = !event.value; });
     this.gizmo.addEventListener('objectChange', () => {
@@ -162,15 +167,37 @@ export class Viewport {
       for (const child of node.children) visit(child);
     };
     visit(object);
-    if (box.isEmpty()) box.setFromCenterAndSize(new THREE.Vector3(), new THREE.Vector3(4, 4, 4));
-    const center = box.getCenter(new THREE.Vector3()), size = Math.max(...box.getSize(new THREE.Vector3()).toArray(), .1);
-    this.controls.target.copy(center); this.camera.position.copy(center).add(new THREE.Vector3(size * .9, size * .6, size * 1.1));
-    this.camera.near = Math.max(.01, size / 10000); this.camera.far = Math.max(20000, size * 10); this.camera.updateProjectionMatrix(); this.controls.update();
+    if (box.isEmpty()) box.setFromCenterAndSize(object.getWorldPosition(new THREE.Vector3()), new THREE.Vector3(1, 1, 1));
+    const center = box.getCenter(new THREE.Vector3()), size = Math.max(box.getSize(new THREE.Vector3()).length(), .1);
+    const direction = object === this.root ? new THREE.Vector3(.9,.6,1.1) : this.camera.position.clone().sub(this.controls.target);
+    if (direction.lengthSq() < 1e-10) direction.set(.9,.6,1.1);
+    direction.normalize();
+    const right = new THREE.Vector3().crossVectors(this.camera.up, direction);
+    if (right.lengthSq() < 1e-10) right.set(1,0,0);
+    right.normalize(); const up = new THREE.Vector3().crossVectors(direction, right).normalize();
+    const vertical = Math.tan(THREE.MathUtils.degToRad(this.camera.getEffectiveFOV()) / 2), horizontal = vertical * this.camera.aspect;
+    let distance = .1;
+    for (const x of [box.min.x,box.max.x]) for (const y of [box.min.y,box.max.y]) for (const z of [box.min.z,box.max.z]) {
+      const corner = new THREE.Vector3(x,y,z).sub(center);
+      distance = Math.max(distance, corner.dot(direction) + 1.15 * Math.max(Math.abs(corner.dot(right)) / horizontal, Math.abs(corner.dot(up)) / vertical));
+    }
+    this.restoreCamera({ position: center.clone().addScaledVector(direction, distance).toArray(), target: center.toArray(), near: Math.max(.001, Math.min(.02, distance / 1000)), far: Math.max(20000, size * 10) });
   }
-  select(id, editable = true) {
+  captureCamera() {
+    return { position: this.camera.position.toArray(), target: this.controls.target.toArray(), near: this.camera.near, far: this.camera.far };
+  }
+  restoreCamera(value) {
+    // Flush pending orbit/pan damping before installing an explicit view.
+    const damping = this.controls.enableDamping; this.controls.enableDamping = false; this.controls.update();
+    this.camera.position.fromArray(value.position); this.controls.target.fromArray(value.target);
+    this.camera.near = value.near; this.camera.far = value.far; this.camera.updateProjectionMatrix();
+    this.controls.update(); this.controls.enableDamping = damping;
+  }
+  select(id, editable = true, focus = this.focusOnSelect) {
     const object = this.frames.get(id); if (!object) return;
     this.gizmo.detach(); if (editable && object.userData.frame.editable !== false) this.gizmo.attach(object);
     this.onSelect(object.userData.frame);
+    if (focus) this.fit(object);
   }
   update(id, values) {
     const object = this.frames.get(id); if (!object) return;

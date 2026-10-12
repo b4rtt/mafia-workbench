@@ -79,6 +79,9 @@ function renderFiles() {
 async function openFile(name) { state.file = await api.inspect(name); renderDetail(); renderFiles(); status(`Otevřeno: ${name}`); }
 function renderDetail() {
   const file = state.file; if (!file) return;
+  const previous = state.viewport;
+  const mapView = file.type === 'map' && previous?.mapPath === file.path && previous.projectRoot === state.project.root
+    ? { camera: previous.captureCamera(), selectedName: previous.selectedName, mode: previous.gizmo.mode, backdrop: previous.backdrop?.visible } : null;
   state.viewport?.dispose(); state.viewport = null;
   for (const audio of $('detail').querySelectorAll('audio')) { audio.pause(); audio.removeAttribute('src'); audio.load(); }
   const main = $('detail'); main.replaceChildren();
@@ -115,7 +118,7 @@ function renderDetail() {
   else if (file.type === 'scene') renderProperties(main, file, api.saveScene);
   else if (file.type === 'cache') renderCache(main, file);
   else if (file.type === 'model') renderModel(main, file);
-  else if (file.type === 'map') renderMap(main, file);
+  else if (file.type === 'map') renderMap(main, file, mapView);
   else if (file.type === 'animation') renderAnimation(main, file);
   else if (file.type === 'image' || file.type === 'audio') renderMedia(main, file);
   else {
@@ -584,7 +587,7 @@ function renderCache(main, file) {
   });
   tools.append(parts, preview); main.append(tools); renderProperties(main, file, api.saveCache);
 }
-function renderMap(main, file) {
+function renderMap(main, file, previous = null) {
   const layout = element('div', undefined, 'model-workspace'), center = element('section', undefined, 'model-center'), inspector = element('section', undefined, 'model-inspector'); layout.append(center, inspector); main.append(layout);
   const tools = element('div', undefined, 'tools'), viewport = element('div', undefined, 'viewport'), selected = element('p', 'Vyberte objekt mapy.'), objects = element('select'); objects.setAttribute('aria-label', 'Objekt mapy'); objects.append(element('option', 'Vyberte objekt…')); center.append(tools, objects, selected, viewport);
   let properties, selectedObject, selectedId;
@@ -594,6 +597,8 @@ function renderMap(main, file) {
     const object = frame.sceneObject; selected.textContent = object ? object.name : `${frame.name} · geometrie ve scene.4ds`;
     selectedObject = object;
     selectedId = frame.id;
+    cameraMoved = true;
+    view.selectedName = object?.name ?? frame.name;
     const independent = object && [6,9].includes(object.frameType) && !object.actorBound && !file.geometry.meshes.some(mesh => mesh.name.toLowerCase() === object.name.toLowerCase());
     duplicate.disabled = remove.disabled = !independent; focus.disabled = false;
     if (object) { objects.value = String(frame.id); properties?.select(object.fields.position ?? object.fields.name); }
@@ -602,6 +607,10 @@ function renderMap(main, file) {
     if (!id) { status('Tato transformace nemá existující vlastnost ve zdrojovém souboru. Zatím ji upravte ve scene.4ds.', true); return; }
     state.texts.set(id, values[field]); properties?.select(id); status('Úprava mapy je rozepsaná. Uložte ji v inspektoru.');
   }); state.viewport = view;
+  view.mapPath = file.path; view.projectRoot = state.project.root; view.focusOnSelect = true;
+  let cameraMoved = false;
+  view.controls.addEventListener('start', () => { cameraMoved = true; });
+  if (previous) { view.restoreCamera(previous.camera); view.gizmo.setMode(previous.mode); }
   const overrides = new Map(file.objects.map(object => [object.name.toLowerCase(), object]));
   const byField = new Map();
   function addFields(id, object) { for (const [kind, field] of Object.entries(object.fields)) byField.set(field, { id, kind }); }
@@ -612,7 +621,7 @@ function renderMap(main, file) {
       const frame = object.userData.frame, sceneObject = frame.sceneObject; frame.editable = Boolean(sceneObject?.fields.position);
       if (sceneObject) addOption(frame.id, sceneObject);
     }
-    view.fit();
+    if (!previous) view.fit();
   } catch (error) { status(error.message, true); }
   const existing = new Set([...view.frames.values()].map(object => object.userData.frame.sceneObject?.id).filter(Boolean)), pending = file.objects.filter(object => !existing.has(object.id) && object.position);
   const modelCache = new Map();
@@ -631,20 +640,23 @@ function renderMap(main, file) {
       if (view.disposed) return;
       const id = view.addSceneObject(object, model); addOption(id, object);
     }
-    const warnings = view.linkScene(); view.fit();
-    if (state.selectSceneName) {
-      const object = [...view.frames.values()].find(o => o.userData.frame.sceneObject?.name === state.selectSceneName && !o.userData.frame.ownerId);
-      if (object) { view.select(object.userData.frame.id); view.fit(object); }
+    const warnings = view.linkScene();
+    if (previous?.backdrop) view.showBackdrop(true);
+    if (!previous && !cameraMoved) view.fit();
+    const selectedName = state.selectSceneName ?? previous?.selectedName;
+    if (selectedName) {
+      const object = [...view.frames.values()].find(o => (o.userData.frame.sceneObject?.name ?? o.name) === selectedName && !o.userData.frame.ownerId);
+      if (object) view.select(object.userData.frame.id, true, false);
       state.selectSceneName = null;
     }
     view.loadTextures(resolveTexture); status(warnings.length ? `3D mapa načtená; ${warnings.length} vazeb má chybějícího nebo nejednoznačného rodiče.` : '3D mapa: geometrie a dostupné objekty načtené.');
   }
   addObjects().catch(error => status(error.message, true));
   for (const [mode, label] of [['translate', 'Posun'], ['rotate', 'Rotace'], ['scale', 'Měřítko']]) { const button = element('button', label); button.onclick = () => view.gizmo.setMode(mode); tools.append(button); }
-  const fit = element('button', 'Zarámovat mapu'); fit.onclick = () => view.fit();
-  const sky = element('button', 'Obloha'); let showSky = false; sky.setAttribute('aria-pressed', 'false'); sky.onclick = () => { showSky = !showSky; view.showBackdrop(showSky); sky.setAttribute('aria-pressed', String(showSky)); };
+  const fit = element('button', 'Zarámovat mapu'); fit.onclick = () => { cameraMoved = true; view.fit(); };
+  const sky = element('button', 'Obloha'); let showSky = Boolean(previous?.backdrop); sky.setAttribute('aria-pressed', String(showSky)); sky.onclick = () => { showSky = !showSky; view.showBackdrop(showSky); sky.setAttribute('aria-pressed', String(showSky)); };
   tools.append(fit, sky); objects.onchange = () => view.select(objects.value);
-  focus.onclick = () => { const object = view.frames.get(selectedId); if (object) view.fit(object); };
+  focus.onclick = () => { const object = view.frames.get(selectedId); if (object) { cameraMoved = true; view.fit(object); } };
   tools.append(focus);
   if (!file.cacheSource) {
     for (const [button, kind] of [[add, 'add-model'], [duplicate, 'duplicate'], [remove, 'delete']]) button.onclick = () => run(async () => {

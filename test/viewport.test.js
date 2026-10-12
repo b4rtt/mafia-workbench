@@ -10,6 +10,35 @@ function viewport() {
   return view;
 }
 function source(id, name, parent, position) { return { id, name, parent, position, fields: { position: id + '/position' } }; }
+test('framing fits all transformed corners in narrow and wide viewports and keeps the viewing angle', () => {
+  for (const aspect of [.4,2]) {
+    const view=viewport(); view.camera.fov=50; view.camera.aspect=aspect;
+    const object=new THREE.Mesh(new THREE.BoxGeometry(10,2,3)); object.position.set(200,4,-30);object.rotation.y=.7;view.root.add(object);
+    view.camera.position.set(7,5,9);view.controls.target.set(1,2,3);
+    const direction=view.camera.position.clone().sub(view.controls.target).normalize();
+    view.controls.update=()=>view.camera.lookAt(view.controls.target);
+    view.fit(object);view.camera.updateMatrixWorld();
+    assert.ok(view.camera.position.clone().sub(view.controls.target).normalize().distanceTo(direction)<1e-10);
+    const box=new THREE.Box3().setFromObject(object);
+    for(const x of [box.min.x,box.max.x])for(const y of [box.min.y,box.max.y])for(const z of [box.min.z,box.max.z]){
+      const point=new THREE.Vector3(x,y,z).project(view.camera);
+      assert.ok(Math.abs(point.x)<1 && Math.abs(point.y)<1 && point.z<1 && point.z>-1);
+    }
+    const empty=new THREE.Group();empty.position.set(99,3,45);view.root.add(empty);view.fit(empty);
+    assert.deepEqual(view.controls.target.toArray(),[99,3,-45]);
+  }
+});
+test('camera restoration clears old damping, preserves a close detail view and suppresses automatic selection focus', () => {
+  const view=viewport(); view.controls.enableDamping=true;
+  const snapshot={position:[100.03,2,-8],target:[100,2,-8],near:.001,far:20000};
+  let pending=true;
+  view.controls.update=()=>{if(pending){view.camera.position.x+=9;view.controls.target.z+=5;pending=false;}};
+  view.restoreCamera(snapshot); assert.deepEqual(view.captureCamera(),snapshot);assert.equal(view.controls.enableDamping,true);
+  view.gizmo={detach(){},attach(){}};let selected;view.onSelect=frame=>{selected=frame.name;};view.focusOnSelect=true;
+  const id=view.addSceneObject(source('new','New','Primary sector',[10,0,0]));
+  view.select(id,true,false);assert.equal(selected,'New');assert.deepEqual(view.captureCamera(),snapshot);
+  view.select(id);assert.deepEqual(view.controls.target.toArray(),[10,0,0]);assert.notDeepEqual(view.captureCamera(),snapshot);
+});
 test('map links local transforms and keeps backdrop outside camera fitting and original objects', () => {
   const view = viewport(), child = source('child', 'Child', 'PARENT', [1,2,3]), before = structuredClone(child);
   const childId = view.addSceneObject(child), parentId = view.addSceneObject(source('parent', 'Parent', 'Primary sector', [10,20,30]));
