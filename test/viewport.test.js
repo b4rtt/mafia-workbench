@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { Viewport } from '../src/ui/viewport.js';
 import { fromLs3dRotation, toLs3dRotation } from '../src/ui/transforms.js';
 function viewport() {
@@ -44,6 +45,33 @@ test('camera restoration clears old damping, preserves a close detail view and s
   const id=view.addSceneObject(source('new','New','Primary sector',[10,0,0]));
   view.select(id,true,false);assert.equal(selected,'New');assert.deepEqual(view.captureCamera(),snapshot);
   view.select(id);assert.deepEqual(view.controls.target.toArray(),[10,0,0]);assert.notDeepEqual(view.captureCamera(),snapshot);
+});
+test('right and middle clicks, orbit drags and mismatched pointers do not select or refocus the camera', () => {
+  const view=viewport();view.camera.position.set(0,0,3);view.camera.lookAt(0,0,0);view.camera.updateMatrixWorld();
+  view.renderer={domElement:{getBoundingClientRect:()=>({left:0,top:0,width:100,height:100})}};
+  view.raycaster=new THREE.Raycaster();view.gizmo={detach(){},attach(){}};view.focusOnSelect=true;
+  const id=view.addSceneObject(source('picked','Picked','Primary sector',[0,0,0]));view.root.updateMatrixWorld(true);
+  let picked=0;view.onSelect=()=>picked++;const before=view.captureCamera();
+  for(const button of [1,2]){const event={button,clientX:50,clientY:50,pointerId:1};view.beginPick(event);view.finishPick(event);}
+  const left={button:0,clientX:50,clientY:50,pointerId:1};
+  view.beginPick(left);view.finishPick({...left,clientX:56});
+  view.beginPick(left);view.finishPick({...left,pointerId:2});
+  view.beginPick(left);view.gizmo.dragging=true;view.finishPick(left);view.gizmo.dragging=false;
+  assert.equal(picked,0);assert.deepEqual(view.captureCamera(),before);
+  view.beginPick(left);view.finishPick(left);assert.equal(picked,1);assert.ok(view.camera.position.distanceTo(view.controls.target)<1);
+  view.finishPick(left);assert.equal(picked,1);assert.ok(view.frames.has(id));
+});
+test('a restored detail remains stable with real OrbitControls and wheel zoom reaches its small distance limit', () => {
+  const canvas=new EventTarget(),document=new EventTarget();
+  Object.assign(canvas,{style:{},ownerDocument:document,getRootNode:()=>document,getBoundingClientRect:()=>({left:0,top:0,width:100,height:100})});
+  const view=viewport();view.controls=new OrbitControls(view.camera,canvas);view.controls.enableDamping=true;view.controls.zoomToCursor=true;view.controls.minDistance=.02;
+  const snapshot={position:[100,2,-7.97],target:[100,2,-8],near:.001,far:20000};
+  view.restoreCamera(snapshot);for(let i=0;i<20;i++)view.controls.update();
+  for(const key of ['position','target'])view.captureCamera()[key].forEach((value,i)=>assert.ok(Math.abs(value-snapshot[key][i])<1e-10));
+  for(let i=0;i<30;i++){const wheel=new Event('wheel',{cancelable:true});Object.assign(wheel,{clientX:50,clientY:50,deltaY:-100,deltaMode:0,ctrlKey:false});canvas.dispatchEvent(wheel);}
+  const distance=view.camera.position.distanceTo(view.controls.target);assert.ok(Math.abs(distance-.02)<1e-10);
+  view.camera.updateMatrixWorld();const target=view.controls.target.clone().project(view.camera);assert.ok(target.z>-1&&target.z<1);
+  view.controls.dispose();
 });
 test('map links local transforms and keeps backdrop outside camera fitting and original objects', () => {
   const view = viewport(), child = source('child', 'Child', 'PARENT', [1,2,3]), before = structuredClone(child);

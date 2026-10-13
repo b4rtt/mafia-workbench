@@ -34,20 +34,22 @@ export class Viewport {
     this.scene.add(new THREE.AxesHelper(2));
     this.frames = new Map(); this.materials = new Set(); this.textures = new Set(); this.skinWarnings = [];
     this.raycaster = new THREE.Raycaster();
-    this.down = event => { this.start = [event.clientX, event.clientY]; };
-    this.up = event => {
-      if (this.gizmo.dragging || this.gizmo.axis || !this.start || Math.hypot(event.clientX - this.start[0], event.clientY - this.start[1]) > 4) return;
-      const rect = this.renderer.domElement.getBoundingClientRect();
-      this.raycaster.setFromCamera(new THREE.Vector2((event.clientX - rect.left) / rect.width * 2 - 1, 1 - (event.clientY - rect.top) / rect.height * 2), this.camera);
-      const hit = this.raycaster.intersectObjects(this.root.children, true).find(hit => { for (let o = hit.object; o; o = o.parent) if (!o.visible) return false; return true; });
-      if (!hit) return;
-      if (hit.object.userData.navigation && hit.instanceId !== undefined) { this.select(String(hit.instanceId)); return; }
-      let object = hit.object; while (object && !object.userData.frame) object = object.parent;
-      if (object) this.select(object.userData.frame.ownerId ?? object.userData.frame.id);
-    };
+    this.down = event => this.beginPick(event); this.up = event => this.finishPick(event);
     this.renderer.domElement.addEventListener('pointerdown', this.down); this.renderer.domElement.addEventListener('pointerup', this.up);
     this.observer = new ResizeObserver(() => this.resize()); this.observer.observe(container); this.resize();
     this.renderer.setAnimationLoop(time => { if (!this.disposed) { this.onFrame?.(time); if (this.controls.enabled) this.controls.update(); this.renderer.render(this.scene, this.camera); } });
+  }
+  beginPick(event) { this.start = event.button === 0 ? [event.clientX, event.clientY, event.pointerId] : null; }
+  finishPick(event) {
+    const start = this.start; this.start = null;
+    if (event.button !== 0 || this.gizmo.dragging || this.gizmo.axis || !start || event.pointerId !== start[2] || Math.hypot(event.clientX - start[0], event.clientY - start[1]) > 4) return;
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    this.raycaster.setFromCamera(new THREE.Vector2((event.clientX - rect.left) / rect.width * 2 - 1, 1 - (event.clientY - rect.top) / rect.height * 2), this.camera);
+    const hit = this.raycaster.intersectObjects(this.root.children, true).find(hit => { for (let o = hit.object; o; o = o.parent) if (!o.visible) return false; return true; });
+    if (!hit) return;
+    if (hit.object.userData.navigation && hit.instanceId !== undefined) { this.select(String(hit.instanceId)); return; }
+    let object = hit.object; while (object && !object.userData.frame) object = object.parent;
+    if (object) this.select(object.userData.frame.ownerId ?? object.userData.frame.id);
   }
   resize() { const w = this.container.clientWidth, h = this.container.clientHeight; if (!w || !h) return; this.renderer.setSize(w, h); this.camera.aspect = w / h; this.camera.updateProjectionMatrix(); }
   addModel(model, parent = this.root, key = '', overrides = new Map()) {

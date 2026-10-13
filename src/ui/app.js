@@ -89,6 +89,8 @@ function renderDetail() {
   const previous = state.viewport;
   const mapView = file.type === 'map' && previous?.mapPath === file.path && previous.projectRoot === state.project.root
     ? { camera: previous.captureCamera(), selectedName: previous.selectedName, mode: previous.gizmo.mode, backdrop: previous.backdrop?.visible, collisions: previous.collisionOverlay?.visible, sounds: previous.soundExtentVisible } : null;
+  const modelView = file.type === 'model' && previous?.modelPath === file.path && previous.projectRoot === state.project.root
+    ? { camera: previous.captureCamera(), selectedId: previous.selectedId, mode: previous.gizmo.mode, wireframe: previous.modelWireframe } : null;
   state.viewport?.dispose(); state.viewport = null;
   for (const audio of $('detail').querySelectorAll('audio')) { audio.pause(); audio.removeAttribute('src'); audio.load(); }
   const main = $('detail'); main.replaceChildren();
@@ -124,7 +126,7 @@ function renderDetail() {
   else if (file.type === 'replay') renderReplay(main, file);
   else if (file.type === 'scene') renderProperties(main, file, api.saveScene);
   else if (file.type === 'cache') renderCache(main, file);
-  else if (file.type === 'model') renderModel(main, file);
+  else if (file.type === 'model') renderModel(main, file, modelView);
   else if (file.type === 'map') renderMap(main, file, mapView);
   else if (file.type === 'animation') renderAnimation(main, file);
   else if (file.type === 'image' || file.type === 'audio') renderMedia(main, file);
@@ -510,7 +512,7 @@ function renderMedia(main, file) {
   media.onerror = () => { caption.textContent = 'Soubor se nepodařilo dekódovat. Originál zůstává zachovaný.'; };
   container.append(media); api.media(file.path).then(url => { if (state.file === file) media.src = url; }).catch(error => { caption.textContent = error.message; });
 }
-function renderModel(main, file) {
+function renderModel(main, file, previous = null) {
   if (file.meshes.some(mesh => mesh.lods?.some(lod => lod.invalidNormals || lod.invalidUV))) main.append(element('p', 'Model obsahuje neplatné normály nebo souřadnice textur. Náhled používá náhradní hodnoty; původní model zůstává zachovaný.', 'notice'));
   const layout = element('div', undefined, 'model-workspace'), center = element('section', undefined, 'model-center'), inspector = element('section', undefined, 'model-inspector');
   layout.append(center, inspector); main.append(layout);
@@ -519,16 +521,18 @@ function renderModel(main, file) {
   for (const mesh of file.meshes) { const option = element('option', `${mesh.id} · ${mesh.name}`); option.value = String(mesh.id); objects.append(option); }
   center.append(tools, objects, selected, viewport);
   let properties;
-  const view = new Viewport(viewport, frame => { selected.textContent = `Objekt ${frame.sourceId}: ${frame.name}`; objects.value = String(frame.sourceId); properties?.select(`meshes/${frame.sourceId - 1}/position`); }, (frame, values, mode) => {
+  const view = new Viewport(viewport, frame => { view.selectedId = frame.id; selected.textContent = `Objekt ${frame.sourceId}: ${frame.name}`; objects.value = String(frame.sourceId); properties?.select(`meshes/${frame.sourceId - 1}/position`); }, (frame, values, mode) => {
     const field = { translate: 'position', rotate: 'rotation', scale: 'scale' }[mode], id = `meshes/${frame.sourceId - 1}/${field}`;
     state.texts.set(id, values[field]); state.selectedProperty = id; properties?.select(id); status('3D úprava je rozepsaná; uložte změny pod pohledem.');
   });
   state.viewport = view;
+  view.modelPath = file.path; view.projectRoot = state.project.root; view.focusOnSelect = true;
+  if (previous) { view.restoreCamera(previous.camera); view.gizmo.setMode(previous.mode); }
   for (const [mode, label] of [['translate', 'Posun'], ['rotate', 'Rotace'], ['scale', 'Měřítko']]) { const button = element('button', label); button.onclick = () => view.gizmo.setMode(mode); tools.append(button); }
   const fit = element('button', 'Zarámovat vše'); fit.onclick = () => view.fit();
-  const wire = element('button', 'Drátěný pohled'); let wireframe = false; wire.onclick = () => { wireframe = !wireframe; view.wireframe(wireframe); }; tools.append(fit, wire);
+  const wire = element('button', 'Drátěný pohled'); view.modelWireframe = Boolean(previous?.wireframe); wire.setAttribute('aria-pressed', String(view.modelWireframe)); wire.onclick = () => { view.modelWireframe = !view.modelWireframe; view.wireframe(view.modelWireframe); wire.setAttribute('aria-pressed', String(view.modelWireframe)); }; tools.append(fit, wire);
   objects.onchange = () => view.select(String(objects.value));
-  try { view.addModel(file); view.fit(); }
+  try { view.addModel(file); if (!previous) view.fit(); view.wireframe(view.modelWireframe); }
   catch (error) { status(error.message, true); }
   view.loadTextures(async texture => {
     const path = texture.replaceAll('\\', '/').toLowerCase(), match = state.project.assets.find(a => a.path.toLowerCase() === `maps/${path}` || a.path.toLowerCase() === path);
@@ -536,6 +540,7 @@ function renderModel(main, file) {
   });
   center.append(element('p', `${file.meshes.length} objektů · ${file.materials.length} materiálů · LOD 0. Animaci přehrajete v kategorii Animace 5DS po výběru tohoto modelu. Morfování zatím není podporované.`, 'notice'));
   properties = renderProperties(inspector, file, api.saveModel, (entry, value) => { const match = /^meshes\/(\d+)\/(position|rotation|scale|culling)$/.exec(entry.id); if (match) view.update(String(Number(match[1]) + 1), { [match[2]]: value }); });
+  if (previous?.selectedId) view.select(previous.selectedId, true, false);
 }
 function renderAnimation(main, file) {
   const layout = element('div', undefined, 'model-workspace'), center = element('section', undefined, 'model-center'), inspector = element('section', undefined, 'model-inspector');

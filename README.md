@@ -57,6 +57,8 @@ Export vytvoří složku s upravenými soubory a `mafia-mod.json`. Nepodporovan�
 
 V 3D mapě výběr objektu v seznamu nebo kliknutím přiblíží jeho viditelnou geometrii. Zoom míří ke kurzoru a umožňuje detail bez předčasného ořezu; zarámování zohledňuje poměr stran pohledu. Vložení, duplikování a uložení vlastností stejné mapy zachovávají polohu kamery, střed otáčení a režim manipulátoru. Nově vložený objekt se vybere bez automatického přesunu kamery; přiblížit ho lze tlačítkem „Zarámovat objekt“.
 
+Výběr části v editoru 4DS modelů také přiblíží její viditelnou geometrii. Uložení nebo obnovení stejného modelu zachová detail kamery, vybranou část, režim manipulátoru a drátěný pohled. Posun pravým tlačítkem, prostřední tlačítko a tažení pro otáčení nevybírají objekt ani nemění zarámování.
+
 Rozšířený katalog objektů z mEdit, DCED2 a mLib, rozdíl mezi modelem a herním aktérem a požadavky na generování kolizí jsou uložené v [research/object-creation.md](research/object-creation.md). Katalog rozlišuje ověřené formáty a zatím nepodporované možnosti; generování KLZ kolizí ještě není hotové.
 
 Společné změny více souborů používají formát projektu 2. Editor nadále otevře formát 1; na verzi 2 přejde při první takové změně. Připravená data jsou v `mods/batches/<id>/…`, aktivní vrstvu určuje `overlay` u assetu ve `workbench.json`. Jediný zápis indexu zveřejní celou skupinu nebo její undo. Nedokončené soubory mimo index nemají vliv na čtení ani export. Starší verze editoru, která zná pouze formát 1, projekt odmítne místo neúplného načtení změn. Export i přímý start respektují aktivní vrstvu.
