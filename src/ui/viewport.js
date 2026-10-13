@@ -15,7 +15,7 @@ export class Viewport {
     this.renderer.domElement.setAttribute('aria-label', '3D pohled: levé tlačítko otáčí, pravé posouvá, kolečko přibližuje');
     container.append(this.renderer.domElement);
     this.controls = new OrbitControls(this.camera, this.renderer.domElement); this.controls.enableDamping = true;
-    this.controls.zoomToCursor = true; this.controls.minDistance = .02;
+    this.controls.zoomToCursor = true; this.controls.minDistance = .02; this.controls.zoomSpeed = 2;
     this.controls.addEventListener('change', () => {
       this.camera.near = Math.max(.001, Math.min(.02, this.camera.position.distanceTo(this.controls.target) / 1000));
       this.camera.updateProjectionMatrix();
@@ -34,12 +34,40 @@ export class Viewport {
     this.scene.add(new THREE.AxesHelper(2));
     this.frames = new Map(); this.materials = new Set(); this.textures = new Set(); this.skinWarnings = [];
     this.raycaster = new THREE.Raycaster();
+    // OrbitControls uses the target depth for cursor zoom. A map-wide target
+    // makes a nearby surface jump past the camera instead of approaching it.
+    this.wheel = event => this.anchorZoom(event);
+    this.renderer.domElement.addEventListener('wheel', this.wheel, { capture: true, passive: true });
     this.down = event => this.beginPick(event); this.up = event => this.finishPick(event);
     this.renderer.domElement.addEventListener('pointerdown', this.down); this.renderer.domElement.addEventListener('pointerup', this.up);
     this.observer = new ResizeObserver(() => this.resize()); this.observer.observe(container); this.resize();
     this.renderer.setAnimationLoop(time => { if (!this.disposed) { this.onFrame?.(time); if (this.controls.enabled) this.controls.update(); this.renderer.render(this.scene, this.camera); } });
   }
   beginPick(event) { this.start = event.button === 0 ? [event.clientX, event.clientY, event.pointerId] : null; }
+  surfaceAt(event) {
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    if (!rect.width || !rect.height) return null;
+    this.camera.updateMatrixWorld(); this.root.updateWorldMatrix(true, true);
+    this.raycaster.setFromCamera(new THREE.Vector2((event.clientX - rect.left) / rect.width * 2 - 1, 1 - (event.clientY - rect.top) / rect.height * 2), this.camera);
+    return this.raycaster.intersectObjects(this.root.children, true).find(hit => {
+      if (!hit.object.isMesh) return false;
+      for (let object = hit.object; object; object = object.parent) if (!object.visible || object.userData.backdrop) return false;
+      return true;
+    });
+  }
+  anchorZoom(event) {
+    if (!this.controls.enabled || this.gizmo.dragging) return;
+    this.controls.zoomSpeed = event.shiftKey ? .5 : 2;
+    const time=event.timeStamp??performance.now(),last=this.zoomAnchor;
+    this.zoomAnchor={time,x:event.clientX,y:event.clientY};
+    // Resolve depth once per wheel gesture, rather than raycasting a whole
+    // city on every trackpad tick. Moving the cursor starts a new anchor.
+    if(last&&time>=last.time&&time-last.time<150&&Math.hypot(event.clientX-last.x,event.clientY-last.y)<2)return;
+    const hit = this.surfaceAt(event); if (!hit) return;
+    const direction = this.camera.getWorldDirection(new THREE.Vector3());
+    const depth = hit.point.clone().sub(this.camera.position).dot(direction);
+    if (depth > this.controls.minDistance) this.controls.target.copy(this.camera.position).addScaledVector(direction, depth);
+  }
   finishPick(event) {
     const start = this.start; this.start = null;
     if (event.button !== 0 || this.gizmo.dragging || this.gizmo.axis || !start || event.pointerId !== start[2] || Math.hypot(event.clientX - start[0], event.clientY - start[1]) > 4) return;
@@ -210,6 +238,7 @@ export class Viewport {
     return { position: this.camera.position.toArray(), target: this.controls.target.toArray(), near: this.camera.near, far: this.camera.far };
   }
   restoreCamera(value) {
+    this.zoomAnchor=null;
     // Flush pending orbit/pan damping before installing an explicit view.
     const damping = this.controls.enableDamping; this.controls.enableDamping = false; this.controls.update();
     this.camera.position.fromArray(value.position); this.controls.target.fromArray(value.target);
@@ -300,6 +329,7 @@ export class Viewport {
     this.scene.traverse(o => o.skeleton?.dispose());
     for (const geometry of geometries) geometry.dispose(); for (const material of this.materials) material.dispose(); for (const texture of this.textures) texture.dispose();
     this.renderer.domElement.removeEventListener('pointerdown', this.down); this.renderer.domElement.removeEventListener('pointerup', this.up);
+    this.renderer.domElement.removeEventListener('wheel', this.wheel, true);
     this.renderer.dispose(); this.renderer.domElement.remove();
   }
 }

@@ -73,6 +73,38 @@ test('a restored detail remains stable with real OrbitControls and wheel zoom re
   view.camera.updateMatrixWorld();const target=view.controls.target.clone().project(view.camera);assert.ok(target.z>-1&&target.z<1);
   view.controls.dispose();
 });
+test('cursor zoom approaches the visible surface depth instead of the distant map center, with a fine Shift step', () => {
+  const canvas=new EventTarget(),document=new EventTarget();
+  Object.assign(canvas,{style:{},ownerDocument:document,getRootNode:()=>document,getBoundingClientRect:()=>({left:0,top:0,width:100,height:100})});
+  const view=viewport();view.renderer={domElement:canvas};view.raycaster=new THREE.Raycaster();view.gizmo={dragging:false};
+  view.camera.fov=50;view.controls=new OrbitControls(view.camera,canvas);view.controls.zoomToCursor=true;view.controls.minDistance=.02;
+  view.restoreCamera({position:[0,0,10],target:[0,0,-1000],near:.001,far:20000});
+  const surface=new THREE.Mesh(new THREE.PlaneGeometry(4,4),new THREE.MeshBasicMaterial({side:THREE.DoubleSide}));surface.position.z=-9;view.root.add(surface);
+  const hidden=surface.clone();hidden.position.z=-9.9;hidden.visible=false;view.root.add(hidden);
+  const backdrop=new THREE.Group();backdrop.userData.backdrop=true;const sky=surface.clone();sky.position.z=-9.99;backdrop.add(sky);view.root.add(backdrop);
+  const wheel={clientX:50,clientY:50,shiftKey:false};const position=view.camera.position.clone(),orientation=view.camera.quaternion.clone();
+  view.anchorZoom(wheel);assert.ok(view.controls.target.distanceTo(new THREE.Vector3(0,0,9))<1e-10);assert.deepEqual(view.camera.position.toArray(),position.toArray());assert.deepEqual(view.camera.quaternion.toArray(),orientation.toArray());
+  const event=()=>{const value=new Event('wheel',{cancelable:true});Object.assign(value,{...wheel,deltaY:-100,deltaMode:0,ctrlKey:false});return value;};
+  canvas.dispatchEvent(event());const normal=10-view.camera.position.z;assert.ok(normal>.09&&normal<.11);assert.ok(view.camera.position.z>9);
+  view.restoreCamera({position:[0,0,10],target:[0,0,-1000],near:.001,far:20000});view.anchorZoom({...wheel,shiftKey:true});canvas.dispatchEvent(event());const fine=10-view.camera.position.z;assert.ok(fine>0&&fine<normal/2);
+  const before=view.captureCamera();view.anchorZoom({clientX:10000,clientY:10000});assert.deepEqual(view.captureCamera(),before);
+  let casts=0;const surfaceAt=view.surfaceAt.bind(view);view.surfaceAt=event=>{casts++;return surfaceAt(event);};view.zoomAnchor=null;
+  for(let i=0;i<20;i++)view.anchorZoom({...wheel,timeStamp:1000+i*10});assert.equal(casts,1);
+  view.anchorZoom({...wheel,timeStamp:1500});assert.equal(casts,2);
+  view.anchorZoom({...wheel,clientX:55,timeStamp:1510});assert.equal(casts,3);
+  view.restoreCamera(before);
+  view.gizmo.dragging=true;view.anchorZoom(wheel);assert.deepEqual(view.captureCamera(),before);view.controls.dispose();
+});
+test('rebuilding a map and adding a selected object preserves the close camera after hierarchy and orbit updates', () => {
+  const old=viewport();old.restoreCamera({position:[23.03,2,-8],target:[23,2,-8],near:.001,far:20000});const snapshot=old.captureCamera();
+  const canvas=new EventTarget(),document=new EventTarget();Object.assign(canvas,{style:{},ownerDocument:document,getRootNode:()=>document});
+  const rebuilt=viewport();rebuilt.controls=new OrbitControls(rebuilt.camera,canvas);rebuilt.controls.enableDamping=true;rebuilt.restoreCamera(snapshot);
+  rebuilt.gizmo={detach(){this.object=null;},attach(object){this.object=object;}};rebuilt.onSelect=()=>{};rebuilt.focusOnSelect=true;
+  rebuilt.addSceneObject(source('far','Far','Primary sector',[10000,0,0]));const added=rebuilt.addSceneObject(source('added','Added','Primary sector',[23,2,8]));rebuilt.linkScene();rebuilt.select(added,true,false);
+  for(let i=0;i<20;i++)rebuilt.controls.update();
+  for(const key of ['position','target'])rebuilt.captureCamera()[key].forEach((value,i)=>assert.ok(Math.abs(value-snapshot[key][i])<1e-10));
+  assert.equal(rebuilt.gizmo.object,rebuilt.frames.get(added));rebuilt.controls.dispose();
+});
 test('map links local transforms and keeps backdrop outside camera fitting and original objects', () => {
   const view = viewport(), child = source('child', 'Child', 'PARENT', [1,2,3]), before = structuredClone(child);
   const childId = view.addSceneObject(child), parentId = view.addSceneObject(source('parent', 'Parent', 'Primary sector', [10,20,30]));

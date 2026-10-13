@@ -479,7 +479,7 @@ function renderTexts(main, file) {
   search.oninput = fill; fill(); indexPanel.append(search, list); workspace.append(indexPanel, form); main.append(workspace);
   if (file.entries.length) edit(file.entries[state.textIndex] ?? file.entries[0]);
 }
-function renderProperties(main, file, saveAPI, onEdit = () => {}) {
+function renderProperties(main, file, saveAPI, onEdit = () => {}, onPick = () => {}) {
   const workspace = element('div', undefined, 'text-workspace'), indexPanel = element('div', undefined, 'text-index'), form = element('div', undefined, 'text-form');
   const search = element('input'); search.type = 'search'; search.placeholder = 'Objekt, vlastnost nebo skript…'; search.setAttribute('aria-label', 'Hledat ve scéně');
   const list = element('div', undefined, 'text-list');
@@ -530,7 +530,8 @@ function renderProperties(main, file, saveAPI, onEdit = () => {}) {
         summary.append(element('span',group.name),element('span',String(group.entries.length),'property-count'));summary.title=group.context;
         details.open=Boolean(query)||expanded.has(group.id);details.append(summary);groupRows.set(group.id,details);
         let populated=false;
-        function populate(){if(populated)return;populated=true;const children=element('div');for(const {entry,label} of group.entries){const button=element('button',label);button.title=`${entry.context} / ${entry.label}`;button.onclick=()=>edit(entry);rows.set(entry.id,button);children.append(button);}details.append(children);markSelection();}
+        summary.onclick=()=>{if(!details.open)onPick(group.entries[0].entry);};
+        function populate(){if(populated)return;populated=true;const children=element('div');for(const {entry,label} of group.entries){const button=element('button',label);button.title=`${entry.context} / ${entry.label}`;button.onclick=()=>{edit(entry);onPick(entry);};rows.set(entry.id,button);children.append(button);}details.append(children);markSelection();}
         details.ontoggle=()=>{if(details.open){expanded.add(group.id);populate();}else expanded.delete(group.id);};
         if(details.open)populate();fragment.append(details);
       }
@@ -539,7 +540,7 @@ function renderProperties(main, file, saveAPI, onEdit = () => {}) {
     }
     for (const entry of file.entries.filter(e => `${e.context} ${e.label} ${e.kind === 'script' ? e.value.name : ''}`.toLowerCase().includes(query)).slice(0, 800)) {
       const button = element('button', `${entry.kind === 'script' ? entry.value.name : entry.context.split(' / ').at(-1)} · ${entry.label}`);
-      button.title = `${entry.context} / ${entry.label}`; button.onclick = () => edit(entry); fragment.append(button);
+      button.title = `${entry.context} / ${entry.label}`; button.onclick = () => { edit(entry); onPick(entry); }; fragment.append(button);
     }
     list.replaceChildren(fragment);
   }
@@ -661,7 +662,10 @@ function renderModel(main, file, previous = null) {
   catch (error) { status(error.message, true); }
   const resolveTexture=async texture=>{const path=texture.replaceAll('\\','/').toLowerCase(),match=state.project.assets.find(asset=>asset.path.toLowerCase()===`maps/${path}`||asset.path.toLowerCase()===path);return match?api.media(match.path):null;};view.resolveTexture=resolveTexture;view.loadTextures(resolveTexture);
   center.append(element('p', `${file.meshes.length} objektů · ${file.materials.length} materiálů · LOD 0. Animaci přehrajete v kategorii Animace 5DS po výběru tohoto modelu. Morfování zatím není podporované.`, 'notice'));
-  properties = renderProperties(inspector, file, api.saveModel, (entry, value) => { const match = /^meshes\/(\d+)\/(position|rotation|scale|culling)$/.exec(entry.id); if (match) view.update(String(Number(match[1]) + 1), { [match[2]]: value });const material=/^materials\/(\d+)\//.exec(entry.id);if(material){const index=Number(material[1]);if(view.updateMaterial(index,materialDraft(file.materials[index],index,state.texts)))view.loadTextures(resolveTexture,{index});} });
+  properties = renderProperties(inspector, file, api.saveModel, (entry, value) => { const match = /^meshes\/(\d+)\/(position|rotation|scale|culling)$/.exec(entry.id); if (match) view.update(String(Number(match[1]) + 1), { [match[2]]: value });const material=/^materials\/(\d+)\//.exec(entry.id);if(material){const index=Number(material[1]);if(view.updateMaterial(index,materialDraft(file.materials[index],index,state.texts)))view.loadTextures(resolveTexture,{index});} }, entry => {
+    const match=/^meshes\/(\d+)\//.exec(entry.id);
+    if(match&&view.selectedId!==String(Number(match[1])+1)){view.select(String(Number(match[1])+1));properties.select(entry.id);}
+  });
   if (previous?.selectedId) view.select(previous.selectedId, true, false);
 }
 function materialDialog(file,view){
@@ -878,7 +882,10 @@ function renderMap(main, file, previous = null) {
     tools.append(add, addHuman, addCar, addPickup, configurePickup, addDoor, addPhysical, addLight, addSound, addDetector, duplicate, remove,collision);
   }
   view.loadTextures(resolveTexture);
-  properties = renderProperties(inspector, file, file.cacheSource ? api.saveCache : async (...args) => { await api.saveScene(...args); return api.map(file.path); }, (entry, value) => { const field = byField.get(entry.id); if (field && ['position','rotation','scale'].includes(field.kind)) view.update(field.id, { [field.kind]: value }); updateSoundExtent(); });
+  properties = renderProperties(inspector, file, file.cacheSource ? api.saveCache : async (...args) => { await api.saveScene(...args); return api.map(file.path); }, (entry, value) => { const field = byField.get(entry.id); if (field && ['position','rotation','scale'].includes(field.kind)) view.update(field.id, { [field.kind]: value }); updateSoundExtent(); }, entry => {
+    const field=byField.get(entry.id);
+    if(field&&selectedId!==field.id){view.select(field.id);properties.select(entry.id);}
+  });
   center.append(element('p', file.cacheSource ? 'Statické modely vybrané části cache.bin. Transformace se ukládají do samostatného modu; oranžové body označují chybějící modely.' : 'Geometrie scene.4ds a objekty scene2.bin. Modré body označují objekty bez modelu; oranžové body chybějící model. Generované kolize se přepočítají při uložení transformace a vracejí se společně s objektem.', 'notice'));
 }
 function pickupDialog(file,catalog,object=null,position=[0,0,0]){
