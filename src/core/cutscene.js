@@ -134,11 +134,19 @@ export async function loadCutsceneContext(project, replayName, sceneName, differ
     if (!object.modelPath) warnings.push('Chybí model: '+object.model);
   }
   const usedIds = new Set(replay.tracks.flatMap(t => t.keys.flatMap(k => k.modelAnimationId!==undefined ? [k.modelAnimationId] : (k.animationFlags & 0x7ff) >= 0x400 ? [(k.animationFlags & 0x7ff)-0x400] : [])));
+  // Human playback adds TCK placement only when bit 0x1000 is set. The same
+  // bit on a plain model actor enables its 5DS, without adding a motion track.
+  const motionIds = new Set(replay.tracks.filter(t=>[2,3,27].includes(t.kind)).flatMap(t=>t.keys.filter(k=>(k.animationFlags&0x1000)&&(k.animationFlags&0x7ff)>=0x400).map(k=>(k.animationFlags&0x7ff)-0x400)));
   const animations = replay.channels.find(c => c.id==='animations').records.filter(r => usedIds.has(r.animationId)).map(record => {
     const name = replay.entries.find(e => e.id===record.prefix+'name').value;
     const resource = cutsceneResource(assets,name,'anims','.5ds');
     if (!resource) warnings.push('Chybí animace: '+name);
-    return { id:record.animationId,name,path:resource };
+    const animation={ id:record.animationId,name,path:resource };
+    if(motionIds.has(record.animationId)){
+      animation.motionPath=cutsceneResource(assets,name,'anims','.tck');
+      if(!animation.motionPath)warnings.push('Chybí pohybová stopa TCK: '+name);
+    }
+    return animation;
   });
   const textAsset = assets.find(a=>/textdb_cz\.def$/i.test(a.path)) ?? assets.find(a=>/textdb_en\.def$/i.test(a.path));
   const texts = textAsset ? new Map((await project.inspect(textAsset.path)).entries.map(e=>[e.id,e.text])) : new Map();

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { ReplayViewport, replayPathSegments, sampleReplayPath } from './replay.js';
 import { AnimationPreview } from './animation.js';
 import { fromLs3dRotation } from './transforms.js';
+import { sampleTrack } from './track.js';
 
 const nameKey = value => value.normalize('NFC').toLowerCase();
 export function sampleReplayActor(track, time) {
@@ -19,7 +20,24 @@ export function sampleReplayActor(track, time) {
     if(key.animationFrame!==undefined)animationStart=key.time-key.animationFrame*40;
   }
   if(a.modelAnimationFlags!==undefined)return {position,rotation,animationId:a.modelAnimationId??null,animationTime:Math.max(0,time-a.time+(a.modelAnimationFrame??0)*40),loop:Boolean(a.modelAnimationFlags&0x2000)};
-  return {position,rotation,animationId:animationId>=0x400?animationId-0x400:null,animationTime:Math.max(0,time-animationStart),loop:Boolean(a.animationFlags&0x2000)};
+  return {position,rotation,animationId:animationId>=0x400?animationId-0x400:null,animationTime:Math.max(0,time-animationStart),loop:Boolean(a.animationFlags&0x2000),motion:[2,3,27].includes(track.kind)&&Boolean(a.animationFlags&0x1000)};
+}
+
+// human_track_apply_pose_at_time: rotate local TCK displacement by the REP
+// quaternion before adding it to the anchor. A supplied direction replaces the
+// facing; absence of that array leaves the REP quaternion intact.
+export function replayActorPlacement(pose, track, animation) {
+  if(!pose.motion||!track?.duration||!animation)return pose;
+  const duration=animation.frames*40,time=pose.loop&&duration>0?pose.animationTime%duration:pose.animationTime;
+  const displacement=sampleTrack(track.positions,track.step,time);
+  if(!displacement)return pose;
+  const position=new THREE.Vector3(...displacement).applyQuaternion(pose.rotation).add(new THREE.Vector3(...pose.position));
+  const rotation=pose.rotation.clone(),direction=sampleTrack(track.secondary,track.step,time);
+  if(direction&&Math.hypot(...direction)>1e-8){
+    const forward=new THREE.Vector3(...direction).applyQuaternion(pose.rotation);
+    rotation.setFromRotationMatrix(new THREE.Matrix4().lookAt(forward,new THREE.Vector3(),new THREE.Vector3(0,1,0)));
+  }
+  return {...pose,position:position.toArray(),rotation};
 }
 
 export function activeCutsceneAudio(events, durations, time) {
@@ -107,9 +125,12 @@ export class CutsceneViewport extends ReplayViewport {
       this.visibilityRest.set(object,object.visible);this.visibility.push({time:event.time,index:event.index,object,visible:change.visible});
     }
     this.visibility.sort((a,b)=>a.time-b.time||a.index-b.index);
-    const animations=new Map();
+    const animations=new Map(),motions=new Map();
     for(const resource of context.animations.filter(a=>a.path)){
       if(this.disposed)return;try{const file=await resolveAsset(resource.path);if(file.type==='animation')animations.set(resource.id,file);else this.contextWarnings.push('Nelze načíst animaci: '+resource.path);}catch{this.contextWarnings.push('Nelze načíst animaci: '+resource.path);}
+      if(resource.motionPath){
+        if(this.disposed)return;try{const file=await resolveAsset(resource.motionPath);if(file.type==='track')motions.set(resource.id,file);else this.contextWarnings.push('Nepodporovaná pohybová stopa: '+resource.motionPath);}catch{this.contextWarnings.push('Nelze načíst pohybovou stopu: '+resource.motionPath);}
+      }
     }
     if(this.disposed)return;
     for(const track of this.file.tracks){
@@ -118,12 +139,12 @@ export class CutsceneViewport extends ReplayViewport {
       const previews=new Map();
       for(const id of new Set(track.keys.map(k=>k.modelAnimationId??((k.animationFlags??0)&0x7ff)-0x400)))if(animations.has(id))previews.set(id,new AnimationPreview(frames,animations.get(id)));
       const rest=new Map([...frames.values()].map(frame=>[frame,{position:frame.position.clone(),quaternion:frame.quaternion.clone(),scale:frame.scale.clone()}]));
-      this.actors.push({object,track,previews,animations,rest});
+      this.actors.push({object,track,previews,animations,motions,rest});
     }
     this.contextReady=true;await this.loadTextures(resolveTexture);if(this.disposed)return;
     this.contextWarnings.push(...(this.textureWarnings??[]));
     this.seek(this.time);this.fitShot();
-    return {actors:this.actors.length,tracks:this.file.tracks.length,animations:animations.size,warnings:this.contextWarnings};
+    return {actors:this.actors.length,tracks:this.file.tracks.length,animations:animations.size,motions:motions.size,warnings:this.contextWarnings};
   }
   cameraMode(value) {
     this.filmCamera=value;this.controls.enabled=!value;this.grid.visible=!value;
@@ -142,7 +163,7 @@ export class CutsceneViewport extends ReplayViewport {
       if(preview){const frame=pose.animationTime/40;preview.apply(pose.loop&&animation.frames>0?frame%animation.frames:Math.min(frame,animation.frames));}
     }
     // Child tracks (hands, doors, wheels) are applied after the skeleton poses.
-    for(const actor of this.actors??[]){const pose=sampleReplayActor(actor.track,time);if(pose){actor.object.position.fromArray(pose.position);actor.object.quaternion.copy(pose.rotation);}}
+    for(const actor of this.actors??[]){const sample=sampleReplayActor(actor.track,time);if(sample){const pose=replayActorPlacement(sample,actor.motions.get(sample.animationId),actor.animations.get(sample.animationId));actor.object.position.fromArray(pose.position);actor.object.quaternion.copy(pose.rotation);}}
     if(this.filmCamera) {
       this.paths.visible=false;for(const {marker}of this.markers)marker.visible=false;
       const position=sampleReplayPath(this.replay.cameras,time),focus=sampleReplayPath(this.replay.focus,time);if(!position||!focus)return;

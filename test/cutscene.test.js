@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { cutsceneResource, replayMissions, sceneReplayReferences, cutsceneAudioEvents, loadCutsceneContext } from '../src/core/cutscene.js';
-import { CutsceneViewport, CutsceneAudio, sampleReplayActor, activeCutsceneAudio } from '../src/ui/cutscene.js';
+import { CutsceneViewport, CutsceneAudio, sampleReplayActor, replayActorPlacement, activeCutsceneAudio } from '../src/ui/cutscene.js';
 
 test('cutscene resources use indexed engine aliases and reject traversal and fuzzy matches',()=>{
   const assets=[{path:'models/Tommy.4DS'},{path:'anims/Walk.5DS'},{path:'sounds/00000012.wav'}];
@@ -68,6 +68,31 @@ test('actor sampling respects hold flags, animation ID changes, frame offsets an
   track.keys[0].animationFlags|=0x8000;assert.equal(sampleReplayActor(track,50).position[0],0);assert.equal(sampleReplayActor({keys:[]},0),null);
 });
 
+test('human TCK placement rotates displacement, replaces supplied facing and respects loop duration and frame offsets',()=>{
+  const track={kind:2,keys:[{index:0,time:100,position:[10,2,20],rotation:[Math.SQRT1_2,0,-Math.SQRT1_2,0],animationFlags:0x1400,animationFrame:1},{index:1,time:400,position:[10,2,20],rotation:[Math.SQRT1_2,0,-Math.SQRT1_2,0],animationFlags:0x2400}]};
+  const motion={duration:80,step:40,positions:[[0,0,0],[0,0,2],[0,0,4]],secondary:[[0,0,1],[1,0,0],[1,0,0]]},animation={frames:2};
+  const before=structuredClone({track,motion,animation}),sample=sampleReplayActor(track,120),pose=replayActorPlacement(sample,motion,animation);
+  assert.ok(new THREE.Vector3(...pose.position).distanceTo(new THREE.Vector3(13,2,20))<1e-8);
+  const forward=new THREE.Vector3(0,0,1).applyQuaternion(pose.rotation);assert.ok(forward.distanceTo(new THREE.Vector3(0,0,-1))<1e-8);
+  assert.deepEqual(sample.position,[10,2,20]);assert.ok(new THREE.Vector3(0,0,1).applyQuaternion(sample.rotation).distanceTo(new THREE.Vector3(1,0,0))<1e-8);
+  const noHeading=replayActorPlacement(sample,{...motion,secondary:[]},animation);assert.deepEqual(noHeading.rotation.toArray(),sample.rotation.toArray());
+  const loop=replayActorPlacement({...sample,loop:true,animationTime:100},motion,animation);assert.ok(Math.abs(loop.position[0]-11)<1e-8);
+  assert.ok(Math.abs(replayActorPlacement({...sample,animationTime:1000},motion,animation).position[0]-14)<1e-8);
+  for(const kind of [1,4,6])assert.equal(replayActorPlacement(sampleReplayActor({...track,kind},120),motion,animation).motion,false);
+  const after=sampleReplayActor(track,450);assert.equal(after.motion,false);assert.equal(replayActorPlacement(after,motion,animation),after);
+  for(const absent of [undefined,null])assert.equal(replayActorPlacement(sample,absent,animation),sample);
+  assert.equal(replayActorPlacement(sample,{...motion,duration:0},animation),sample);
+  assert.deepEqual({track,motion,animation},before);
+});
+
+test('cutscene context requests only TCK resources gated by human placement flags and reports missing companions',async()=>{
+  const assets=['anims/Walk.5ds','ANIMS/Walk.TCK','anims/Plain.5ds','anims/Missing.5ds'].map(path=>({path}));
+  const replay={type:'replay',tracks:[{kind:2,keys:[{animationFlags:0x1400}]},{kind:1,keys:[{modelAnimationFlags:0x1001,modelAnimationId:1}]},{kind:27,keys:[{animationFlags:0x1402}]}],channels:[{id:'animations',records:[0,1,2].map(animationId=>({animationId,prefix:`animations/${animationId}/`}))}],entries:['Walk','Plain','Missing'].map((name,i)=>({id:`animations/${i}/name`,value:name+'.i3d'})),duration:0,events:{sounds:[],dialogues:[]}};
+  const project={manifest:{assets},inspectMap:async()=>({path:'missions/A/scene2.bin',objects:[],geometry:{},entries:[]}),inspect:async()=>replay};
+  const before=structuredClone(replay),context=await loadCutsceneContext(project,'Test.rep','missions/A/scene2.bin');
+  assert.equal(context.animations[0].motionPath,'ANIMS/Walk.TCK');assert.equal('motionPath' in context.animations[1],false);assert.equal(context.animations[2].motionPath,null);assert.deepEqual(context.warnings,['Chybí pohybová stopa TCK: Missing.i3d']);assert.deepEqual(replay,before);
+});
+
 function viewport(){const view=Object.create(CutsceneViewport.prototype);Object.assign(view,{root:new THREE.Group(),frames:new Map(),materials:new Set(),skinWarnings:[],camera:new THREE.PerspectiveCamera(),grid:{visible:true},controls:{target:new THREE.Vector3(),update(){},enabled:true},loadTextures:async()=>{}});view.root.scale.z=-1;return view;}
 const boneModel={materials:[],meshes:[{id:1,name:'Lhand',type:10,parent:0,position:[0,0,0],rotation:[1,0,0,0],scale:[1,1,1]}]};
 test('cutscene binding qualifies duplicated bone names, animates them and applies child poses after skeletons',async()=>{
@@ -77,6 +102,15 @@ test('cutscene binding qualifies duplicated bone names, animates them and applie
   const result=await view.loadContext(context,async name=>name.endsWith('.5ds')?animation:{type:'model',...boneModel},()=>null);assert.equal(result.actors,2);view.seek(200);assert.equal(view.frames.get('scene:tom').position.x,3);assert.equal(view.frames.get('scene:tom/1').position.y,3);assert.equal(view.frames.get('scene:norm/1').position.y,0);
   view.cameraMode(true);assert.equal(view.controls.enabled,false);assert.ok(Math.abs(view.camera.position.z-3)<1e-6);assert.ok(Math.abs(view.camera.fov-THREE.MathUtils.radToDeg(.75))<1e-6);
   view.updateEntry('objects/0/1/position',[9,0,0]);assert.equal(view.frames.get('scene:tom').position.x,5);assert.equal(file.tracks[0].keys[1].position[0],5);view.cameraMode(false);assert.equal(view.controls.enabled,true);
+});
+test('cutscene TCK playback applies root placement once, preserves bones and resets when flags change or time reverses',async()=>{
+  const view=viewport(),file={cameras:[],focus:[],tracks:[{name:'Tommy',kind:2,keys:[{index:0,time:0,position:[5,0,10],rotation:[1,0,0,0],animationFlags:0x1400},{index:1,time:100,position:[5,0,10],rotation:[1,0,0,0],animationFlags:0x400}]}]};
+  view.loadReplay(file);const context={warnings:[],geometry:{materials:[],meshes:[]},objects:[{id:'tom',name:'Tommy',frameType:9,fields:{},modelPath:'model'}],animations:[{id:0,path:'clip',motionPath:'motion'}]};
+  const animation={type:'animation',frames:3,nodes:[{id:0,name:'Lhand',tracks:{position:{times:[0,3],values:[[0,1,0],[0,4,0]]}}}]},motion={type:'track',duration:120,step:40,positions:[[0,0,0],[0,0,2],[0,0,4],[0,0,6]],secondary:[]},before=structuredClone({file,context,animation,motion});
+  const result=await view.loadContext(context,async name=>name==='clip'?animation:name==='motion'?motion:{type:'model',...boneModel},()=>null);assert.equal(result.motions,1);
+  for(const time of [40,80,120,40,0,40]){view.seek(time);view.root.updateMatrixWorld(true);assert.deepEqual(view.frames.get('scene:tom').getWorldPosition(new THREE.Vector3()).toArray(),[5,0,-(10+(time<100?time/20:0))]);assert.ok(Math.abs(view.frames.get('scene:tom/1').position.y-(1+Math.min(time/40,3)))<1e-8);}
+  view.updateEntry('objects/0/0/position',[7,0,10]);assert.equal(view.frames.get('scene:tom').position.x,6.2);assert.deepEqual({file,context,animation,motion},before);
+  const fallback=viewport();fallback.loadReplay(file);const failed=await fallback.loadContext(context,async name=>name==='clip'?animation:name==='motion'?{type:'binary'}:{type:'model',...boneModel},()=>null);assert.equal(failed.motions,0);assert.ok(failed.warnings.some(w=>w.includes('pohybová stopa')));fallback.seek(40);assert.deepEqual(fallback.frames.get('scene:tom').position.toArray(),[5,0,10]);
 });
 test('audio seeking replaces active sources, pauses all channels and releases them on disposal',async()=>{
   const sources=[],context={currentTime:1,destination:{},createGain:()=>({gain:{value:1},connect(){},disconnect(){}}),createBufferSource(){const source={connect(){},disconnect(){},start(...args){this.offset=args[1];},stop(){this.stopped=true;}};sources.push(source);return source;},resume:async()=>{},close:async()=>{context.closed=true;}};
