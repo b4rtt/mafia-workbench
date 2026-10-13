@@ -1,4 +1,5 @@
 import iconv from 'iconv-lite';
+import { vehicleModelIdentity } from '../shared/vehicle-links.js';
 
 const key = name => name.normalize('NFC').toLowerCase();
 const fail = reason => { throw new Error(`Auta: ${reason}`); };
@@ -29,10 +30,10 @@ export function parseVehicleTable(source) {
 }
 
 export function vehicleModelDefinition(table, path) {
-  const match=/^models\/([^/\\]+)(\d{2})\.4ds$/i.exec(path);
-  if(!match)return null;
-  const entry=table.entries.find(entry=>key(entry.name)===key(match[1]));
-  return entry?{path,table:entry.name,variant:Number(match[2]),levels:entry.levels}:null;
+  const model=vehicleModelIdentity(path);
+  if(!model)return null;
+  const entry=table.entries.find(entry=>key(entry.name)===key(model.family));
+  return entry?{path,table:entry.name,variant:model.variant,levels:entry.levels}:null;
 }
 
 export function validateVehicleModel(model) {

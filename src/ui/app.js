@@ -1,5 +1,6 @@
 import { categories, groupAssets } from '../shared/categories.js';
 import { groupSceneProperties } from '../shared/scene-properties.js';
+import { sceneVehicleFamily, vehicleDefinition } from '../shared/vehicle-links.js';
 import { humanFields } from '../shared/human-parameters.js';
 import { doorFields } from '../shared/door-parameters.js';
 import { physicalFields } from '../shared/physical-parameters.js';
@@ -46,6 +47,10 @@ function buttons() {
   $('new-mission').disabled = state.busy || !state.project;
   $('stop-level').disabled = state.busy;
   for (const part of document.querySelectorAll('[data-mission-part]')) part.disabled = state.busy;
+  for (const link of document.querySelectorAll('[data-vehicle-link]')) {
+    link.disabled = state.busy || Boolean(state.texts.size);
+    link.title = state.texts.size ? 'Nejdřív uložte rozepsané změny.' : 'Otevřít společnou fyzikální definici všech variant tohoto auta.';
+  }
   for(const launch of document.querySelectorAll('[data-play-level]')){
     launch.disabled=state.busy||Boolean(state.texts.size);
     const reason=state.texts.size?'Nejdřív uložte rozepsané změny.':state.busy?'Probíhá operace editoru.':'Spustit tuto misi ve hře.';
@@ -155,6 +160,7 @@ function renderMissionParts(main, file) {
 }
 function renderDetail() {
   const file = state.file; if (!file) return;
+  if (state.vehicleOrigin && (file.type !== 'vehicles' || file.path !== state.vehicleOrigin.tablePath || state.project.root !== state.vehicleOrigin.root)) state.vehicleOrigin = null;
   const previous = state.viewport;
   missionViews.remember(previous);
   const remembered = missionViews.get(state.project.root, file);
@@ -518,6 +524,17 @@ function renderNavigation(main, file, previous) {
   else inspector.append(element('p','Tato mise nemá navigační body.','notice'));
 }
 function renderVehicles(main, file) {
+  const origin = state.vehicleOrigin;
+  if (origin) {
+    const back = element('button', `Zpět do mise · ${origin.name}`);
+    back.onclick = () => run(async () => {
+      if (!await discard()) return;
+      const next = await api.map(origin.path);
+      state.texts.clear(); state.file = next; state.selectSceneName = origin.name;
+      renderDetail(); renderFiles(); status(`Zpět v misi: ${origin.name}.`);
+    });
+    const context = element('div', undefined, 'tools'); context.append(back); main.append(context);
+  }
   main.append(element('p',`${file.records.length} definic automobilů. Jedna definice se používá pro více variant modelu. Běžné a posílené nastavení se upravují samostatně; výkon není maximální rychlost. Neznámé oblasti, zvuky a počet úrovní zůstávají zachované. Změny se projeví při novém načtení auta ve hře.`,'notice'));
   const layout=element('div',undefined,'items-workspace'),browser=element('section'),form=element('section',undefined,'item-form'),search=element('input'),list=element('div',undefined,'text-list');
   search.type='search';search.placeholder='Hledat definici auta…';search.setAttribute('aria-label','Hledat vozidla');browser.append(search,list);layout.append(browser,form);main.append(layout);
@@ -1002,11 +1019,27 @@ function renderMap(main, file, previous = null) {
   duplicate.disabled = remove.disabled = focus.disabled = collision.disabled = true;
   const addPickup=element('button','Přidat předmět k sebrání…'),configurePickup=element('button','Nastavit předmět…');configurePickup.disabled=true;
   const addDoor=element('button','Vytvořit dveře…'),addPhysical=element('button','Vytvořit fyzikální předmět…'),addLight=element('button','Přidat světlo…'),addSound=element('button','Přidat zvuk…'),addDetector=element('button','Přidat skriptový bod…');addDoor.disabled=addPhysical.disabled=true;
+  const vehiclePhysics = element('button', 'Fyzika auta…');
+  const vehicleTable = state.project.assets.find(asset => asset.path.normalize('NFC').toLowerCase() === 'tables/vehicles.bin');
+  vehiclePhysics.dataset.vehicleLink = ''; vehiclePhysics.hidden = true;
+  vehiclePhysics.onclick = () => run(async () => {
+    const family = sceneVehicleFamily(file, selectedObject);
+    if (!family || !vehicleTable || state.texts.size) return;
+    const next = await api.inspect(vehicleTable.path);
+    if (next.type !== 'vehicles') throw new Error(next.warning ?? 'Tabulka fyziky aut není podporovaná.');
+    const definition = vehicleDefinition(next.records, family);
+    if (!definition) throw new Error(`Tabulka neobsahuje jednoznačnou definici auta ${family}.`);
+    state.vehicleOrigin = { root: state.project.root, path: file.path, tablePath: next.path, name: selectedObject.name };
+    state.vehicleIndex = definition.index; state.vehicleLevel = 0;
+    state.file = next; renderDetail(); renderFiles(); status(`Fyzika auta: ${definition.name} · společná pro všechny varianty modelu.`);
+  });
   const view = new Viewport(viewport, frame => {
     const object = frame.sceneObject; selected.textContent = object ? object.name : `${frame.name} · geometrie ve scene.4ds`;
     selectedObject = object;
     selectedFrame=frame;
     selectedId = frame.id;
+    vehiclePhysics.hidden = file.cacheSource || !vehicleTable || !sceneVehicleFamily(file, object);
+    vehiclePhysics.disabled = state.busy || Boolean(state.texts.size);
     cameraMoved = true;
     view.selectedName = object?.name ?? frame.name;
     const independent = object && [2,4,6,9].includes(object.frameType) && (!object.actorBound || object.pickup) && !file.geometry.meshes.some(mesh => mesh.name.toLowerCase() === object.name.toLowerCase());
@@ -1081,7 +1114,7 @@ function renderMap(main, file, previous = null) {
     if(file.collision.warning)center.append(element('p',file.collision.warning,'notice'));
   }
   focus.onclick = () => { const object = view.frames.get(selectedId); if (object) { cameraMoved = true; view.fit(object); } };
-  tools.append(focus);
+  tools.append(focus, vehiclePhysics);
   if(!file.cacheSource){
     soundExtent.onclick=()=>{soundExtentVisible=!soundExtentVisible;soundExtent.setAttribute('aria-pressed',String(soundExtentVisible));updateSoundExtent();};
     focusSound.onclick=()=>{if(view.soundOverlay?.visible){cameraMoved=true;view.fit(view.soundOverlay);}};
