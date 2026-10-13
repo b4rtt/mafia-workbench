@@ -28,6 +28,7 @@ contextBridge.exposeInMainWorld('workbench', {
   saveAnimation: (name, changes, expectedHash) => invoke('asset:animation', name, changes, expectedHash),
   saveCache: (name, changes, expectedHash) => invoke('asset:cache', name, changes, expectedHash),
   saveItems: (name, changes, expectedHash) => invoke('asset:items', name, changes, expectedHash),
+  saveVehicles: (name, changes, expectedHash) => invoke('asset:vehicles', name, changes, expectedHash),
   saveNavigation: (name, changes, expectedHash) => invoke('asset:navigation', name, changes, expectedHash),
   changeNavigationConnection: (name, request, expectedHash) => invoke('asset:navigation-connection', name, request, expectedHash),
   changeNavigationPoint: (name, request, expectedHash) => invoke('asset:navigation-point', name, request, expectedHash),

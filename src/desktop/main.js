@@ -125,6 +125,7 @@ app.whenReady().then(async () => {
   handle('asset:animation', (name, changes, expectedHash) => operation(async () => { await current().saveAnimation(name, changes, expectedHash); return current().inspect(name); }));
   handle('asset:cache', (name, changes, expectedHash) => operation(async () => { await current().saveCache(name, changes, expectedHash); return current().inspect(name); }));
   handle('asset:items', (name, changes, expectedHash) => operation(async () => { await current().saveItems(name, changes, expectedHash); return current().inspect(name); }));
+  handle('asset:vehicles', (name, changes, expectedHash) => operation(async () => { await current().saveVehicles(name, changes, expectedHash); return current().inspect(name); }));
   handle('asset:navigation', (name, changes, expectedHash) => operation(async () => { const navigationMapping=await current().saveNavigation(name, changes, expectedHash); return {...await current().inspect(name),navigationMapping}; }));
   handle('asset:navigation-connection', (name, request, expectedHash) => operation(async () => { await current().changeNavigationConnection(name, request, expectedHash); return current().inspect(name); }));
   handle('asset:navigation-point', (name, request, expectedHash) => operation(async () => { const index=await current().changeNavigationPoint(name, request, expectedHash); return {file:await current().inspect(name),index}; }));

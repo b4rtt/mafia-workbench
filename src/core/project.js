@@ -20,6 +20,7 @@ import { readEmptyMissionZip, configureEmptyMission, missionName } from './missi
 import { parseCollision } from './collision.js';
 import { collisionOwnership, ownedCollisionRecords, prepareSceneCollision } from './scene-collision.js';
 import { parseVehicleTable, vehicleModelDefinition, validateVehicleModel } from './vehicles.js';
+import { inspectVehicleTable, editVehicleTable } from './vehicle-table.js';
 
 const MANIFEST = 'workbench.json';
 const key = p => relativeAssetPath(p).normalize('NFC').toLowerCase();
@@ -370,6 +371,10 @@ export class ModProject {
       try { return { type: 'items', ...common, ...parseItems(bytes) }; }
       catch (error) { warning = error.message; }
     }
+    if (/^tables\/vehicles\.bin$/i.test(name)) {
+      try { return { type: 'vehicles', ...common, ...inspectVehicleTable(bytes) }; }
+      catch (error) { warning = error.message; }
+    }
     if (/\bcache\.bin$/i.test(name)) {
       try { return { type: 'cache', ...common, ...inspectCache(bytes) }; }
       catch (error) { warning = error.message; }
@@ -399,6 +404,13 @@ export class ModProject {
       if (expectedHash !== hash(before)) throw new Error('Soubor se od otevření změnil. Otevřete jej znovu.');
       return editItems(before, changes);
     }, 'Úprava zbraní a předmětů');
+  }
+  async saveVehicles(name, changes, expectedHash) {
+    if (!/^tables\/vehicles\.bin$/i.test(name)) throw new Error('Soubor není tabulka vozidel.');
+    await this.change(name, before => {
+      if (expectedHash !== hash(before)) throw new Error('Soubor se od otevření změnil. Otevřete jej znovu.');
+      return editVehicleTable(before, changes);
+    }, 'Úprava fyziky vozidel');
   }
   async saveNavigation(name, changes, expectedHash) {
     if (!/^missions\/[^/]+\/check\.bin$/i.test(name)) throw new Error('Soubor není check.bin mise.');

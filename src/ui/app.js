@@ -96,6 +96,7 @@ function renderDetail() {
   const main = $('detail'); main.replaceChildren();
   const badges = { roads: 'ROAD · SILNIČNÍ SÍŤ', difference: 'CHG · OBJEKTY A SKRIPTY', track: 'TCK · POHYBOVÁ STOPA', navigation: 'CHECK · NAVIGACE', items: 'PŘEDMĚTY · ZBRANĚ', textdb: 'TEXTDB · EDITACE', scene: 'SCÉNA · EDITACE', cache: 'CACHE · STATICKÉ MODELY', map: 'MAPA · 3D EDITACE', model: '4DS · 3D EDITACE', animation: '5DS · ANIMACE', image: 'OBRÁZEK · NÁHLED', audio: 'ZVUK · PŘEHRÁVAČ' };
   badges.replay = 'REP · ČASOVÁ OSA';
+  badges.vehicles = 'AUTA · FYZIKA A PŘEVODY';
   const head = element('div', undefined, 'file-header'); head.append(element('h2', file.path), element('span', badges[file.type] ?? 'BINÁRNÍ SOUBOR', 'badge')); main.append(head);
   const source = state.project.assets.find(a => a.path === file.path);
   main.append(element('div', `${file.size.toLocaleString('cs')} bajtů · ${source?.archive} · ${source?.variants ?? 1} variant archivů`, 'file-meta'));
@@ -119,6 +120,7 @@ function renderDetail() {
   }
   if (file.type === 'textdb') renderTexts(main, file);
   else if (file.type === 'items') renderItems(main, file);
+  else if (file.type === 'vehicles') renderVehicles(main, file);
   else if (file.type === 'navigation') renderNavigation(main, file);
   else if (file.type === 'roads') renderRoads(main, file);
   else if (file.type === 'track') renderTrack(main, file);
@@ -341,6 +343,46 @@ function renderNavigation(main, file) {
   });
   if (file.points.length) view.select(String(Math.min(state.navigationIndex ?? 0,file.points.length-1)));
   else inspector.append(element('p','Tato mise nemá navigační body.','notice'));
+}
+function renderVehicles(main, file) {
+  main.append(element('p',`${file.records.length} definic automobilů. Jedna definice se používá pro více variant modelu. Běžné a posílené nastavení se upravují samostatně; výkon není maximální rychlost. Neznámé oblasti, zvuky a počet úrovní zůstávají zachované. Změny se projeví při novém načtení auta ve hře.`,'notice'));
+  const layout=element('div',undefined,'items-workspace'),browser=element('section'),form=element('section',undefined,'item-form'),search=element('input'),list=element('div',undefined,'text-list');
+  search.type='search';search.placeholder='Hledat definici auta…';search.setAttribute('aria-label','Hledat vozidla');browser.append(search,list);layout.append(browser,form);main.append(layout);
+  const current=entry=>state.texts.has(entry.id)?state.texts.get(entry.id):entry.value;
+  function fill(){
+    list.replaceChildren();const query=search.value.toLowerCase();
+    for(const record of file.records){
+      if(!record.name.toLowerCase().includes(query))continue;
+      const drafts=[...state.texts.keys()].filter(id=>id.startsWith(`${record.index}/`)).length;
+      const button=element('button',`${record.name} · ${record.levels.length} ${record.levels.length===1?'úroveň':'úrovně'}${drafts?' · '+drafts+' změn':''}`);button.classList.toggle('active',record.index===state.vehicleIndex);button.onclick=()=>{if(!state.busy){state.vehicleLevel=0;edit(record);}};list.append(button);
+    }
+  }
+  function edit(record){
+    state.vehicleIndex=record.index;form.replaceChildren();form.append(element('h3',record.name));
+    const levelSelect=element('select');levelSelect.setAttribute('aria-label','Úroveň fyziky vozidla');
+    for(const level of record.levels){const option=element('option',level.index===0?'0 · Běžné nastavení':level.index===1&&record.levels.length===2?'1 · Posílené nastavení':`${level.index} · Úroveň fyziky`);option.value=String(level.index);levelSelect.append(option);}
+    state.vehicleLevel=Math.min(state.vehicleLevel??0,record.levels.length-1);levelSelect.value=String(state.vehicleLevel);levelSelect.onchange=()=>{state.vehicleLevel=Number(levelSelect.value);edit(record);};form.append(levelSelect);
+    const level=record.levels[state.vehicleLevel];if(level.warning)form.append(element('p',level.warning,'notice'));
+    const save=element('button',`Uložit změny (${state.texts.size})`,'primary');save.disabled=!state.texts.size;
+    for(const group of new Set(level.entries.map(entry=>entry.group))){
+      const section=element('details'),summary=element('summary',group),fields=element('div',undefined,'item-fields');section.open=group==='Motor';section.append(summary,fields);form.append(section);
+      for(const entry of level.entries.filter(entry=>entry.group===group)){
+        const label=element('label',entry.label),input=element('input'),value=current(entry);input.type='number';input.step=entry.integer?'1':'any';input.min=String(entry.min);if(entry.max!==undefined)input.max=String(entry.max);input.disabled=entry.readOnly;input.value=value?.invalid?value.raw:value===null?'':String(value);input.setAttribute('aria-label',`${record.name} · úroveň ${level.index} · ${entry.label}`);input.title=`${entry.key} · offset 0x${(entry.offset).toString(16)}`;
+        input.oninput=()=>{
+          const next=input.value.trim()===''?NaN:Number(input.value);
+          if(!Number.isFinite(next)||!Number.isFinite(Math.fround(next))||next!==0&&Math.fround(next)===0||next<entry.min||entry.max!==undefined&&next>entry.max||entry.positive&&Math.fround(next)<=0||entry.integer&&!Number.isInteger(next)){state.texts.set(entry.id,{invalid:true,raw:input.value});input.setAttribute('aria-invalid','true');}
+          else{input.removeAttribute('aria-invalid');if(next===entry.value)state.texts.delete(entry.id);else state.texts.set(entry.id,next);}
+          save.textContent=`Uložit změny (${state.texts.size})`;save.disabled=!state.texts.size;fill();
+        };label.append(input);fields.append(label);
+      }
+    }
+    save.onclick=()=>run(async()=>{
+      if([...state.texts.values()].some(value=>value?.invalid))throw new Error('Opravte neplatné číselné hodnoty.');
+      state.file=await api.saveVehicles(file.path,[...state.texts].map(([id,value])=>({id,value})),file.sha256);state.texts.clear();await refresh();renderDetail();status('Fyzika vozidel uložená do modu se zálohou.');
+    });
+    form.append(element('p','Meze řazení v procentech používají rozsah mezi volnoběhem a maximem otáček. Neaktivní převody zůstávají uložené; aktivní převody musejí mít kladný poměr. Položky „původní parametr“ nemají ověřené uživatelské jednotky. Formulář není nastavením konkrétního vloženého auta, ale jeho společné definice.','notice'),save);fill();
+  }
+  search.oninput=fill;fill();if(file.records.length)edit(file.records[Math.min(state.vehicleIndex??0,file.records.length-1)]);
 }
 function renderItems(main, file) {
   main.append(element('p', `${file.records.length} předmětů · ID odpovídá pořadí záznamu ve hře. Změny se ukládají do modu; neznámé parametry a pořadí zůstávají zachované.`, 'notice'));
