@@ -13,6 +13,7 @@ export class MissionViews {
       path=view.modelPath;type='model';value={selectedId:view.selectedId,mode:view.gizmo.mode,wireframe:view.modelWireframe};
     } else if (view.navigationPath || view.roadPath) {
       path=view.navigationPath??view.roadPath;type=view.navigationPath?'navigation':'roads';value={selectedPoint:view.selectedPoint,geometry:view.navigationGeometryWanted??view.roadGeometryWanted};
+      if(view.roadPath)value.lanes=view.roadLanesVisible;
     } else if (view.effectsPath) {
       path=view.effectsPath;type='effects';value={selectedId:view.selectedId,geometry:view.contextGeometry?.visible};
     } else if (view.collisionPath) {

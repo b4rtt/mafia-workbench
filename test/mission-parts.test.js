@@ -31,9 +31,10 @@ test('returning from another mission/editor retains camera, selection, display s
 test('mission view memory does not retain unrelated models and tracks, and preserves point zero',()=>{
   const saved=new MissionViews(),camera={position:[1,2,3],target:[0,0,0],near:.02,far:20000};
   saved.remember({projectRoot:'/project',modelPath:'models/car.4ds',gizmo:{mode:'translate'},captureCamera:()=>camera});
-  saved.remember({projectRoot:'/project',roadPath:'missions/tutorial/road.bin',selectedPoint:0,roadGeometryWanted:false,captureCamera:()=>camera});
+  saved.remember({projectRoot:'/project',roadPath:'missions/tutorial/road.bin',selectedPoint:0,roadGeometryWanted:false,roadLanesVisible:false,captureCamera:()=>camera});
   assert.equal(saved.get('/project',{path:'models/car.4ds',type:'model'}),null);
   assert.equal(saved.get('/project',{path:'missions/tutorial/road.bin',type:'roads'}).selectedPoint,0);
+  assert.equal(saved.get('/project',{path:'missions/tutorial/road.bin',type:'roads'}).lanes,false);
 });
 
 test('collision view keeps its filtered selection, camera and geometry scoped to the project',()=>{

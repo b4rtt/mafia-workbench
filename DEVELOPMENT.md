@@ -99,3 +99,11 @@ WB_DOOR v jeho testovacím projektu již neupravovat ani nepřipojovat aktéra: 
 - UI: původní hodnoty, vypnutí směru, ochrana rozepsaného nastavení při přepnutí cesty, explicitní oprava NaN, odmítnutí směru bez pruhu bez zápisu, přesný export a dvě přesná undo. Scéna/KLZ, chráněné projekty a EXE shodné. Nový formulář má ověřené rozložení bez přetékání polí.
 - Hra: posun 1,5 → 8 na existujícím směru, shodná scéna/skript/monitor. Obě jízdy do cíle HUD 50; bez měřitelného účinku na boční pásmo této skriptované jízdy. Načtené soubory mají přesný hash, hra ukončená, obě změny vrácené. Účinek bočního posunu na výběr pruhu/provoz zůstává neověřený; podrobnosti v research/formats.md.
 - Kontroly: 298 testů, syntax check a build. Další otevřená práce: vizualizace jednotlivých pruhů, slučování silnic/křižovatek a měření pravidel provozu; ostatní formátové a UX body předchozího backlogu zůstávají v komplexním goalu.
+
+## 3D náhled silničních pruhů
+
+- Implementováno: vrstva „Pruhy ve 3D“ pro cesty vybrané křižovatky nebo mezilehlého bodu, barvy AI/provoz/parkování, obousměrné šipky s podepsaným posunem a aktualizace při rozepsaném posunu bodu. Vypnuté směry se nekreslí; neznámá či neplatná data mají upozornění. Jde o schéma nastavení, nikoli simulaci jízdy. Náhled je pouze čtecí a neblokuje výběr objektů.
+- UX: viditelnost vrstvy se pamatuje při uložení i přepnutí části mise; přepnutí nehýbe kamerou. Výslovné rámování celé sítě zahrnuje viditelné bočně odsazené pruhy.
+- Audit: 70 sítí, 7 152 výběrů křižovatek, 209 výběrů bodů, 399 368 instancí šipek a 930 instancí vypnutých směrů při opakovaných náhledech. Vše konečné ve float32, bez upozornění, hash zdrojů shodný. Chybné a neznámé varianty pokrývají samostatné testy.
+- UI: změna typu/posunu, vypnutí směru, zachování skryté vrstvy po uložení, nový výběr, živý posun bodu a rámování. Přesné uložené bajty a dvě přesná undo silnice/historie; scéna a KLZ shodné.
+- Kontroly: 302 testů, syntax check a build. Další otevřená práce zahrnuje slučování silnic/křižovatek a ověření pravidel provozu v runtime; ostatní formátové a UX body backlogu zůstávají v aktivním komplexním goalu.
