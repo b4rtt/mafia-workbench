@@ -8,6 +8,7 @@ import { materialFlags, materialAlphaModes, materialAlphaMode, withMaterialAlpha
 import { lightTypes, lightDefaults, sceneSectors } from '../shared/lights.js';
 import { soundTypes, soundDefaults } from '../shared/sounds.js';
 import { soundExtentSettings } from './sound-extent.js';
+import { lightPreviewSettings } from './light-preview.js';
 import { roadGraph, roadEntries, roadReference } from '../shared/roads.js';
 import { Viewport } from './viewport.js';
 import { actionMenu, initializeWorkspace, spatialWorkspace } from './workspace.js';
@@ -21,10 +22,11 @@ import { NavigationViewport } from './navigation.js';
 import { TrackViewport, companionAnimation } from './track.js';
 import { CutsceneViewport, CutsceneAudio, activeCutsceneAudio } from './cutscene.js';
 import { Group } from 'three';
+import { Drafts } from './drafts.js';
 const api = window.workbench;
 const shell = initializeWorkspace();
 const $ = id => document.getElementById(id);
-const state = { project: null, file: null, category: 'levels', texts: new Map(), textIndex: 0, busy: false, viewport: null };
+const state = { project: null, file: null, category: 'levels', texts: new Drafts(buttons), textIndex: 0, busy: false, viewport: null };
 function element(tag, text, className) { const node = document.createElement(tag); if (text !== undefined) node.textContent = text; if (className) node.className = className; return node; }
 function status(text, error = false) { $('status').textContent = text; $('status').classList.toggle('error', error); }
 async function discard() {
@@ -38,6 +40,11 @@ function buttons() {
   $('export').disabled = state.busy || !state.project;
   $('new-mission').disabled = state.busy || !state.project;
   $('stop-level').disabled = state.busy;
+  for(const launch of document.querySelectorAll('[data-play-level]')){
+    launch.disabled=state.busy||Boolean(state.texts.size);
+    const reason=state.texts.size?'Nejdřív uložte rozepsané změny.':state.busy?'Probíhá operace editoru.':'Spustit tuto misi ve hře.';
+    launch.title=reason;launch.setAttribute('aria-description',reason);
+  }
 }
 async function run(action) {
   if (state.busy) return;
@@ -96,7 +103,7 @@ function renderDetail() {
   const file = state.file; if (!file) return;
   const previous = state.viewport;
   const mapView = file.type === 'map' && previous?.mapPath === file.path && previous.projectRoot === state.project.root
-    ? { camera: previous.captureCamera(), selectedName: previous.selectedName, mode: previous.gizmo.mode, backdrop: previous.backdrop?.visible, collisions: previous.collisionOverlay?.visible, sounds: previous.soundExtentVisible } : null;
+    ? { camera: previous.captureCamera(), selectedName: previous.selectedName, mode: previous.gizmo.mode, backdrop: previous.backdrop?.visible, collisions: previous.collisionOverlay?.visible, sounds: previous.soundExtentVisible, lights: previous.lightPreviewVisible } : null;
   const modelView = file.type === 'model' && previous?.modelPath === file.path && previous.projectRoot === state.project.root
     ? { camera: previous.captureCamera(), selectedId: previous.selectedId, mode: previous.gizmo.mode, wireframe: previous.modelWireframe } : null;
   const effectsView = file.type === 'effects' && previous?.effectsPath === file.path && previous.projectRoot === state.project.root
@@ -124,6 +131,7 @@ function renderDetail() {
   toolbar.append(restore, replace); main.append(toolbar);
   if (/^missions\/[^/]+\//i.test(file.path)) {
     const launch = element('button', 'Spustit level', 'primary');
+    launch.dataset.playLevel='';
     launch.onclick = () => run(async () => {
       if (state.texts.size) throw new Error('Před spuštěním levelu uložte rozepsané změny.');
       status('Připravuji oddělenou testovací kopii…');
@@ -160,6 +168,7 @@ function renderDetail() {
     main.append(element('pre', rows, 'binary'));
   }
   shell.spatial(spatialWorkspace(main,file,()=>state.viewport));
+  buttons();
 }
 function renderReplay(main, file) {
   main.append(element('p', `${file.tracks.length} objektových stop · ${file.cameras.length} klíčů kamery · ${file.focus.length} klíčů cíle · ${file.duration} ms. Modrá: kamera, zelená: její cíl. Po načtení mise a CHG lze přehrávat dostupné modely, 5DS animace, zvukové události a dialogy. Přímočaré skriptové události z CHG přepínají viditelnost objektů. Kamera a pohyb mezi klíči jsou lineární; ostatní skripty, herní světla, morfování a pohybové TCK náhled nesimuluje.`, 'notice'));
@@ -904,6 +913,15 @@ function renderMap(main, file, previous = null) {
     view.showSoundExtent(selectedId,settings,soundExtentVisible);
     focusSound.disabled=!view.soundOverlay?.visible;
   }
+  const lightPreview=element('button','Náhled světla'),focusLight=element('button','Zarámovat světlo'),lightLegend=element('p','','notice');
+  lightPreview.disabled=focusLight.disabled=true;
+  let lightVisible=previous?.lights??true;lightPreview.setAttribute('aria-pressed',String(lightVisible));lightLegend.hidden=true;center.append(lightLegend);
+  function updateLightPreview(){
+    const settings=lightPreviewSettings(file,selectedObject,state.texts);
+    lightPreview.disabled=!settings?.mode;lightLegend.hidden=!settings;lightLegend.textContent=settings?.reason??'';
+    if(settings)selected.textContent=`${selectedObject.name} · ${lightVisible&&settings.mode?'náhled světla (orientační)':'světlo'}`;
+    view.showLightPreview(selectedId,settings,lightVisible);focusLight.disabled=!view.lightOverlay?.visible;
+  }
   const add = element('button', 'Vložit model…'), addHuman=element('button','Přidat postavu…'), addCar=element('button','Přidat auto…'), duplicate = element('button', 'Duplikovat…'), remove = element('button', 'Odstranit…'), focus = element('button', 'Zarámovat objekt'), collision=element('button','Kolize modelu…');
   duplicate.disabled = remove.disabled = focus.disabled = collision.disabled = true;
   const addPickup=element('button','Přidat předmět k sebrání…'),configurePickup=element('button','Nastavit předmět…');configurePickup.disabled=true;
@@ -924,6 +942,7 @@ function renderMap(main, file, previous = null) {
     addPhysical.disabled=Boolean(frame.ownerId)||actorBound||object?.frameType!==9||!object?.model||file.geometry.meshes.some(mesh=>mesh.name.toLowerCase()===object.name.toLowerCase());
     if (object) { objects.value = String(frame.id); properties?.select(object.fields.position ?? object.fields.name); }
     updateSoundExtent();
+    updateLightPreview();
   }, (frame, values, mode) => {
     const field = { translate: 'position', rotate: 'rotation', scale: 'scale' }[mode], id = frame.sceneObject?.fields[field];
     if (!id) { status('Tato transformace nemá existující vlastnost ve zdrojovém souboru. Zatím ji upravte ve scene.4ds.', true); return; }
@@ -978,7 +997,7 @@ function renderMap(main, file, previous = null) {
   for (const [mode, label] of [['translate', 'Posun'], ['rotate', 'Rotace'], ['scale', 'Měřítko']]) { const button = element('button', label); button.onclick = () => view.gizmo.setMode(mode); tools.append(button); }
   const displayActions=[];
   const fit = element('button', 'Zarámovat mapu'); fit.onclick = () => { cameraMoved = true; view.fit(); };
-  const sky = element('button', 'Obloha'); let showSky = Boolean(previous?.backdrop); sky.setAttribute('aria-pressed', String(showSky)); sky.onclick = () => { showSky = !showSky; view.showBackdrop(showSky); sky.setAttribute('aria-pressed', String(showSky)); updateSoundExtent(); };
+  const sky = element('button', 'Obloha'); let showSky = Boolean(previous?.backdrop); sky.setAttribute('aria-pressed', String(showSky)); sky.onclick = () => { showSky = !showSky; view.showBackdrop(showSky); sky.setAttribute('aria-pressed', String(showSky)); updateSoundExtent(); updateLightPreview(); };
   tools.append(fit); displayActions.push(sky); objects.onchange = () => view.select(objects.value);
   if(file.collision){
     const show=element('button',`Generované kolize (${file.collision.boxes.length+(file.collision.surfaces?.length??0)})`);let visible=Boolean(previous?.collisions);show.setAttribute('aria-pressed',String(visible));
@@ -991,6 +1010,9 @@ function renderMap(main, file, previous = null) {
     soundExtent.onclick=()=>{soundExtentVisible=!soundExtentVisible;soundExtent.setAttribute('aria-pressed',String(soundExtentVisible));updateSoundExtent();};
     focusSound.onclick=()=>{if(view.soundOverlay?.visible){cameraMoved=true;view.fit(view.soundOverlay);}};
     displayActions.push(soundExtent,focusSound);
+    lightPreview.onclick=()=>{lightVisible=!lightVisible;lightPreview.setAttribute('aria-pressed',String(lightVisible));updateLightPreview();};
+    focusLight.onclick=()=>{if(view.lightOverlay?.visible){cameraMoved=true;view.fit(view.lightOverlay);}};
+    displayActions.push(lightPreview,focusLight);
   }
   if (!file.cacheSource) {
     for (const [button, kind] of [[add, 'add-model'], [addHuman,'add-human'], [addCar,'add-car'], [duplicate, 'duplicate'], [remove, 'delete'],[collision,'collision']]) button.onclick = () => run(async () => {
@@ -1009,11 +1031,11 @@ function renderMap(main, file, previous = null) {
   }
   tools.append(actionMenu('Zobrazení',displayActions));
   view.loadTextures(resolveTexture);
-  properties = renderProperties(inspector, file, file.cacheSource ? api.saveCache : async (...args) => { await api.saveScene(...args); return api.map(file.path); }, (entry, value) => { const field = byField.get(entry.id); if (field && ['position','rotation','scale'].includes(field.kind)) view.update(field.id, { [field.kind]: value }); updateSoundExtent(); }, entry => {
+  properties = renderProperties(inspector, file, file.cacheSource ? api.saveCache : async (...args) => { await api.saveScene(...args); return api.map(file.path); }, (entry, value) => { const field = byField.get(entry.id); if (field && ['position','rotation','scale'].includes(field.kind)) view.update(field.id, { [field.kind]: value }); updateSoundExtent(); updateLightPreview(); }, entry => {
     const field=byField.get(entry.id);
     if(field&&selectedId!==field.id){view.select(field.id);properties.select(entry.id);}
   }, false);
-  center.append(element('p', file.cacheSource ? 'Statické modely vybrané části cache.bin. Transformace se ukládají do samostatného modu; oranžové body označují chybějící modely.' : 'Geometrie scene.4ds a objekty scene2.bin. Modré body označují objekty bez modelu; oranžové body chybějící model. Generované kolize se přepočítají při uložení transformace a vracejí se společně s objektem.', 'notice'));
+  center.append(element('p', file.cacheSource ? 'Statické modely vybrané části cache.bin. Transformace se ukládají do samostatného modu; oranžové body označují chybějící modely.' : 'Geometrie scene.4ds a objekty scene2.bin. Reproduktor označuje zvuk, žárovka světlo a závorky skriptový bod. Modré body: ostatní objekty bez modelu, oranžové: chybějící model. Generované kolize se přepočítají při uložení transformace a vracejí se společně s objektem.', 'notice'));
 }
 function pickupDialog(file,catalog,object=null,position=[0,0,0]){
   const dialog=element('dialog'),form=element('form',undefined,'mission-form'),fields=element('div',undefined,'mission-fields');

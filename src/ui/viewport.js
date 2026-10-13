@@ -5,6 +5,8 @@ import { bindSkin } from './animation.js';
 import { fromLs3dRotation, toLs3dRotation } from './transforms.js';
 import { materialTransparency, bmpTransparency, textureWithMask } from './materials.js';
 import { createSoundExtent } from './sound-extent.js';
+import { sceneMarkerKind, markerMaterial } from './scene-markers.js';
+import { createLightPreview } from './light-preview.js';
 
 export class Viewport {
   constructor(container, onSelect = () => {}, onChange = () => {}) {
@@ -26,10 +28,12 @@ export class Viewport {
       const object = this.gizmo.object;
       if (object) this.onChange(object.userData.frame, { position: object.position.toArray(), scale: object.scale.toArray(), rotation: toLs3dRotation(object.quaternion) }, this.gizmo.mode);
       this.syncSoundExtent();
+      this.syncLightPreview();
     });
     this.root = new THREE.Group(); this.root.scale.z = -1; this.scene.add(this.root);
-    this.scene.add(new THREE.HemisphereLight(0xe4edff, 0x55554a, 2));
+    this.studioLights=[new THREE.HemisphereLight(0xe4edff, 0x55554a, 2)];this.scene.add(this.studioLights[0]);
     const light = new THREE.DirectionalLight(0xffffff, 2); light.position.set(5, 10, 7); this.scene.add(light);
+    this.studioLights.push(light);
     this.grid = new THREE.GridHelper(100, 50, 0x546658, 0x293832); this.scene.add(this.grid);
     this.scene.add(new THREE.AxesHelper(2));
     this.frames = new Map(); this.materials = new Set(); this.textures = new Set(); this.skinWarnings = [];
@@ -261,6 +265,7 @@ export class Viewport {
     if (values.rotation) fromLs3dRotation(values.rotation, object.quaternion);
     if (values.culling !== undefined) object.visible = Boolean(values.culling & 1);
     this.syncSoundExtent();
+    this.syncLightPreview();
   }
   addSceneObject(source, model = null) {
     const id = `scene:${source.id}`, object = new THREE.Group(); object.name = source.name;
@@ -271,6 +276,10 @@ export class Viewport {
     if (model) {
       const children = this.addModel(model, object, `${id}/`);
       for (const child of children.values()) { child.userData.frame.editable = false; child.userData.frame.ownerId = id; }
+    } else if(sceneMarkerKind(source)) {
+      const kind=sceneMarkerKind(source);this.markerMaterials??=new Map();
+      if(!this.markerMaterials.has(kind)){const material=markerMaterial(kind);this.markerMaterials.set(kind,material);this.materials.add(material);this.textures.add(material.map);}
+      const marker=new THREE.Sprite(this.markerMaterials.get(kind));marker.name=kind;marker.scale.setScalar(.045);object.add(marker);
     } else {
       const material = new THREE.MeshBasicMaterial({ color: source.model ? 0xeea04c : 0x68a5ed }); this.materials.add(material);
       object.add(new THREE.Mesh(new THREE.SphereGeometry(.25, 8, 6), material));
@@ -298,9 +307,26 @@ export class Viewport {
     }
     for (const [object, parent] of links) parent.add(object);
     this.syncSoundExtent();
+    this.syncLightPreview();
     return warnings;
   }
-  showBackdrop(value) { if (this.backdrop) this.backdrop.visible = value; this.syncSoundExtent(); }
+  showBackdrop(value) { if (this.backdrop) this.backdrop.visible = value; this.syncSoundExtent(); this.syncLightPreview(); }
+  showLightPreview(id, settings, visible=true) {
+    if(this.lightOverlay){this.lightOverlay.traverse(node=>{node.geometry?.dispose();if(node.material){node.material.dispose();this.materials.delete(node.material);}});this.lightOverlay.removeFromParent();this.lightOverlay=null;}
+    this.lightPreviewId=id;this.lightPreviewVisible=visible;
+    if(settings?.mode&&this.frames.has(id)){
+      this.lightOverlay=createLightPreview(settings);this.lightOverlay.matrixAutoUpdate=false;
+      this.lightOverlay.traverse(node=>{if(node.material)this.materials.add(node.material);});
+      // Outside root: ranges and targets never capture picking or map framing.
+      this.scene.add(this.lightOverlay);
+    }
+    this.syncLightPreview();
+  }
+  syncLightPreview() {
+    const object=this.frames.get(this.lightPreviewId);let visible=Boolean(object&&this.lightOverlay&&this.lightPreviewVisible);
+    if(object&&this.lightOverlay){object.updateWorldMatrix(true,false);this.lightOverlay.matrix.copy(object.matrixWorld);this.lightOverlay.matrixWorldNeedsUpdate=true;for(let node=object;node;node=node.parent)visible&&=node.visible;this.lightOverlay.visible=visible;}
+    for(const light of this.studioLights??[])light.visible=!visible;
+  }
   showSoundExtent(id, settings, visible = true) {
     if(this.soundOverlay){this.soundOverlay.traverse(node=>{node.geometry?.dispose();if(node.material){node.material.dispose();this.materials.delete(node.material);}});this.soundOverlay.removeFromParent();this.soundOverlay=null;}
     this.soundExtentVisible=visible;this.soundExtentId=id;

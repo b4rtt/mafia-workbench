@@ -230,3 +230,13 @@ Katalog používá indexy existujících 188bajtových záznamů predmety.def a 
 Vlastní script marker slouží pouze editoru a je komentářem nativního programu. Automatické řízení dovolujeme jen při přesné shodě celého programu, masky, délky dat a tří známých chunků aktéra bez dalších opaque bajtů. Přejmenování aktualizuje frame, jméno aktéra i findframe; konfigurace mění ID/model a počty munice společně. Duplicitní jména, geometrické názvy mise, potomci a cizí skriptové odkazy jsou chráněné. Po úpravě vlastního kódu nebo masky se automatické kopírování, nastavení a odstranění navázaného aktéra zakáže. Originální skripty se nepřepisují. Operace mají běžné exporty, společnou zálohu a undo; hash tabulky a modelu chrání otevřený dialog před souběžnou změnou. KLZ se kvůli pickupům nevytváří.
 
 Herní inicializace přes nově vytvořený detektor a sebrání hráčem ještě vyžadují ověření v runtime; samotná shoda s loaderem a roundtrip dat nejsou důkazem tohoto výsledku.
+
+### Značky objektů a interaktivní náhled světel
+
+Zvukové framy typu 4, světla typu 2 a skriptové body typu 6 bez modelu používají značky reproduktoru, žárovky a kódu. Billboard zůstává natočený ke kameře a při přiblížení se nezvětšuje; sdílí materiál i texturu v rámci viewportu. Výběr a transformace patří původnímu framu. Chybějící odkazovaný model si zachovává oranžovou značku.
+
+`light-preview.js` čte jediný světelný blok vybraného framu podle ID a bere rozepsané hodnoty. Bodové světlo ukazuje poloměry, reflektor kužely kolem lokální +Z, směrové světlo šipku a okolní světlo orientační celkové osvětlení. Náhled vybraného světla nahrazuje studiové osvětlení; vypnutí nebo přechod na jiný typ objektu jej obnoví. Hranice ani target nejsou součástí vybírané geometrie a nerozšiřují zarámování celé mapy. Volbu lze vypnout přes Zobrazení / Náhled světla a hranice zarámovat. Parametry i gizmo se projevují živě; stav přepínače a kamera se zachovají při uložení.
+
+Geometrie kuželu používá plnou aperturu a radiální dosah; Three SpotLight používá polovinu vnějšího úhlu. Interpretace je odvozená podle rozhraní LS3D SetCone a [Direct3D světel](https://learn.microsoft.com/en-us/windows/win32/direct3d9/light-types), nikoli nové měření enginu. Sektory, režim, stíny a vlastní útlum LS3D se zde nesimulují; účinek je výslovně označený jako orientační. Typy mlhy a bodového okolního světla nemají tento náhled.
+
+Ověření: testy nezáměnnosti bloků, draftů a neplatných hodnot, hranic kuželu a +Z cíle, světla v reflektované hierarchii, pohybu a viditelnosti rodiče, zachování rámování a uvolnění zdrojů. V izolovaném UI projektu ověřena značka zvuku, kompaktní žárovka, změna intenzity, směrová šipka, zarámování a přepínač náhledu. Herní soubory tento náhled nemění.
