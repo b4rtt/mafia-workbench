@@ -1,6 +1,6 @@
 # Samostatný editor původních kolizí
 
-Stav 13. října 2026: obecný KLZ writer, projektové transakce a samostatný 3D editor jsou implementované. V okně ověřený výběr původního boxu, posun manipulátorem, materiál, duplikace/odstranění, vložení koule, uložení a undo. Herní ověření prostorových změn všech typů ještě následuje; nepodporovaná původní data se zachovávají a označují. Celý komplexní editor není dokončený.
+Stav 13. října 2026: obecný KLZ writer, projektové transakce a samostatný 3D editor jsou implementované. V okně ověřený výběr původního boxu, posun manipulátorem, materiál, duplikace/odstranění, vložení koule, uložení a undo. Ve hře ověřené paprskové dotazy na všech šest nových typů, přesun na nové souřadnice, odstranění a undo. Nepodporovaná původní data se zachovávají a označují. Celý komplexní editor není dokončený.
 
 ## Doložené rozložení a význam
 
@@ -31,11 +31,11 @@ Generátor povrchů nyní umí odstranit konkrétní vlastněné vertex rozsahy 
 
 ## Ověření a zbývající práce
 
-Soukromý datový audit nad místním projektem Mafia-CZ přečetl 77 mission/tree.klz: 1 561 715 trojúhelníků, 56 131 AABB, 117 041 XTOBB, 59 828 válců, 116 216 OBB a 250 koulí. Prošlo 1 324 operací: exact no-op, byte-local materiálové změny každého dostupného pole, prostorové změny reprezentativních objemů, mazání s přemapováním a jedna prostorová změna původního trojúhelníku ve 76 misích. Ověřily se nepřepsané záznamy, reference, pořadí, extra vrcholy, tail a nezměněné zdrojové hashe. Audit zapisoval výsledné KLZ pouze v paměti, herní data se neměnila.
+Soukromý datový audit nad místním projektem Mafia-CZ přečetl 77 mission/tree.klz: 1 561 715 trojúhelníků, 56 131 AABB, 117 041 XTOBB, 59 828 válců, 116 216 OBB a 250 koulí. Po opravě čtení instancovaných billboardů prošlo 1 325 operací: exact no-op, byte-local materiálové změny každého dostupného pole, prostorové změny reprezentativních objemů, mazání s přemapováním a jedna prostorová změna původního trojúhelníku ve všech 77 misích. Ověřily se nepřepsané záznamy, reference, pořadí, extra vrcholy, tail a nezměněné zdrojové hashe. Audit zapisoval výsledné KLZ pouze v paměti, herní data se neměnila.
 
-Tři původní XTOBB `bar_nosniky02` v MISE02-SALIERY, MISE03-SALIERY a MISE03-SALIERYKONEC mají nulovou řadu matice, nulový místní Y rozměr a identitní uloženou inverzi. Jejich metadata/mazání se ověřily; prostorová změna tohoto neplatného tvaru se odmítá bez publikace. Další platný XTOBB ve stejných souborech prošel prostorovým testem. MISE16-LETISTE má `scene.4ds` s dosud nepodporovaným frame type 128: metadata, objemy a mazání KLZ prošly, prostorová editace frame-backed trojúhelníku zatím nemá ověřené rozlišení geometrie.
+Tři původní XTOBB `bar_nosniky02` v MISE02-SALIERY, MISE03-SALIERY a MISE03-SALIERYKONEC mají nulovou řadu matice, nulový místní Y rozměr a identitní uloženou inverzi. Jejich metadata/mazání se ověřily; prostorová změna tohoto neplatného tvaru se odmítá bez publikace. Další platný XTOBB ve stejných souborech prošel prostorovým testem. Původní hlášení frame type 128 letiště bylo způsobené posunutým čtením: instancovaný billboard stále ukládá vlastní pětibajtový axis/mode blok. Po opravě se načte všech 380 framů a 4 719 kolizí MISE16-LETISTE bez nevyřešené geometrie; prostorová změna původního trojúhelníku prošla datovým auditem.
 
-Jednotkové testy zahrnují všechny tvary, inverze a jejich roviny, rotaci trojúhelníku o 180°, sdílené světové vrcholy, odmítnutí chybných vstupů, nové/odstraněné kolize, buněčné hranice, byte-local metadata, opaque data a souběh nezávislých povrchů s generátorem. Projektové testy ručních úprav ověřují následnou změnu modelu, export, přesné undo, rollback a ochranu závislostí. Herní testy této nové funkce ještě zbývají.
+Jednotkové testy zahrnují všechny tvary, inverze a jejich roviny, rotaci trojúhelníku o 180°, sdílené světové vrcholy, odmítnutí chybných vstupů, nové/odstraněné kolize, buněčné hranice, byte-local metadata, opaque data a souběh nezávislých povrchů s generátorem. Projektové testy ručních úprav ověřují následnou změnu modelu, export, přesné undo, rollback a ochranu závislostí. Zbývají další herní dotazy a dynamické reakce; rozsah provedeného testu je uveden níže.
 
 ## Projekt a 3D ovládání
 
@@ -45,4 +45,21 @@ Editor seskupuje záznamy podle framu a dlouhé seznamy načítá po 100 položk
 
 Soukromý projektový audit na TUTORIAL upravil původní trojúhelník, AABB, XTOBB, OBB a válec, přidal všech šest typů, znovu je načetl a odstranil. Export se přesně shodoval s modem a tři undo přesně obnovila každý stav i výchozí KLZ; zdrojové soubory zůstaly stejné. Inspekční audit otevřel všech 77 původních KLZ, včetně označení neplatných původních hodnot a neřešených trojúhelníků letiště. TUTORIAL má 13 010 primitiv; inspekce trvala přibližně 140 ms (místní Node, bez IPC a vykreslení).
 
-V odděleném okně ověřen materiál boxu, posun na X manipulátorem, uložení přes ⌘S, zachování kamery/výběru, deaktivace startu s draftem, duplikace/odstranění boxu a undo. Nová koule při neodpovídajícím filtru se zviditelnila; záporný poloměr nešel uložit, opravená hodnota se uložila. Testovací změny se vracejí do výchozí historie. Účinek nových tvarů přímo v enginu ještě není ověřený.
+V odděleném okně ověřen materiál boxu, posun na X manipulátorem, uložení přes ⌘S, zachování kamery/výběru, deaktivace startu s draftem, duplikace/odstranění boxu a undo. Nová koule při neodpovídajícím filtru se zviditelnila; záporný poloměr nešel uložit, opravená hodnota se uložila. Testovací změny se vracejí do výchozí historie.
+
+## Herní ověření šesti typů
+
+Oddělená prázdná mise v nezávislé APFS kopii používá šest vodorovných `coll_testline` dotazů mimo původní podlahu. Každý zásah přičítá do energie hráče jiný bit (1, 2, 4, 8, 16, 32). Skript běží přímo v GOG 1.2, výsledky se ověřily na herním HUD; žádný výsledek se neodvozuje z náhledu nebo samotné přítomnosti procesu. Všechny první fáze mají stejný scene2.bin.
+
+| Stav | HUD | Výsledek |
+| --- | --- | --- |
+| Původní podlaha bez nových tvarů | 9 | Žádný zásah |
+| Přidán trojúhelník, AABB, otočený XTOBB, otočený OBB, koule a válec | 72 | Rozdíl 63 potvrzuje všech šest zásahů |
+| Všechny tvary přesunuty o 3 m na X, původní paprsky | 9 | Původní pozice už nekoliduje |
+| Undo přesunu | 72 | Obnovené zásahy |
+| Odstranění všech šesti tvarů | 9 | Žádný zásah |
+| Přesunuté tvary a paprsky na nových X | 72 | Nová poloha je dosažitelná dotazem |
+
+Každý start kontroluje hash KLZ vloženého do testovací mise; export po přidání se přesně shodoval s modem. Po testu se KLZ a skript přes undo vrátily na výchozí hashe. Zdrojový projekt i původní Game.exe zůstaly shodné a soukromá hra byla ukončena. Soukromé protokoly a snímky nepatří do veřejného repozitáře. Test prokazuje paprskové dotazy; nepokrývá všechny původní tvary, chování pohybu postav, aut ani všechny kombinace sphere/box dotazů enginu.
+
+Oprava billboardů byla porovnaná s původním parserem na 3 223 místních 4DS: letiště se nově načte, žádný dříve podporovaný soubor nepřestal fungovat a no-op writer zůstal byte-exact. Tři verze 27/58 se nadále odmítají. Celá sada 270 testů prošla.

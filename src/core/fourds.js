@@ -116,7 +116,9 @@ export function parseFourDs(source, geometry = false) {
         const data = object(reader, geometry); Object.assign(mesh, data);
         if (visual === 2 || visual === 3) mesh.skin = skin(reader, data.lods);
         if ((visual === 3 || visual === 5) && !data.instance) morph(reader);
-        if (visual === 4 && !data.instance) reader.skip(5);
+        // A billboard instance shares its vertex buffer, but still stores its
+        // own axis/mode payload. Skipping it misaligns the next frame (airport).
+        if (visual === 4) reader.skip(5);
       } else if (visual === 6) reader.skip(reader.u8() * 6);
       else if (visual === 7) reader.skip(4);
       else if (visual === 8) { reader.skip(120); triangleMesh(reader); }

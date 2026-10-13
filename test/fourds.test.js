@@ -48,3 +48,22 @@ test('4DS reads skin vertex groups and joint IDs without changing their opaque p
   assert.equal(parsed.meshes[1].joint,1); assert.equal(parsed.meshes[0].skin[0].valid,true);
   assert.deepEqual(parsed.meshes[0].skin[0].bones[0].weights,[.25]); assert.deepEqual(editFourDs(source,[]),source);
 });
+test('instanced billboards retain their own axis/mode and the following frame stays aligned', () => {
+  const base = fixture(), parsed = parseFourDs(base), meshStart = parsed.entries.find(e => e.id === 'meshes/0/parent').offset - 4;
+  const header = Buffer.from(base.subarray(0,meshStart)); header.writeUInt16LE(3,header.length-2);
+  const billboard = Buffer.from(base.subarray(meshStart,-1)); billboard[1] = 4;
+  const axis = Buffer.from([2,0,0,0,1]);
+  const instance = Buffer.concat([Buffer.from([1,4,0,0]),u16(0),floats([4,5,6,1,1,1,1,0,0,0]),Buffer.from([0]),text('shared glow'),text(''),u16(1),axis]);
+  const dummy = Buffer.concat([Buffer.from([6]),u16(0),floats([7,8,9,1,1,1,1,0,0,0]),Buffer.from([0]),text('next frame'),text(''),Buffer.alloc(24,0xab)]);
+  const source = Buffer.concat([header,billboard,axis,instance,dummy,Buffer.from([0x63])]);
+  for (const geometry of [false,true,'all']) {
+    const result = parseFourDs(source,geometry);
+    assert.equal(result.meshes[1].instance,1); assert.equal(result.meshes[2].name,'next frame'); assert.deepEqual(result.meshes[2].position,[7,8,9]);
+  }
+  assert.deepEqual(editFourDs(source,[]),source);
+  const changed = editFourDs(source,[{id:'meshes/1/name',value:'renamed billboard'}]);
+  const checked = parseFourDs(changed,true);
+  assert.equal(checked.meshes[1].name,'renamed billboard'); assert.equal(checked.meshes[2].name,'next frame');
+  assert.ok(changed.subarray(checked.entries.find(e=>e.id==='meshes/1/properties').offset+1).subarray(2,7).equals(axis));
+  assert.equal(changed.at(-1),0x63);
+});
