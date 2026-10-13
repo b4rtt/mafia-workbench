@@ -11,6 +11,7 @@ import { soundTypes, soundDefaults } from '../shared/sounds.js';
 import { soundExtentSettings } from './sound-extent.js';
 import { lightPreviewSettings } from './light-preview.js';
 import { roadGraph, roadEntries, roadReference } from '../shared/roads.js';
+import { roadTopologyDialog } from './road-topology.js';
 import { Viewport } from './viewport.js';
 import { actionMenu, initializeWorkspace, spatialWorkspace } from './workspace.js';
 import { renderBitmap } from './bitmap.js';
@@ -364,7 +365,7 @@ function renderTrack(main, file, previousView=null) {
 function renderRoads(main, file, previous=null) {
   const graph=roadGraph(file);
   main.append(element('p',`${file.crossings.length.toLocaleString('cs')} křižovatek · ${file.nodes.length.toLocaleString('cs')} silničních bodů. Modré body: křižovatky, žluté: silniční body. Čáry zobrazují uložené sousední vazby. Rychlosti jsou v původních herních jednotkách.`, 'notice'));
-  main.append(element('p','Bod nebo křižovatku lze posunout ve 3D nebo pomocí XYZ. Do existujícího úseku lze vložit bod, mezilehlý bod lze odstranit se zachováním cesty. Uložení přepočítá délky, úhly a pořadí výjezdů, seřadí body podle X a opraví jejich čísla ve vazbách. Tvorba nových křižovatek a odboček se ještě doplňuje.', 'notice'));
+  main.append(element('p','Bod nebo křižovatku lze posunout ve 3D nebo pomocí XYZ. Lze vytvořit křižovatky a propojit je cestou s pruhy pro oba směry, odstranit celé propojení nebo volnou křižovatku. Do úseku lze vložit bod a mezilehlý bod odstranit. Uložení aktualizuje délky, úhly, pořadí výjezdů a číslování bodů. Síť řídí auta; vozovku a kolize vytvořte samostatně.', 'notice'));
   for(const warning of file.warnings)main.append(element('p',warning,'notice'));
   const layout=element('div',undefined,'model-workspace'),center=element('section',undefined,'model-center'),inspector=element('section',undefined,'model-inspector');layout.append(center,inspector);main.append(layout);
   const tools=element('div',undefined,'tools'),section=element('select'),number=element('input'),jump=element('button','Vybrat bod'),fit=element('button','Zarámovat síť'),focus=element('button','Přiblížit bod'),background=element('button','Zobrazit geometrii mise'),viewport=element('div',undefined,'viewport');
@@ -373,12 +374,18 @@ function renderRoads(main, file, previous=null) {
   number.type='number';number.min='0';number.step='1';number.value='0';number.setAttribute('aria-label','Pořadí silničního bodu');
   const range=()=>{number.max=String(Math.max(0,file[section.value].length-1));};section.onchange=range;range();
   const insert=element('button','Vložit bod do úseku…'),remove=element('button','Odstranit mezilehlý bod…');insert.disabled=remove.disabled=true;
-  tools.append(section,number,jump,fit,focus,background,insert,remove);center.append(tools,viewport);
+  const createCross=element('button','Nová křižovatka…'),connect=element('button','Propojit křižovatky…'),disconnect=element('button','Odstranit propojení…'),deleteCross=element('button','Odstranit křižovatku…');
+  connect.disabled=disconnect.disabled=deleteCross.disabled=true;
+  tools.append(section,number,jump,fit,focus,background,insert,remove,actionMenu('Silniční síť',[createCross,connect,disconnect,deleteCross]));center.append(tools,viewport);
   let properties;
   const view=new NavigationViewport(viewport,frame=>{
     const point=graph.points[frame.navigationIndex],record=file[point.section][point.recordIndex];section.value=point.section;number.value=String(point.recordIndex);range();state.roadIndex=point.index;
     insert.disabled=!point.links.some(link=>point.section==='nodes'||graph.points[link.target].section==='nodes');
     remove.disabled=point.section!=='nodes'||point.links.length!==2||point.links.every(link=>graph.points[link.target].section==='crossings');
+    const isCross=point.section==='crossings';
+    connect.disabled=!isCross||file.crossings.length<2||!record.links.some((ref,i)=>ref===65535&&record.directions[i].target===65535);
+    disconnect.disabled=!isCross||!record.directions.some(direction=>direction.target!==65535);
+    deleteCross.disabled=!isCross||record.links.some(ref=>ref!==65535)||record.directions.some(direction=>direction.target!==65535);
     const pane=inspector.querySelector(':scope>.inspector-content')??inspector;
     pane.replaceChildren(element('h3',`${point.section==='crossings'?'Křižovatka':'Bod'} ${point.recordIndex}`),element('p',`Pozice XYZ: ${record.position.join(', ')}`,'notice'));
     const bindings=point.section==='crossings'?record.links.map((value,i)=>`Výjezd ${i}: ${roadReference(value)}`):[['Předchozí',record.previous],['Následující',record.next],['Předchozí křižovatka',record.previousCrossing],['Následující křižovatka',record.nextCrossing]].map(([label,value])=>`${label}: ${roadReference(value)}`);
@@ -392,6 +399,11 @@ function renderRoads(main, file, previous=null) {
   state.viewport=view;view.roadPath=file.path;view.projectRoot=state.project.root;view.focusOnSelect=true;view.loadNavigation(graph);view.gizmo.setMode('translate');if(previous)view.restoreCamera(previous.camera);focus.disabled=!graph.points.length;
   jump.onclick=()=>{const index=Number(number.value);if(number.value===''||!Number.isInteger(index)||index<0||index>=file[section.value].length)return status('Číslo bodu je mimo rozsah.',true);view.select(String(index+(section.value==='nodes'?file.crossings.length:0)));};
   for(const [button,action] of [[insert,'insert'],[remove,'delete']])button.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před změnou bodů uložte rozepsané vlastnosti.');if(view.selectedPoint!==null)roadPointDialog(file,graph,view.selectedPoint,action);});
+  for(const [button,action] of [[createCross,'create-crossing'],[connect,'connect'],[disconnect,'disconnect'],[deleteCross,'delete-crossing']])button.onclick=()=>run(async()=>{
+    if(state.texts.size)throw new Error('Před změnou sítě uložte rozepsané vlastnosti.');
+    const point=graph.points[view.selectedPoint];
+    roadTopologyDialog(file,action,point,{element,state,api,run,refresh,renderDetail,status});
+  });
   fit.onclick=()=>view.fit(view.markers);focus.onclick=()=>{if(view.selectedPoint!==null)view.fit(view.proxy);};
   let geometry,geometryLoading;
   async function toggleGeometry(){

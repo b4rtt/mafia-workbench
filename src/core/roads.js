@@ -104,10 +104,10 @@ export function prepareRoadEdits(source,changes){
   for(const [section,rows]of [['crossings',after.crossings],['nodes',after.nodes]])for(const row of rows)if(row.position.some((n,i)=>n!==before[section][row.index].position[i]))moved.add(section==='nodes'?row.index|32768:row.index);
   return compileGeometry(data,before,moved);
 }
-function compileGeometry(data,before,moved){
+function compileGeometry(data,before,moved,forced=new Set()){
   const after=parseRoads(data),total=after.crossings.length;
   const mapping=Array.from({length:total+after.nodes.length},(_,i)=>i);
-  if(!moved.size)return {data,mapping};
+  if(!moved.size&&!forced.size)return {data,mapping};
   for(const crossing of after.crossings){
     const active=[];
     for(let slot=0;slot<4;slot++){
@@ -117,7 +117,7 @@ function compileGeometry(data,before,moved){
       active.push({slot,vector:tangent(after,crossing,slot),oldVector:tangent(before,before.crossings[crossing.index],slot)});
     }
     const sameDirection=({vector:a,oldVector:b})=>a[0]===b[0]&&a[2]===b[2]||a[0]*b[2]===a[2]*b[0]&&a[0]*b[0]+a[2]*b[2]>0;
-    if(!active.length||active.every(sameDirection))continue;
+    if(!active.length||!forced.has(crossing.index)&&active.every(sameDirection))continue;
     if(active.some(item=>!Number.isFinite(item.vector[0])||!Number.isFinite(item.vector[2])||!item.vector[0]&&!item.vector[2]))throw new Error('Road: výjezd křižovatky nemá nenulový směr v rovině XZ.');
     const reference=active[0].vector.map(n=>-n),first=active[0],rest=active.slice(1).map(item=>({...item,angle:angle(reference,item.vector)})).sort((a,b)=>Math.fround(a.angle)-Math.fround(b.angle));
     const order=[first,...rest,...[0,1,2,3].filter(slot=>!active.some(item=>item.slot===slot)).map(slot=>({slot}))];
@@ -133,6 +133,13 @@ function compileGeometry(data,before,moved){
   parseRoads(data);return {data,mapping};
 }
 export function editRoads(source,changes){return prepareRoadEdits(source,changes).data;}
+
+// Structural changes supply the already-valid new graph and explicitly mark
+// crossings whose exit count/order changed. Unaffected stored lengths survive.
+export function compileRoadTopology(source,crossings,nodes=[]) {
+  const data=Buffer.from(source);
+  return compileGeometry(data,parseRoads(data),new Set(nodes.map(index=>32768|index)),new Set(crossings));
+}
 
 // Subdivide/bypass one reciprocal road edge. Crossing records and complete road
 // slots are retained; the new node inherits speed and owners from that road.

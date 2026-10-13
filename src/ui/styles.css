@@ -173,3 +173,11 @@ body.spatial-open .workspace>aside { position: absolute; inset: 0 auto 0 0; z-in
 .effect-definitions .item-form > details { margin-top: 14px; }
 .effect-definitions .item-form > details > .item-fields { margin-top: 10px; }
 @media (max-width: 900px) { .effect-definitions { grid-template-columns: minmax(180px, 1fr) minmax(260px, 2fr); } }
+
+.road-topology-dialog { width: min(640px, calc(100vw - 40px)); max-width: 640px; max-height: calc(100vh - 40px); overflow: auto; }
+.road-topology-dialog .mission-fields > details { grid-column: 1 / -1; }
+.road-topology-dialog details > .mission-fields { margin-top: 10px; }
+.road-lane { grid-column: 1 / -1; margin: 0; border: 1px solid var(--line); border-radius: 5px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; min-width: 0; }
+.road-lane legend { color: var(--muted); font-size: 12px; }
+.road-topology-dialog .road-lane label:has(select) { grid-column: auto; }
+.road-topology-dialog .mission-form > .tools { position: sticky; bottom: -24px; background: var(--panel); padding: 12px 0; margin-bottom: -24px; }
