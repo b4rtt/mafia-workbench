@@ -244,7 +244,7 @@ function renderTrack(main, file) {
 function renderRoads(main, file, previous=null) {
   const graph=roadGraph(file);
   main.append(element('p',`${file.crossings.length.toLocaleString('cs')} křižovatek · ${file.nodes.length.toLocaleString('cs')} silničních bodů. Modré body: křižovatky, žluté: silniční body. Čáry zobrazují uložené sousední vazby. Rychlosti jsou v původních herních jednotkách.`, 'notice'));
-  main.append(element('p','Bod nebo křižovatku lze posunout ve 3D nebo pomocí XYZ. Uložení přepočítá délky navazujících cest, úhly a pořadí výjezdů, seřadí body podle X a opraví jejich čísla ve vazbách. Topologie sítě zůstává stejná; přidávání a propojování se ještě doplňují.', 'notice'));
+  main.append(element('p','Bod nebo křižovatku lze posunout ve 3D nebo pomocí XYZ. Do existujícího úseku lze vložit bod, mezilehlý bod lze odstranit se zachováním cesty. Uložení přepočítá délky, úhly a pořadí výjezdů, seřadí body podle X a opraví jejich čísla ve vazbách. Tvorba nových křižovatek a odboček se ještě doplňuje.', 'notice'));
   for(const warning of file.warnings)main.append(element('p',warning,'notice'));
   const layout=element('div',undefined,'model-workspace'),center=element('section',undefined,'model-center'),inspector=element('section',undefined,'model-inspector');layout.append(center,inspector);main.append(layout);
   const tools=element('div',undefined,'tools'),section=element('select'),number=element('input'),jump=element('button','Vybrat bod'),fit=element('button','Zarámovat síť'),focus=element('button','Přiblížit bod'),background=element('button','Zobrazit geometrii mise'),viewport=element('div',undefined,'viewport');
@@ -252,10 +252,13 @@ function renderRoads(main, file, previous=null) {
   for(const [value,label] of [['crossings','Křižovatky'],['nodes','Silniční body']]){const option=element('option',label);option.value=value;section.append(option);}
   number.type='number';number.min='0';number.step='1';number.value='0';number.setAttribute('aria-label','Pořadí silničního bodu');
   const range=()=>{number.max=String(Math.max(0,file[section.value].length-1));};section.onchange=range;range();
-  tools.append(section,number,jump,fit,focus,background);center.append(tools,viewport);
+  const insert=element('button','Vložit bod do úseku…'),remove=element('button','Odstranit mezilehlý bod…');insert.disabled=remove.disabled=true;
+  tools.append(section,number,jump,fit,focus,background,insert,remove);center.append(tools,viewport);
   let properties;
   const view=new NavigationViewport(viewport,frame=>{
     const point=graph.points[frame.navigationIndex],record=file[point.section][point.recordIndex];section.value=point.section;number.value=String(point.recordIndex);range();state.roadIndex=point.index;
+    insert.disabled=!point.links.some(link=>point.section==='nodes'||graph.points[link.target].section==='nodes');
+    remove.disabled=point.section!=='nodes'||point.links.length!==2||point.links.every(link=>graph.points[link.target].section==='crossings');
     inspector.replaceChildren(element('h3',`${point.section==='crossings'?'Křižovatka':'Bod'} ${point.recordIndex}`),element('p',`Pozice XYZ: ${record.position.join(', ')}`,'notice'));
     const bindings=point.section==='crossings'?record.links.map((value,i)=>`Výjezd ${i}: ${roadReference(value)}`):[['Předchozí',record.previous],['Následující',record.next],['Předchozí křižovatka',record.previousCrossing],['Následující křižovatka',record.nextCrossing]].map(([label,value])=>`${label}: ${roadReference(value)}`);
     inspector.append(element('p',bindings.join(' · '),'notice'));
@@ -267,6 +270,7 @@ function renderRoads(main, file, previous=null) {
   });
   state.viewport=view;view.roadPath=file.path;view.projectRoot=state.project.root;view.focusOnSelect=true;view.loadNavigation(graph);view.gizmo.setMode('translate');if(previous)view.restoreCamera(previous.camera);focus.disabled=!graph.points.length;
   jump.onclick=()=>{const index=Number(number.value);if(number.value===''||!Number.isInteger(index)||index<0||index>=file[section.value].length)return status('Číslo bodu je mimo rozsah.',true);view.select(String(index+(section.value==='nodes'?file.crossings.length:0)));};
+  for(const [button,action] of [[insert,'insert'],[remove,'delete']])button.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před změnou bodů uložte rozepsané vlastnosti.');if(view.selectedPoint!==null)roadPointDialog(file,graph,view.selectedPoint,action);});
   fit.onclick=()=>view.fit(view.markers);focus.onclick=()=>{if(view.selectedPoint!==null)view.fit(view.proxy);};
   let geometry,geometryLoading;
   async function toggleGeometry(){
@@ -288,6 +292,29 @@ function renderRoads(main, file, previous=null) {
   background.onclick=()=>run(toggleGeometry);
   if(previous?.geometry)toggleGeometry().catch(error=>status(error.message,true));
   if(graph.points.length)view.select(String(Math.min(state.roadIndex??0,graph.points.length-1)),true,false);else inspector.append(element('p','Tato mise nemá silniční síť.','notice'));
+}
+function roadPointDialog(file,graph,index,action){
+  const point=graph.points[index],label=point=>`${point.section==='crossings'?'Křižovatka':'Bod'} ${point.recordIndex}`;
+  const dialog=element('dialog'),form=element('form',undefined,'mission-form'),fields=element('div',undefined,'mission-fields');
+  dialog.append(element('h2',action==='insert'?'Vložit bod do silničního úseku':'Odstranit mezilehlý silniční bod'),form);
+  const field=(label,input)=>{const row=element('label',label);input.setAttribute('aria-label',label);row.append(input);fields.append(row);return input;};
+  let target,xyz,speed;
+  if(action==='insert'){
+    form.append(element('p',`${label(point)}: vyberte sousední konec úseku. Výchozí poloha leží uprostřed; můžete ji změnit.`));
+    target=field('Druhý konec úseku',element('select'));
+    for(const link of point.links.filter(link=>point.section==='nodes'||graph.points[link.target].section==='nodes')){const option=element('option',label(graph.points[link.target]));option.value=String(link.target);target.append(option);}
+    xyz=['X','Y','Z'].map(axis=>{const input=element('input');input.type='number';input.step='any';input.required=true;return field(`Pozice ${axis}`,input);});
+    speed=element('input');speed.type='number';speed.step='any';speed.min='0';speed.required=true;field('Rychlost (herní jednotky)',speed);
+    target.onchange=()=>{const other=graph.points[Number(target.value)],template=point.section==='nodes'?point:other;xyz.forEach((input,i)=>input.value=String((point.position[i]+other.position[i])/2));speed.value=String(file.nodes[template.recordIndex].speed);};target.onchange();
+    form.append(fields,element('p','Nový bod převezme příslušnost ke křižovatkám z tohoto úseku. Obě sousední vazby, délky cesty, výjezdy a pořadí bodů se aktualizují společně. Pruhy a priority zůstanou u původní cesty.','notice'));
+  }else form.append(element('p',`${label(point)} se odstraní a jeho sousedé (${point.links.map(link=>label(graph.points[link.target])).join(', ')}) se propojí. Cesta zachová alespoň jeden silniční bod. Uložení přepočítá délky a výjezdy.`));
+  const message=element('p','','notice'),actions=element('div',undefined,'tools'),cancel=element('button','Zrušit'),save=element('button',action==='insert'?'Vložit do modu':'Odstranit z modu','primary');cancel.type='button';cancel.onclick=()=>dialog.close();save.type='submit';actions.append(cancel,save);form.append(message,actions);
+  form.onsubmit=event=>{event.preventDefault();if(state.busy||!form.reportValidity())return;run(async()=>{
+    save.disabled=cancel.disabled=true;fields.inert=true;
+    try{const request=action==='insert'?{action,from:index,to:Number(target.value),position:xyz.map(input=>Number(input.value)),speed:Number(speed.value)}:{action,index};const result=await api.changeRoadPoint(file.path,request,file.sha256);state.file=result.file;state.roadIndex=result.index;dialog.close();await refresh();renderDetail();status('Silniční bod a navazující vazby uložené do modu se zálohou a undo.');}
+    catch(error){message.textContent=error.message;throw error;}finally{save.disabled=cancel.disabled=false;fields.inert=false;}
+  });};
+  dialog.addEventListener('cancel',event=>{if(state.busy)event.preventDefault();});dialog.addEventListener('close',()=>dialog.remove(),{once:true});document.body.append(dialog);dialog.showModal();
 }
 function renderNavigation(main, file) {
   main.append(element('p', `${file.points.length.toLocaleString('cs')} bodů · ${file.linkCount.toLocaleString('cs')} směrovaných vazeb. Číslo bodu je jeho pořadí od nuly, uložené ID se může opakovat. Modrá: chodci, žlutá: AI, oranžová: vozidla, fialová: zastávky.`, 'notice'));

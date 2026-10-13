@@ -100,8 +100,12 @@ function tangent(file,crossing,slot){
 // Position changes keep the topology and node ownership. Recompute only paths and
 // turn ordering whose geometry changed, then relocate whole nodes and repair IDs.
 export function prepareRoadEdits(source,changes){
-  const before=parseRoads(source),data=editFields(source,changes),after=parseRoads(data),moved=new Set(),total=before.crossings.length;
+  const before=parseRoads(source),data=editFields(source,changes),after=parseRoads(data),moved=new Set();
   for(const [section,rows]of [['crossings',after.crossings],['nodes',after.nodes]])for(const row of rows)if(row.position.some((n,i)=>n!==before[section][row.index].position[i]))moved.add(section==='nodes'?row.index|32768:row.index);
+  return compileGeometry(data,before,moved);
+}
+function compileGeometry(data,before,moved){
+  const after=parseRoads(data),total=after.crossings.length;
   const mapping=Array.from({length:total+after.nodes.length},(_,i)=>i);
   if(!moved.size)return {data,mapping};
   for(const crossing of after.crossings){
@@ -112,7 +116,8 @@ export function prepareRoadEdits(source,changes){
       if(path.some(ref=>moved.has(ref))){let distance=0;for(let i=1;i<path.length;i++)distance=Math.fround(distance+segment(record(after,path[i-1]).position,record(after,path[i]).position));if(!Number.isFinite(distance))throw new Error('Road: délka cesty překračuje rozsah float32.');data.writeFloatLE(distance,8+crossing.index*CROSSING_SIZE+28+slot*SLOT_SIZE+4);}
       active.push({slot,vector:tangent(after,crossing,slot),oldVector:tangent(before,before.crossings[crossing.index],slot)});
     }
-    if(!active.length||!active.some(item=>[0,2].some(i=>item.vector[i]!==item.oldVector[i])))continue;
+    const sameDirection=({vector:a,oldVector:b})=>a[0]===b[0]&&a[2]===b[2]||a[0]*b[2]===a[2]*b[0]&&a[0]*b[0]+a[2]*b[2]>0;
+    if(!active.length||active.every(sameDirection))continue;
     if(active.some(item=>!Number.isFinite(item.vector[0])||!Number.isFinite(item.vector[2])||!item.vector[0]&&!item.vector[2]))throw new Error('Road: výjezd křižovatky nemá nenulový směr v rovině XZ.');
     const reference=active[0].vector.map(n=>-n),first=active[0],rest=active.slice(1).map(item=>({...item,angle:angle(reference,item.vector)})).sort((a,b)=>Math.fround(a.angle)-Math.fround(b.angle));
     const order=[first,...rest,...[0,1,2,3].filter(slot=>!active.some(item=>item.slot===slot)).map(slot=>({slot}))];
@@ -128,3 +133,60 @@ export function prepareRoadEdits(source,changes){
   parseRoads(data);return {data,mapping};
 }
 export function editRoads(source,changes){return prepareRoadEdits(source,changes).data;}
+
+// Subdivide/bypass one reciprocal road edge. Crossing records and complete road
+// slots are retained; the new node inherits speed and owners from that road.
+export function changeRoadPoint(source,request){
+  const before=parseRoads(source),total=before.crossings.length,count=before.nodes.length,start=12+total*CROSSING_SIZE;
+  const ref=index=>{if(!Number.isInteger(index)||index<0||index>=total+count)throw new Error('Road: bod je mimo síť.');return index<total?index:32768|(index-total);};
+  const graph=reference=>reference&32768?total+(reference&32767):reference;
+  const offsets=(file,reference,target)=>{
+    const row=record(file,reference),fields=reference&32768?[['previous',16],['next',18]]:row.links.map((_,i)=>[i,20+i*2]);
+    return fields.filter(([field])=>(reference&32768?row[field]:row.links[field])===target).map(([,delta])=>(reference&32768?start+(reference&32767)*NODE_SIZE:8+reference*CROSSING_SIZE)+delta);
+  };
+  const assertEndpoint=(reference,target)=>{const fields=offsets(before,reference,target);if(fields.length!==1)throw new Error('Road: úsek nemá jednoznačné obousměrné sousední vazby.');return fields[0];};
+  const action=request?.action;if(!['insert','delete'].includes(action))throw new Error('Road: neplatná změna bodů.');
+  let data,a,b,inserted,deleted,template;
+  if(action==='insert'){
+    if(count>=32767)throw new Error('Road: síť už má maximální počet silničních bodů.');
+    a=ref(request.from);b=ref(request.to);if(a===b||!(a&32768)&&!(b&32768))throw new Error('Road: vyberte úsek se silničním bodem.');
+    const left=assertEndpoint(a,b),right=assertEndpoint(b,a);template=record(before,a&32768?a:b);
+    if((a&32768)&&(b&32768)){
+      const other=record(before,b);if(template.previousCrossing!==other.previousCrossing||template.nextCrossing!==other.nextCrossing)throw new Error('Road: body nepatří stejné cestě.');
+    }
+    const xyz=request.position??record(before,a).position.map((n,i)=>(n+record(before,b).position[i])/2);
+    if(!Array.isArray(xyz)||xyz.length!==3||!Array.from(xyz).every(n=>typeof n==='number'&&Number.isFinite(n)&&Number.isFinite(Math.fround(n))))throw new Error('Road: pozice musí obsahovat tři konečná čísla float32.');
+    const speed=request.speed??template.speed;if(typeof speed!=='number'||speed<0||!Number.isFinite(speed)||!Number.isFinite(Math.fround(speed)))throw new Error('Road: rychlost je mimo rozsah.');
+    if(xyz.every((n,i)=>Math.fround(n)===record(before,a).position[i])||xyz.every((n,i)=>Math.fround(n)===record(before,b).position[i]))throw new Error('Road: nový bod musí mít jinou polohu než konce úseku.');
+    data=Buffer.concat([source,Buffer.alloc(NODE_SIZE)]);inserted=32768|count;data.writeUInt32LE(count+1,start-4);data.writeUInt16LE(inserted,left);data.writeUInt16LE(inserted,right);
+    const at=start+count*NODE_SIZE;xyz.forEach((n,i)=>data.writeFloatLE(n,at+i*4));data.writeFloatLE(speed,at+12);data.writeUInt16LE(a,at+16);data.writeUInt16LE(b,at+18);data.writeUInt16LE(template.previousCrossing,at+20);data.writeUInt16LE(template.nextCrossing,at+22);
+  }else{
+    deleted=ref(request.index);if(!(deleted&32768))throw new Error('Road: tímto nástrojem se odstraňuje mezilehlý silniční bod, nikoli křižovatka.');
+    template=record(before,deleted);a=template.previous;b=template.next;
+    if(a===NONE||b===NONE||a===b||!(a&32768)&&!(b&32768))throw new Error('Road: bod musí mít dva různé sousedy a cesta musí zachovat alespoň jeden silniční bod.');
+    const left=assertEndpoint(a,deleted),right=assertEndpoint(b,deleted);data=Buffer.from(source);data.writeUInt16LE(b,left);data.writeUInt16LE(a,right);
+    // Extra incoming links or opaque ownership/target references cannot be
+    // silently dropped. Validate references before compacting the node table.
+    for(const node of before.nodes){if(node.index===(deleted&32767))continue;for(const field of ['previous','next'])if(node[field]===deleted&&((node.index|32768)!==a&&(node.index|32768)!==b))throw new Error('Road: na bod vede další sousední vazba.');for(const field of ['previousCrossing','nextCrossing'])if(node[field]===deleted)throw new Error('Road: bod je použitý jako vlastník jiné cesty.');}
+    for(const crossing of before.crossings){if(crossing.directions.some(direction=>direction.target===deleted))throw new Error('Road: bod je použitý jako cíl křižovatky.');if(crossing.links.some(link=>link===deleted)&&crossing.index!==a&&crossing.index!==b)throw new Error('Road: na bod vede další výjezd křižovatky.');}
+    const at=start+(deleted&32767)*NODE_SIZE;data=Buffer.concat([data.subarray(0,at),data.subarray(at+NODE_SIZE)]);data.writeUInt32LE(count-1,start-4);
+  }
+  if(template.previousCrossing===NONE||template.nextCrossing===NONE||(template.previousCrossing&32768)||(template.nextCrossing&32768))throw new Error('Road: bod nemá rozpoznanou příslušnost ke křižovatkám.');
+  let routes=0;
+  for(const crossing of before.crossings)for(let slot=0;slot<4;slot++){
+    if(crossing.links[slot]===NONE||crossing.directions[slot].target===NONE)continue;
+    const refs=route(before,crossing,slot);if(refs.at(-1)!==crossing.directions[slot].target)throw new Error('Road: cíl směru neodpovídá jeho cestě.');
+    const affected=action==='insert'?refs.some((r,i)=>i&&(r===a&&refs[i-1]===b||r===b&&refs[i-1]===a)):refs.includes(deleted);
+    if(affected){routes++;if(![template.previousCrossing,template.nextCrossing].includes(crossing.index)||![template.previousCrossing,template.nextCrossing].includes(refs.at(-1)))throw new Error('Road: příslušnost bodu neodpovídá aktivní cestě.');}
+  }
+  if(!routes)throw new Error('Road: úsek není součástí aktivní cesty mezi křižovatkami.');
+  const compact=r=>deleted!==undefined&&r!==NONE&&(r&32768)&&(r&32767)>(deleted&32767)?r-1:r;
+  if(deleted!==undefined){
+    for(let i=0;i<count-1;i++)for(const delta of [16,18,20,22]){const at=start+i*NODE_SIZE+delta;data.writeUInt16LE(compact(data.readUInt16LE(at)),at);}
+    for(let i=0;i<total;i++)for(let slot=0;slot<4;slot++)for(const delta of [20+slot*2,28+slot*SLOT_SIZE]){const at=8+i*CROSSING_SIZE+delta;data.writeUInt16LE(compact(data.readUInt16LE(at)),at);}
+  }
+  const affected=inserted!==undefined?[inserted]:[a,b].filter(reference=>reference&32768).map(compact);
+  const compiled=compileGeometry(data,before,new Set(affected));
+  const mapping=Array.from({length:total+count},(_,i)=>{if(deleted!==undefined&&i===graph(deleted))return null;return compiled.mapping[graph(compact(i<total?i:32768|(i-total)))];});
+  const index=compiled.mapping[graph(inserted??compact(a))];return {data:compiled.data,mapping,index};
+}

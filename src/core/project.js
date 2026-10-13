@@ -12,7 +12,7 @@ import { parseItems, editItems } from './items.js';
 import { pickupParameters } from '../shared/pickups.js';
 import { parseNavigation, prepareNavigationEdits, changeNavigationConnection, changeNavigationPoint } from './navigation.js';
 import { remapSegments } from './segments.js';
-import { parseRoads, prepareRoadEdits } from './roads.js';
+import { parseRoads, prepareRoadEdits, changeRoadPoint } from './roads.js';
 import { parseTrack, editTrack } from './track.js';
 import { inspectDifference, editDifference } from './difference.js';
 import { inspectReplay, editReplay } from './replay.js';
@@ -538,6 +538,15 @@ export class ModProject {
       const prepared=prepareRoadEdits(before,changes);mapping=prepared.mapping;return prepared.data;
     }, 'Úprava silničních bodů a parametrů');
     return mapping;
+  }
+  async changeRoadPoint(name, request, expectedHash) {
+    if (!/^missions\/[^/]+\/road\.bin$/i.test(name)) throw new Error('Soubor není road.bin mise.');
+    let result;
+    await this.change(name,before=>{
+      if(expectedHash!==hash(before))throw new Error('Soubor se od otevření změnil. Otevřete jej znovu.');
+      result=changeRoadPoint(before,request);return result.data;
+    },request?.action==='insert'?'Vložení bodu do silničního úseku':'Odstranění mezilehlého silničního bodu');
+    return {index:result.index,mapping:result.mapping};
   }
   async saveDifference(name, changes, expectedHash) {
     if (!/\.chg$/i.test(name)) throw new Error('Soubor není CHG rozdíl scény.');

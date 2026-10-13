@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import * as THREE from 'three';
-import {parseRoads,editRoads,prepareRoadEdits} from '../src/core/roads.js';
+import {parseRoads,editRoads,prepareRoadEdits,changeRoadPoint} from '../src/core/roads.js';
 import {roadGraph,roadEntries,roadReference} from '../src/shared/roads.js';
 import {NavigationViewport} from '../src/ui/navigation.js';
 import {ModProject} from '../src/core/project.js';
@@ -130,4 +130,38 @@ test('geometry saves publish one road file, return the index mapping, reopen/exp
   const root=await fs.mkdtemp(path.join(os.tmpdir(),'mafia-road-move-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));const source=junction(),name='missions/TEST/road.bin';await writeSafe(root,'workbench.json',JSON.stringify({format:'mafia-workbench',version:1,name:'Road movement',assets:[],history:[]}));const project=await ModProject.open(root);await project.createFiles([{path:name,data:source},{path:'missions/TEST/scene2.bin',data:Buffer.from('unchanged scene')}]);const history=project.manifest.history.length;
   const changes=[{id:'nodes/2/position',value:[-3,0,-3]},{id:'nodes/3/position',value:[-7,0,-7]}],expected=prepareRoadEdits(source,changes);assert.deepEqual(await project.saveRoads(name,changes,hash(source)),expected.mapping);assert.deepEqual(await project.read(name),expected.data);assert.equal(project.manifest.history.at(-1).path,name);await assert.rejects(project.saveRoads(name,changes,hash(source)),/změnil/);
   const reopened=await ModProject.open(root),destination=path.join(root,'export');assert.deepEqual(await reopened.read(name),expected.data);await reopened.export(destination);assert.deepEqual(await fs.readFile(path.join(destination,name)),expected.data);assert.equal((await reopened.read('missions/TEST/scene2.bin')).toString(),'unchanged scene');await reopened.undo();assert.deepEqual(await reopened.read(name),source);assert.equal(reopened.manifest.history.length,history);
+});
+
+test('subdividing node and crossing edges retains reciprocal topology, ownership, speeds and full crossing metadata',()=>{
+  for(const [from,to] of [[4,5],[5,0],[0,5],[8,9],[9,1]]){
+    const source=junction(),before=Buffer.from(source),added=changeRoadPoint(source,{action:'insert',from,to}),file=parseRoads(added.data),node=file.nodes[added.index-4];
+    assert.equal(file.nodes.length,7);assert.equal(node.speed,10);assert.deepEqual([node.previousCrossing,node.nextCrossing],from===4||from===5||from===0?[0,3]:[0,1]);assert.equal(added.mapping.length,10);
+    const graph=roadGraph(file),index=added.index;
+    for(const old of [from,to])assert.ok(graph.points[added.mapping[old]].links.some(link=>link.target===index));assert.deepEqual(new Set(graph.points[index].links.map(link=>link.target)),new Set([added.mapping[from],added.mapping[to]]));
+    const deleted=changeRoadPoint(added.data,{action:'delete',index});assert.equal(parseRoads(deleted.data).nodes.length,6);assert.equal(deleted.mapping[index],null);assert.deepEqual(source,before);
+    // A collinear subdivision preserves lengths/turns; original opaque bytes
+    // and records remain in their exact original order after removing it.
+    assert.deepEqual(deleted.data,source);
+  }
+});
+test('insertion permits custom XYZ and speed, reorders indices and recomputes curved path lengths without changing lanes',()=>{
+  const source=junction(),added=changeRoadPoint(source,{action:'insert',from:8,to:9,position:[-20,1,4],speed:3}),file=parseRoads(added.data);assert.equal(added.index,4);assert.deepEqual(file.nodes[0].position,[-20,1,4]);assert.equal(file.nodes[0].speed,3);
+  for(let cross=0;cross<4;cross++)for(let slot=0;slot<4;slot++){const priority=file.crossings[cross].directions[slot].priority,old=parseRoads(source).crossings[cross].directions.findIndex(direction=>direction.priority===priority);assert.deepEqual(added.data.subarray(8+cross*236+28+slot*52+12,8+cross*236+28+(slot+1)*52),source.subarray(8+cross*236+28+old*52+12,8+cross*236+28+(old+1)*52));}
+  const expected=3+Math.sqrt(23*23+17)+Math.sqrt(27*27+17)+3;assert.ok(Math.abs(added.data.readFloatLE(40)-expected)<1e-5);assert.ok(Math.abs(added.data.readFloatLE(8+236+28+4)-expected)<1e-5);
+});
+test('removing a road interior point reconnects neighbors and keeps one node at each crossing chain',()=>{
+  const source=junction(),removed=changeRoadPoint(source,{action:'delete',index:8}),file=parseRoads(removed.data),graph=roadGraph(file);assert.equal(file.nodes.length,5);assert.equal(removed.mapping[8],null);assert.equal(removed.mapping[9],8);assert.deepEqual(new Set(graph.points[8].links.map(link=>link.target)),new Set([0,1]));
+  assert.throws(()=>changeRoadPoint(removed.data,{action:'delete',index:8}),/alespoň jeden/);
+});
+test('point topology rejects invalid requests, orphan ownership, nonreciprocal edges, extra incoming links and degenerate XYZ',()=>{
+  const source=junction();for(const request of [{action:'other'},{action:'insert',from:4,to:4},{action:'insert',from:0,to:1},{action:'insert',from:-1,to:4},{action:'insert',from:4,to:5,position:[1,2]},{action:'insert',from:4,to:5,position:[-7,0,0]},{action:'insert',from:4,to:5,speed:-1},{action:'delete',index:0},{action:'delete',index:100}])assert.throws(()=>changeRoadPoint(source,request));
+  const broken=Buffer.from(source);broken.writeUInt16LE(65535,956+18);assert.throws(()=>changeRoadPoint(broken,{action:'insert',from:4,to:5}),/sousední|nekončí/);
+  const orphan=Buffer.from(source);orphan.writeUInt16LE(65535,956+20);assert.throws(()=>changeRoadPoint(orphan,{action:'insert',from:4,to:5}),/stejné/);
+  const incoming=Buffer.from(source);incoming.writeUInt16LE(32772,956+16);assert.throws(()=>changeRoadPoint(incoming,{action:'delete',index:8}),/další/);
+  const maximum=Buffer.concat([source,Buffer.alloc((32767-6)*24)]);maximum.writeUInt32LE(32767,952);assert.throws(()=>changeRoadPoint(maximum,{action:'insert',from:4,to:5}),/maximální počet/);
+});
+test('road subdivision saves one file with stale guards, exports/reopens and undoes additions and deletion byte exactly',async t=>{
+  const root=await fs.mkdtemp(path.join(os.tmpdir(),'mafia-road-points-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));const source=junction(),name='missions/TEST/road.bin';await writeSafe(root,'workbench.json',JSON.stringify({format:'mafia-workbench',version:1,name:'Road points',assets:[],history:[]}));const project=await ModProject.open(root);await project.createFiles([{path:name,data:source},{path:'missions/TEST/tree.klz',data:Buffer.from('untouched collisions')}]);const history=project.manifest.history.length;
+  const request={action:'insert',from:8,to:9,position:[-20,1,4],speed:3},expected=changeRoadPoint(source,request),selection=await project.changeRoadPoint(name,request,hash(source));assert.deepEqual(selection,{index:expected.index,mapping:expected.mapping});await assert.rejects(project.changeRoadPoint(name,request,hash(source)),/změnil/);
+  const added=await project.read(name);await project.changeRoadPoint(name,{action:'delete',index:selection.index},hash(added));const removed=await project.read(name),reopened=await ModProject.open(root),destination=path.join(root,'export');await reopened.export(destination);assert.deepEqual(await fs.readFile(path.join(destination,name)),removed);await reopened.undo();assert.deepEqual(await reopened.read(name),added);await reopened.undo();assert.deepEqual(await reopened.read(name),source);assert.equal(reopened.manifest.history.length,history);assert.equal((await reopened.read('missions/TEST/tree.klz')).toString(),'untouched collisions');
 });
