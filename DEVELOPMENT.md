@@ -124,3 +124,7 @@ Navázat příkladem od založení mise přes vlastní zadání/titulky, interak
 - Implementováno: Texty → jazykový TextDB → Nový text…; vlastní volné ID, kódování a zachování původních textů/indexových vazeb, hash guard, záloha, export a undo. Obsazené ID či nepodporované znaky se hlásí v dialogu. Limit a hraniční záznam jsou popsané v research/formats.md.
 - Audit všech tří tabulek, UI vytvoření/odmítnutí, přesný export a skutečný český titulek v izolované hře prošly. UI undo obnovilo tabulku/historii, ostatní testovací soubory a chráněné projekty/EXE shodné. Vlastní hra ukončená. Kontroly: 305 testů, check a build.
 - Návaznost: vlastní texty jsou hotový základ, celý postup hratelné mise stále vyžaduje ověření interakce, návazného cíle, dokončení a restartu/uložené hry. Dabing a import hlasu zůstávají otevřené. Ostatní backlog se tím neuzavírá.
+
+## Navazující goal po dokončení vlastní mise
+
+Uživatel požaduje oddělený AI plugin pro generování propracovaného živého města z vybrané skutečné oblasti a mapových/výškových podkladů. Požadavky, preference Codex/Claude, oddělení od editoru a konkrétní zadání dalšího goalu jsou uložené v [research/city-generator-plugin.md](research/city-generator-plugin.md). Implementaci zahájit až po schopnosti vytvořit kompletní hratelnou misi; současný goal editoru zůstává aktivní.
