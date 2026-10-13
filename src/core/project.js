@@ -18,7 +18,7 @@ import { inspectReplay, editReplay } from './replay.js';
 import { assetCategory } from '../shared/categories.js';
 import { readEmptyMissionZip, configureEmptyMission, missionName } from './mission.js';
 import { parseCollision } from './collision.js';
-import { collisionOwnership, ownedCollisionRecords, prepareSceneCollision } from './scene-collision.js';
+import { collisionOwnership, ownedCollisionRecords, prepareSceneCollision, collisionSurfacePreview } from './scene-collision.js';
 import { parseVehicleTable, vehicleModelDefinition, validateVehicleModel } from './vehicles.js';
 import { inspectVehicleTable, editVehicleTable } from './vehicle-table.js';
 
@@ -328,7 +328,7 @@ export class ModProject {
     }else if(operation?.kind==='collision')throw new Error('Zvolte způsob kolize.');
     if(operation?.kind==='duplicate'){
       const original=inspectScene(before).objects.find(o=>o.id===operation.id),owned=collisionOwnership(this.manifest,name).find(o=>key(o.name)===key(original?.name??''));
-      if(owned){const klz=parseCollision(await this.read(`${folder}/tree.klz`)),record=ownedCollisionRecords(klz,[owned])[0];requests.push({name:operation.name,kind:'aabb',material:record.material});}
+      if(owned){const klz=parseCollision(await this.read(`${folder}/tree.klz`)),record=ownedCollisionRecords(klz,[owned])[0];requests.push({name:operation.name,kind:owned.kind,material:record.material,doubleSided:owned.doubleSided});}
     }
     const collision=await prepareSceneCollision(this,name,before,after,{requests,expectedHash:operation?.collisionHash});
     const label={ 'add-model': 'Vložení modelu do mise', 'add-human':'Vložení postavy a jejího skriptu','add-car':'Vložení automobilu a jeho aktéra','add-light':'Vložení světla do mise','add-sound':'Vložení prostorového zvuku do mise','add-detector':'Vložení skriptového bodu','attach-door':'Vytvoření dveřního aktéra','attach-physical':'Vytvoření fyzikálního předmětu', duplicate: 'Duplikace objektu mise', delete: 'Odstranění objektu mise',collision:'Generování kolize modelu' }[operation?.kind]??'Úprava objektů mise';
@@ -487,8 +487,8 @@ export class ModProject {
     if (geometry.type !== 'model') throw new Error(geometry.warning ?? 'Geometrii této mapy zatím nelze přečíst.');
     let collision;
     if(this.index.has(key(`${folder}/tree.klz`))){
-      const bytes=await this.read(`${folder}/tree.klz`);collision={sha256:hash(bytes),boxes:[]};
-      try{const ownership=collisionOwnership(this.manifest,scene.path),parsed=parseCollision(bytes),records=ownedCollisionRecords(parsed,ownership);collision.boxes=records.map((record,i)=>({name:ownership[i].name,min:record.min,max:record.max,material:record.material}));}
+      const bytes=await this.read(`${folder}/tree.klz`);collision={sha256:hash(bytes),boxes:[],surfaces:[]};
+      try{const ownership=collisionOwnership(this.manifest,scene.path),parsed=parseCollision(bytes),records=ownedCollisionRecords(parsed,ownership);records.forEach((record,i)=>{if(ownership[i].kind==='mesh')collision.surfaces.push(collisionSurfacePreview(parsed,record));else collision.boxes.push({name:ownership[i].name,min:record.min,max:record.max,material:record.material});});}
       catch(error){collision.warning=error.message;}
     }
     return { ...scene, type: 'map', geometry, collision };

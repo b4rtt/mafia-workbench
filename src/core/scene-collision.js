@@ -2,23 +2,58 @@ import { hash } from './files.js';
 import { inspectScene } from './scene.js';
 import { parseFourDs } from './fourds.js';
 import { parseCollision, appendCollisionBoxes } from './collision.js';
-import { modelCollisionBox } from './model-collision.js';
+import { modelCollisionBox, modelCollisionSurface, geometryCollisionResolver } from './model-collision.js';
+import { replaceCollisionSurfaces, collisionTriangleVertices } from './collision-surfaces.js';
 
 const key = name => name.normalize('NFC').toLowerCase();
 export function collisionOwnership(manifest, scenePath) {
   const snapshot=manifest.history.findLast(entry=>entry.collisionOwnership&&key(entry.collisionOwnership.path)===key(scenePath));
   if(!snapshot)return [];
   const objects=snapshot.collisionOwnership.objects;
-  if(!Array.isArray(objects)||objects.length>65536||objects.some(o=>!o||typeof o.name!=='string'||!o.name||o.kind!=='aabb'||!/^[0-9a-f]{64}$/.test(o.signature))||new Set(objects.map(o=>key(o.name))).size!==objects.length)throw new Error('Kolize: neplatná evidence generovaných boxů.');
+  if(!Array.isArray(objects)||objects.length>65536||objects.some(o=>!o||typeof o.name!=='string'||!o.name||!['aabb','mesh'].includes(o.kind)||o.kind==='mesh'&&(![o.triangleStart,o.triangleCount,o.vertexStart,o.vertexCount].every(Number.isInteger)||o.triangleStart<0||o.vertexStart<0||o.triangleCount<=0||o.vertexCount<=0||typeof o.doubleSided!=='boolean')||!/^[0-9a-f]{64}$/.test(o.signature))||new Set(objects.map(o=>key(o.name))).size!==objects.length)throw new Error('Kolize: neplatná evidence generovaných kolizí.');
   return objects.map(object=>({...object}));
 }
 
+export function surfaceSignature(parsed, group) {
+  return hash(Buffer.concat([parsed.primitives.triangles.raw.subarray(group.triangleStart*32,(group.triangleStart+group.triangleCount)*32),parsed.extraVertices.subarray(group.vertexStart*12,(group.vertexStart+group.vertexCount)*12)]));
+}
 export function ownedCollisionRecords(parsed, ownership) {
+  const usedTriangles=new Set(),usedVertices=new Set();
   return ownership.map(owned=>{
+    if(owned.kind==='mesh'){
+      if(owned.triangleStart+owned.triangleCount>parsed.primitives.triangles.count||owned.vertexStart+owned.vertexCount>parsed.vertexCount||surfaceSignature(parsed,owned)!==owned.signature)throw new Error(`Kolize ${owned.name} byla změněna mimo editor.`);
+      const records=parsed.primitives.triangles.records.slice(owned.triangleStart,owned.triangleStart+owned.triangleCount);
+      for(const record of records){if(usedTriangles.has(record.index)||record.vertices.some(v=>v.link!==0x7fff||v.index<owned.vertexStart||v.index>=owned.vertexStart+owned.vertexCount))throw new Error('Kolize: překrývající se nebo neplatné vlastnictví povrchu.');usedTriangles.add(record.index);}
+      for(let i=owned.vertexStart;i<owned.vertexStart+owned.vertexCount;i++){if(usedVertices.has(i))throw new Error('Kolize: překrývající se vlastnictví vrcholů.');usedVertices.add(i);}
+      if(records.some(r=>r.material!==records[0].material))throw new Error('Kolize: nestejné materiály generovaného povrchu.');
+      return {...owned,records,material:records[0].material};
+    }
     const matches=parsed.primitives.aabbs.records.filter(record=>hash(record.raw)===owned.signature&&key(parsed.links[record.link].name)===key(owned.name));
     if(matches.length!==1)throw new Error(`Kolize ${owned.name} byla změněna mimo editor nebo je nejednoznačná. Vraťte změnu nebo obnovte odpovídající projekt.`);
     return matches[0];
   });
+}
+export function collisionSurfacePreview(parsed, owned) {
+  return {name:owned.name,kind:'mesh',material:owned.material,doubleSided:owned.doubleSided,triangleCount:owned.triangleCount,positions:owned.records.flatMap(record=>collisionTriangleVertices(parsed,record).flat())};
+}
+
+// Native static triangles can refer to prefixed children of external model
+// frames, not just scene.4ds visuals (e.g. zboren27.Box01). Resolve those using
+// the same parent transforms and protect every read model in the transaction.
+async function collisionGeometry(project,scene,geometry,parsed,dependencies) {
+  const names=new Set(geometry.meshes.map(m=>key(m.name))),roots=new Set();
+  for(const record of parsed.primitives.triangles.records){if(record.vertices[0].link===0x7fff)continue;const name=key(parsed.links[record.vertices[0].link].name);if(names.has(name))continue;
+    const candidates=scene.objects.filter(o=>o.model&&name.startsWith(key(o.name)+'.')).sort((a,b)=>b.name.length-a.name.length);if(candidates[0])roots.add(candidates[0]);
+  }
+  const meshes=[...geometry.meshes];let id=Math.max(0,...meshes.map(m=>m.id))+1;
+  for(const root of roots){
+    const path=project.asset(`models/${root.model.replace(/\.(?:i3d|4ds)$/i,'.4ds')}`).path;if(!dependencies.has(path))dependencies.set(path,await project.read(path));const model=parseFourDs(dependencies.get(path),true);
+    const existing=meshes.filter(m=>key(m.name)===key(root.name));if(existing.length>1)throw new Error('Kolize: nejednoznačný kořen externího modelu.');
+    let parent=existing[0]?.id;if(parent===undefined){parent=id++;meshes.push({id:parent,name:root.name,parent:0,type:6,position:[0,0,0],rotation:[1,0,0,0],scale:[1,1,1]});}
+    const ids=new Map(model.meshes.map(m=>[m.id,id++])),base=meshes.length;
+    for(const mesh of model.meshes)meshes.push({...mesh,id:ids.get(mesh.id),name:root.name+'.'+mesh.name,parent:mesh.parent?ids.get(mesh.parent):parent,instance:mesh.instance?base+mesh.instance:0});
+  }
+  return {...geometry,meshes};
 }
 
 // Ownership lives in the same atomic history entry as the scene/KLZ overlays.
@@ -29,14 +64,17 @@ export async function prepareSceneCollision(project, scenePath, before, after, o
   const folder=project.asset(scenePath).path.slice(0,project.asset(scenePath).path.lastIndexOf('/')),klzPath=`${folder}/tree.klz`,bytes=await project.read(klzPath),expectedHash=hash(bytes);
   if(options.expectedHash!==undefined&&options.expectedHash!==expectedHash)throw new Error('Kolize se od otevření mapy změnily. Otevřete mapu znovu.');
   const parsed=parseCollision(bytes),owned=ownedCollisionRecords(parsed,ownership),scene=inspectScene(after),oldScene=inspectScene(before),renames=options.renames??new Map(),desired=new Map();
-  ownership.forEach((object,i)=>desired.set(key(renames.get(object.name)??object.name),{name:renames.get(object.name)??object.name,record:owned[i],previous:object}));
+  ownership.forEach((object,i)=>desired.set(key(renames.get(object.name)??object.name),{name:renames.get(object.name)??object.name,kind:object.kind,record:owned[i],previous:object}));
   for(const request of requests){
-    if(!request||typeof request.name!=='string'||!['aabb','none'].includes(request.kind)||request.kind==='aabb'&&(!Number.isInteger(request.material)||request.material<0||request.material>255))throw new Error('Kolize: neplatný způsob generování nebo materiál.');
+    if(!request||typeof request.name!=='string'||!['aabb','mesh','none'].includes(request.kind)||request.kind!=='none'&&(!Number.isInteger(request.material)||request.material<0||request.material>255))throw new Error('Kolize: neplatný způsob generování nebo materiál.');
     const previous=desired.get(key(request.name));
     if(request.kind==='none')desired.delete(key(request.name));
-    else desired.set(key(request.name),{...previous,name:request.name,material:request.material});
+    else {if(request.doubleSided!==undefined&&typeof request.doubleSided!=='boolean')throw new Error('Kolize: neplatná oboustrannost.');desired.set(key(request.name),{...previous,name:request.name,kind:request.kind,material:request.material,doubleSided:request.doubleSided??previous?.previous?.doubleSided??true});}
   }
-  const geometryPath=`${folder}/scene.4ds`,geometryBytes=await project.read(geometryPath),geometry=parseFourDs(geometryBytes),dependencies=new Map([[geometryPath,geometryBytes]]),removed=new Set(owned.map(record=>record.index)),boxes=[],next=[];
+  const geometryPath=`${folder}/scene.4ds`,geometryBytes=await project.read(geometryPath),geometry=parseFourDs(geometryBytes,true),dependencies=new Map([[geometryPath,geometryBytes]]),removed=new Set(owned.filter(record=>record.kind!=='mesh').map(record=>record.index)),boxes=[],surfaces=[],next=[];
+  const meshOwners=ownership.filter(o=>o.kind==='mesh').sort((a,b)=>a.vertexStart-b.vertexStart),vertexBase=meshOwners[0]?.vertexStart??parsed.vertexCount;let end=vertexBase;
+  for(const owner of meshOwners){if(owner.vertexStart!==end)throw new Error('Kolize: generované vrcholy nejsou souvislý oddělený blok.');end+=owner.vertexCount;}
+  if(end!==parsed.vertexCount)throw new Error('Kolize: za generovanými vrcholy jsou cizí data.');
   for(const definition of desired.values()){
     const matches=scene.objects.filter(object=>key(object.name)===key(definition.name)),object=matches[0];
     if(matches.length>1)throw new Error('Kolize: nejednoznačný objekt scény.');
@@ -44,12 +82,14 @@ export async function prepareSceneCollision(project, scenePath, before, after, o
     if(typeof object.model!=='string'||!/^[^/\\]+\.(?:i3d|4ds)$/i.test(object.model))throw new Error('Kolize: vyberte model z hlavní složky models.');
     const modelPath=project.asset(`models/${object.model.replace(/\.(?:i3d|4ds)$/i,'.4ds')}`).path;
     if(!dependencies.has(modelPath))dependencies.set(modelPath,await project.read(modelPath));
-    const box={...modelCollisionBox(parseFourDs(dependencies.get(modelPath),true),object,scene,geometry),sort:definition.record?.sort??0,flags:definition.record?.flags??0,material:definition.material??definition.record?.material??0},record=definition.record;
+    if(definition.kind==='mesh'){surfaces.push({...modelCollisionSurface(parseFourDs(dependencies.get(modelPath),true),object,scene,geometry),material:definition.material??definition.record?.material??0,doubleSided:definition.doubleSided??definition.previous?.doubleSided??true});continue;}
+    const box={...modelCollisionBox(parseFourDs(dependencies.get(modelPath),true),object,scene,geometry),sort:definition.record?.sort??0,flags:definition.record?.flags??0,material:definition.material??definition.record?.material??0},record=definition.record?.kind==='mesh'?null:definition.record;
     if(record&&key(parsed.links[record.link].name)===key(box.name)&&box.material===record.material&&box.min.every((n,i)=>Math.fround(n)===record.min[i])&&box.max.every((n,i)=>Math.fround(n)===record.max[i])){
       removed.delete(record.index);next.push({...definition.previous,name:object.name});
     }else boxes.push(box);
   }
-  const result=appendCollisionBoxes(bytes,boxes,[...removed]),checked=parseCollision(result),first=parsed.primitives.aabbs.count-removed.size;
+  const boxed=appendCollisionBoxes(bytes,boxes,[...removed]),replacement=replaceCollisionSurfaces(boxed,surfaces,{removedIndices:owned.filter(r=>r.kind==='mesh').flatMap(r=>r.records.map(t=>t.index)),vertexBase,resolveFrame:geometryCollisionResolver(scene,surfaces.length?await collisionGeometry(project,scene,geometry,parsed,dependencies):geometry)}),result=replacement.bytes,checked=parseCollision(result),first=parsed.primitives.aabbs.count-removed.size;
   boxes.forEach((box,i)=>next.push({name:box.name,kind:'aabb',signature:hash(checked.primitives.aabbs.records[first+i].raw)}));
+  replacement.groups.forEach(group=>next.push({...group,kind:'mesh',signature:surfaceSignature(checked,group)}));
   return {files:[{path:klzPath,data:result,expectedHash},...[...dependencies].map(([path,data])=>({path,data,expectedHash:hash(data)}))],ownership:{path:project.asset(scenePath).path,objects:next}};
 }

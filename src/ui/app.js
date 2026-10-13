@@ -734,8 +734,8 @@ function renderMap(main, file, previous = null) {
   const sky = element('button', 'Obloha'); let showSky = Boolean(previous?.backdrop); sky.setAttribute('aria-pressed', String(showSky)); sky.onclick = () => { showSky = !showSky; view.showBackdrop(showSky); sky.setAttribute('aria-pressed', String(showSky)); updateSoundExtent(); };
   tools.append(fit, sky); objects.onchange = () => view.select(objects.value);
   if(file.collision){
-    const show=element('button',`Kolizní boxy (${file.collision.boxes.length})`);let visible=Boolean(previous?.collisions);show.setAttribute('aria-pressed',String(visible));
-    view.showCollisionBoxes(file.collision.boxes,visible);show.onclick=()=>{visible=!visible;view.showCollisionBoxes(file.collision.boxes,visible);show.setAttribute('aria-pressed',String(visible));};tools.append(show);
+    const show=element('button',`Generované kolize (${file.collision.boxes.length+(file.collision.surfaces?.length??0)})`);let visible=Boolean(previous?.collisions);show.setAttribute('aria-pressed',String(visible));
+    view.showCollisionBoxes(file.collision.boxes,visible,file.collision.surfaces??[]);show.onclick=()=>{visible=!visible;view.showCollisionBoxes(file.collision.boxes,visible,file.collision.surfaces??[]);show.setAttribute('aria-pressed',String(visible));};tools.append(show);
     if(file.collision.warning)center.append(element('p',file.collision.warning,'notice'));
   }
   focus.onclick = () => { const object = view.frames.get(selectedId); if (object) { cameraMoved = true; view.fit(object); } };
@@ -761,7 +761,7 @@ function renderMap(main, file, previous = null) {
   }
   view.loadTextures(resolveTexture);
   properties = renderProperties(inspector, file, file.cacheSource ? api.saveCache : async (...args) => { await api.saveScene(...args); return api.map(file.path); }, (entry, value) => { const field = byField.get(entry.id); if (field && ['position','rotation','scale'].includes(field.kind)) view.update(field.id, { [field.kind]: value }); updateSoundExtent(); });
-  center.append(element('p', file.cacheSource ? 'Statické modely vybrané části cache.bin. Transformace se ukládají do samostatného modu; oranžové body označují chybějící modely.' : 'Geometrie scene.4ds a objekty scene2.bin. Modré body označují objekty bez modelu; oranžové body chybějící model. Generované kolizní boxy se přepočítají při uložení transformace a vracejí se společně s objektem.', 'notice'));
+  center.append(element('p', file.cacheSource ? 'Statické modely vybrané části cache.bin. Transformace se ukládají do samostatného modu; oranžové body označují chybějící modely.' : 'Geometrie scene.4ds a objekty scene2.bin. Modré body označují objekty bez modelu; oranžové body chybějící model. Generované kolize se přepočítají při uložení transformace a vracejí se společně s objektem.', 'notice'));
 }
 function soundDialog(file,position=[0,0,0]){
   const assets=state.project.assets.filter(asset=>/^sounds\/.+\.wav$/i.test(asset.path));
@@ -886,12 +886,13 @@ function sceneObjectDialog(file, kind, object, cars = null) {
   const name = element('input'); name.required = true; name.maxLength = 63;
   name.value = kind === 'duplicate' ? `${object.name.slice(0,55)}_copy` : kind==='add-human'?'WB_CHARACTER':kind==='add-car'?'WB_CAR':'WB_MODEL';
   if (!['delete','collision'].includes(kind)) field('Jedinečný název objektu', name);
-  let model, position, heading, scale, code, collisionMode, collisionMaterial;const parameters=new Map();
+  let model, position, heading, scale, code, collisionMode, collisionMaterial, collisionSides;const parameters=new Map();
   function collisionFields(){
-    const existing=file.collision?.boxes.find(box=>box.name===object?.name);collisionMode=element('select');collisionMode.setAttribute('aria-label','Způsob kolize');
-    for(const [value,label] of [['none',kind==='collision'?'Odstranit generovanou kolizi':'Bez generované kolize'],['aabb','Automatický box kolem modelu']]){const option=element('option',label);option.value=value;collisionMode.append(option);}collisionMode.value=existing?'aabb':'none';field('Kolize',collisionMode);
+    const existing=[...(file.collision?.boxes??[]).map(box=>({...box,kind:'aabb'})),...(file.collision?.surfaces??[])].find(box=>box.name===object?.name);collisionMode=element('select');collisionMode.setAttribute('aria-label','Způsob kolize');
+    for(const [value,label] of [['none',kind==='collision'?'Odstranit generovanou kolizi':'Bez generované kolize'],['aabb','Automatický box kolem modelu'],['mesh','Přesný povrch modelu (trojúhelníky)']]){const option=element('option',label);option.value=value;collisionMode.append(option);}collisionMode.value=existing?.kind??'none';field('Kolize',collisionMode);
     collisionMaterial=number('Materiál kolize (0–255)',existing?.material??0);collisionMaterial.min='0';collisionMaterial.max='255';collisionMaterial.step='1';
-    collisionMode.onchange=()=>collisionMaterial.disabled=collisionMode.value==='none';collisionMode.onchange();
+    collisionSides=element('input');collisionSides.type='checkbox';collisionSides.checked=existing?.doubleSided??true;field('Kolize povrchu z obou stran',collisionSides);
+    collisionMode.onchange=()=>{collisionMaterial.disabled=collisionMode.value==='none';collisionSides.disabled=collisionMode.value!=='mesh';};collisionMode.onchange();
   }
   if (adding) {
     const search = element('input'); search.type = 'search'; search.placeholder = 'Hledat model…'; search.setAttribute('aria-label', 'Hledat vkládaný model'); field('Hledat model', search);
@@ -902,14 +903,14 @@ function sceneObjectDialog(file, kind, object, cars = null) {
     position = ['X','Y','Z'].map((axis,i) => number(`Pozice ${axis}`, object?.position?.[i] ?? 0));
     heading = number('Natočení kolem Y (stupně)', 0); if(kind!=='add-car')scale = ['X','Y','Z'].map(axis => number(`Měřítko ${axis}`, 1));
     if(kind==='add-model'&&file.collision&&!file.collision.warning)collisionFields();
-    form.append(fields, element('p', kind==='add-car'?'Auto se vloží s herním aktérem. Fyziku, sedadla a dynamické kolize načte hra z modelu a tables/vehicles.bin. Měřítko zůstává 1. Umístěte auto na volný povrch; výška Y je v metrech.':kind==='add-human'?'Postava se vloží do hlavního sektoru s vlastním aktérem a skriptem. Vyberte model s kostrou. Navigační body lze upravit v check.bin.':'Model se vloží do hlavního sektoru. Automatický box vyplní celý obal modelu včetně otvorů; pro jednoduché překážky. Kolize se uloží do tree.klz společně s modelem.'));
+    form.append(fields, element('p', kind==='add-car'?'Auto se vloží s herním aktérem. Fyziku, sedadla a dynamické kolize načte hra z modelu a tables/vehicles.bin. Měřítko zůstává 1. Umístěte auto na volný povrch; výška Y je v metrech.':kind==='add-human'?'Postava se vloží do hlavního sektoru s vlastním aktérem a skriptem. Vyberte model s kostrou. Navigační body lze upravit v check.bin.':'Model se vloží do hlavního sektoru. Box vyplní celý obal včetně otvorů. Přesný povrch zachová průchody a používá viditelné trojúhelníky prvního LOD; průhledná místa textur zůstávají plochou. Kolize se uloží do tree.klz společně s modelem.'));
     if(kind==='add-human'){
       const settings=element('details'),settingsFields=element('div',undefined,'mission-fields');settings.append(element('summary','Parametry postavy'),settingsFields);
       for(const field of humanFields){const input=element('input');input.type='number';input.step=field.kind==='byte'?'1':'any';if(field.kind==='byte'){input.min='0';input.max='255';}input.value=String(field.default);input.required=true;input.setAttribute('aria-label',field.label);const row=element('label',field.label);row.append(input);settingsFields.append(row);parameters.set(field.key,input);}
       code=element('textarea');code.rows=8;code.value='label 1\r\nwait 1000\r\ngoto 1\r\n';code.setAttribute('aria-label','Skript nové postavy');
       form.append(settings,element('label','Skript postavy'),code,element('p','Parametry jsou uložená maxima; human_getproperty a human_setproperty používají procenta. Výchozí skript čeká. Vlastní kód se vykoná při startu mise.','notice'));
     }
-  } else { if(kind==='collision')collisionFields();form.append(fields, element('p', kind==='collision'?`${object.name}: box vyplní celý obal modelu včetně otvorů. Odstranění se týká jen kolize vytvořené editorem; původní kolize mapy zachová.`:kind === 'duplicate' ? 'Kopie zachová model, rodiče a transformace a získá vlastní generovanou kolizi, pokud ji má původní objekt.' : 'Skripty, aktéři a původní geometrie se automaticky nepřepisují. Objekty s rozpoznanými vazbami nelze odstranit.')); }
+  } else { if(kind==='collision')collisionFields();form.append(fields, element('p', kind==='collision'?`${object.name}: přesný povrch zachová geometrické otvory; box vyplní celý obal. Povrch používá viditelné trojúhelníky prvního LOD, nikoli průhlednost textur. Odstranění se týká jen kolize vytvořené editorem.`:kind === 'duplicate' ? 'Kopie zachová model, rodiče a transformace a získá vlastní generovanou kolizi, pokud ji má původní objekt.' : 'Skripty, aktéři a původní geometrie se automaticky nepřepisují. Objekty s rozpoznanými vazbami nelze odstranit.')); }
   const message = element('p', '', 'notice'), actions = element('div', undefined, 'tools'), cancel = element('button', 'Zrušit'), submit = element('button', kind==='collision'?'Uložit kolizi':kind === 'delete' ? 'Odstranit z mise' : kind === 'duplicate' ? 'Duplikovat do modu' : 'Vložit do modu', 'primary');
   cancel.type = 'button'; cancel.onclick = () => dialog.close(); submit.type = 'submit'; actions.append(cancel, submit); form.append(message, actions);
   form.onsubmit = event => {
@@ -924,7 +925,7 @@ function sceneObjectDialog(file, kind, object, cars = null) {
           if(cars)request.vehicleTableHash=cars.sha256;
           if(kind==='add-human'){request.parameters=Object.fromEntries([...parameters].map(([key,input])=>[key,Number(input.value)]));request.code=code.value;}
         }
-        if(collisionMode)request.collision={kind:collisionMode.value,material:Number(collisionMaterial.value)};
+        if(collisionMode)request.collision={kind:collisionMode.value,material:Number(collisionMaterial.value),doubleSided:collisionSides.checked};
         request.collisionHash=file.collision?.sha256;
         state.file = await api.changeSceneObject(file.path, request, file.sha256); state.selectSceneName = kind === 'delete' ? null : kind==='collision'?object.name:name.value;
         dialog.close(); await refresh(); renderDetail(); status(`${labels[kind]}: uloženo do modu se zálohou.`);

@@ -29,3 +29,12 @@ test('collision generation rejects dynamic meshes, ambiguous or cyclic hierarchy
   assert.throws(()=>box([mesh(1,{lods:[{positions:[0,0,0],faces:[{indices:[1]}]}]})]),/vertex/);
   assert.throws(()=>box([mesh(1,{renderFlags:0x40})]),/povrch/);
 });
+
+test('surface extraction uses transformed visible faces, reports degenerates and resolves imported geometry vertices',async()=>{
+  const {modelCollisionSurface,geometryCollisionResolver}=await import('../src/core/model-collision.js');
+  const current={...object,position:[10,0,20],scale:[2,1,1]},model={meshes:[mesh(1,{position:[1,0,0]}),mesh(2,{renderFlags:0x40,position:[999,0,0]})]};
+  const result=modelCollisionSurface(model,current,{objects:[current]},{meshes:[]});assert.deepEqual(result.positions,[12,0,20,16,0,20,12,4,23]);assert.deepEqual(result.indices,[0,1,2]);assert.equal(result.degenerate,0);
+  const geometry={meshes:[mesh(1,{name:'wall',position:[5,0,0]}),mesh(2,{name:'copy',position:[15,0,0],instance:1,lods:[]})]};
+  const resolver=geometryCollisionResolver({objects:[]},geometry);assert.deepEqual(resolver('COPY',[0,1,2]),[[15,0,0],[17,0,0],[15,4,3]]);assert.throws(()=>resolver('missing',[0,1,2]),/jednoznačný/);
+  const degenerate={meshes:[mesh(1,{lods:[{positions:[0,0,0,1,0,0,2,0,0],faces:[{indices:[0,1,2]}]}]})]};assert.throws(()=>modelCollisionSurface(degenerate,object,{objects:[object]},{meshes:[]}),/nedegenerovaný/);
+});

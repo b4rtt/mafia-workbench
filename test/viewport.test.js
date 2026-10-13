@@ -124,3 +124,10 @@ test('disabled helper visuals remain in the hierarchy without fighting visible w
   assert.deepEqual(new Set(visible.map(h=>h.object.parent.name)),new Set(['Wall','Visible child','Sector wall','Sector texture']));
   view.update('1',{culling:17});assert.equal(view.frames.get('1').visible,true);assert.deepEqual(model,before);
 });
+
+test('surface collision overlays show native triangles without stealing selection or expanding map framing',()=>{
+  const view=viewport();view.scene=new THREE.Scene();view.scene.add(view.root);view.root.add(new THREE.Mesh(new THREE.BoxGeometry(1,1,1)));view.fit();const before=view.captureCamera();
+  view.showCollisionBoxes([],true,[{name:'surface',positions:[100,0,200,101,0,200,100,1,200]}]);view.fit();assert.deepEqual(view.captureCamera(),before);
+  view.scene.updateMatrixWorld(true);const helper=view.collisionOverlay.children[0];assert.equal(helper.isLineSegments,true);assert.equal(helper.geometry.attributes.position.count,6);const bounds=new THREE.Box3().setFromObject(helper);assert.deepEqual(bounds.min.toArray(),[100,0,-200]);assert.deepEqual(bounds.max.toArray(),[101,1,-200]);
+  const ray=new THREE.Raycaster(new THREE.Vector3(100.5,.5,-199),new THREE.Vector3(0,0,-1));assert.equal(ray.intersectObjects(view.root.children,true).length,0);
+});

@@ -265,9 +265,12 @@ export class Viewport {
     let visible=Boolean(this.soundExtentVisible);for(let node=object;node;node=node.parent)visible&&=node.visible;
     this.soundOverlay.visible=visible;
   }
-  showCollisionBoxes(boxes, visible) {
+  showCollisionBoxes(boxes, visible, surfaces = []) {
     if(!this.collisionOverlay){this.collisionOverlay=new THREE.Group();this.collisionOverlay.scale.z=-1;this.scene.add(this.collisionOverlay);
-      for(const box of boxes){const helper=new THREE.Box3Helper(new THREE.Box3(new THREE.Vector3(...box.min),new THREE.Vector3(...box.max)),0xf59e0b);helper.name=box.name;this.materials.add(helper.material);this.collisionOverlay.add(helper);}}
+      for(const box of boxes){const helper=new THREE.Box3Helper(new THREE.Box3(new THREE.Vector3(...box.min),new THREE.Vector3(...box.max)),0xf59e0b);helper.name=box.name;this.materials.add(helper.material);this.collisionOverlay.add(helper);}
+      for(const surface of surfaces){const points=[];for(let i=0;i<surface.positions.length;i+=9){const triangle=surface.positions.slice(i,i+9);points.push(...triangle.slice(0,3),...triangle.slice(3,6),...triangle.slice(3,6),...triangle.slice(6,9),...triangle.slice(6,9),...triangle.slice(0,3));}
+        const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.Float32BufferAttribute(points,3));const material=new THREE.LineBasicMaterial({color:0x10b981}),helper=new THREE.LineSegments(geometry,material);helper.name=surface.name;this.materials.add(material);this.collisionOverlay.add(helper);
+      }}
     // Outside root: helpers cannot capture object picking or alter framing.
     this.collisionOverlay.visible=visible;
   }
