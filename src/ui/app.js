@@ -10,6 +10,7 @@ import { soundTypes, soundDefaults } from '../shared/sounds.js';
 import { soundExtentSettings } from './sound-extent.js';
 import { roadGraph, roadEntries, roadReference } from '../shared/roads.js';
 import { Viewport } from './viewport.js';
+import { EffectsViewport } from './effects.js';
 import { AnimationPreview } from './animation.js';
 import { NavigationViewport } from './navigation.js';
 import { TrackViewport } from './track.js';
@@ -92,12 +93,15 @@ function renderDetail() {
     ? { camera: previous.captureCamera(), selectedName: previous.selectedName, mode: previous.gizmo.mode, backdrop: previous.backdrop?.visible, collisions: previous.collisionOverlay?.visible, sounds: previous.soundExtentVisible } : null;
   const modelView = file.type === 'model' && previous?.modelPath === file.path && previous.projectRoot === state.project.root
     ? { camera: previous.captureCamera(), selectedId: previous.selectedId, mode: previous.gizmo.mode, wireframe: previous.modelWireframe } : null;
+  const effectsView = file.type === 'effects' && previous?.effectsPath === file.path && previous.projectRoot === state.project.root
+    ? { camera:previous.captureCamera(), selectedId:previous.selectedId, geometry:previous.contextGeometry?.visible } : null;
   state.viewport?.dispose(); state.viewport = null;
   for (const audio of $('detail').querySelectorAll('audio')) { audio.pause(); audio.removeAttribute('src'); audio.load(); }
   const main = $('detail'); main.replaceChildren();
   const badges = { roads: 'ROAD · SILNIČNÍ SÍŤ', difference: 'CHG · OBJEKTY A SKRIPTY', track: 'TCK · POHYBOVÁ STOPA', navigation: 'CHECK · NAVIGACE', items: 'PŘEDMĚTY · ZBRANĚ', textdb: 'TEXTDB · EDITACE', scene: 'SCÉNA · EDITACE', cache: 'CACHE · STATICKÉ MODELY', map: 'MAPA · 3D EDITACE', model: '4DS · 3D EDITACE', animation: '5DS · ANIMACE', image: 'OBRÁZEK · NÁHLED', audio: 'ZVUK · PŘEHRÁVAČ' };
   badges.replay = 'REP · ČASOVÁ OSA';
   badges.vehicles = 'AUTA · FYZIKA A PŘEVODY';
+  badges.effects = 'EFEKTY · UMÍSTĚNÍ ČÁSTIC';
   const head = element('div', undefined, 'file-header'); head.append(element('h2', file.path), element('span', badges[file.type] ?? 'BINÁRNÍ SOUBOR', 'badge')); main.append(head);
   const source = state.project.assets.find(a => a.path === file.path);
   main.append(element('div', `${file.size.toLocaleString('cs')} bajtů · ${source?.archive} · ${source?.variants ?? 1} variant archivů`, 'file-meta'));
@@ -122,6 +126,7 @@ function renderDetail() {
   if (file.type === 'textdb') renderTexts(main, file);
   else if (file.type === 'items') renderItems(main, file);
   else if (file.type === 'vehicles') renderVehicles(main, file);
+  else if (file.type === 'effects') renderEffects(main, file, effectsView);
   else if (file.type === 'navigation') renderNavigation(main, file);
   else if (file.type === 'roads') renderRoads(main, file);
   else if (file.type === 'track') renderTrack(main, file);
@@ -478,7 +483,7 @@ function renderProperties(main, file, saveAPI, onEdit = () => {}) {
   const workspace = element('div', undefined, 'text-workspace'), indexPanel = element('div', undefined, 'text-index'), form = element('div', undefined, 'text-form');
   const search = element('input'); search.type = 'search'; search.placeholder = 'Objekt, vlastnost nebo skript…'; search.setAttribute('aria-label', 'Hledat ve scéně');
   const list = element('div', undefined, 'text-list');
-  const groups = ['scene','map'].includes(file.type) && !file.cacheSource ? groupSceneProperties(file) : null;
+  const groups = ['scene','map','effects'].includes(file.type) && !file.cacheSource ? groupSceneProperties(file) : null;
   const expanded = new Set(), rows = new Map(), groupRows = new Map();
   let selected = null, limit = 100;
   function markSelection() {
@@ -546,6 +551,82 @@ function renderProperties(main, file, saveAPI, onEdit = () => {}) {
   search.oninput = () => {limit=100;fill();}; fill(); indexPanel.append(search, list); workspace.append(indexPanel, form); main.append(element('p', `${groups?`${groups.length.toLocaleString('cs')} objektů · `:''}${file.entries.length.toLocaleString('cs')} rozpoznaných vlastností. Nerozpoznaná data se zachovají beze změny.`, 'notice'), workspace);
   if (file.entries.length) select((file.entries.find(e => e.kind === 'script') ?? file.entries[0]).id);
   return { select, changed: () => { const entry = file.entries.find(e => e.id === state.selectedProperty); if (entry) edit(entry); } };
+}
+function renderEffects(main,file,previous=null){
+  const layout=element('div',undefined,'model-workspace'),center=element('section',undefined,'model-center'),inspector=element('section',undefined,'model-inspector');layout.append(center,inspector);main.append(layout);
+  const context=file.context,types=new Map(context.items.map(item=>[item.effectId,item]));
+  const label=effect=>`Efekt ${effect.index+1} · ${effect.effectId} · ${types.get(effect.effectId)?.name||'neznámý typ'}`;
+  const tools=element('div',undefined,'tools'),objects=element('select'),viewport=element('div',undefined,'viewport'),notice=element('p','','notice');objects.setAttribute('aria-label','Efekt mise');
+  objects.append(element('option','Vyberte efekt…'));for(const effect of file.effects){const option=element('option',label(effect));option.value=effect.id;objects.append(option);}
+  center.append(tools,objects,notice,viewport);
+  const add=element('button','Přidat efekt…'),configure=element('button','Nastavit efekt…'),duplicate=element('button','Duplikovat efekt'),remove=element('button','Odstranit efekt'),fit=element('button','Zarámovat efekty'),focus=element('button','Zarámovat efekt'),geometry=element('button','Zobrazit geometrii mise');
+  configure.disabled=duplicate.disabled=remove.disabled=focus.disabled=true;add.disabled=!context.items.some(item=>item.available);geometry.setAttribute('aria-pressed','false');tools.append(add,configure,duplicate,remove,fit,focus,geometry);
+  let properties,selected=null,geometryRevision=0;
+  const view=new EffectsViewport(viewport,frame=>{
+    selected=file.effects.find(effect=>effect.id===frame.id);objects.value=frame.id;configure.disabled=duplicate.disabled=remove.disabled=focus.disabled=false;
+    if(selected.frame||!selected.bindingEditable)geometryRevision++;
+    notice.textContent=selected.bindingEditable?selected.frame?`Vazba: ${selected.frame}. Značka ukazuje uložené lokální souřadnice; pro tento výběr je pozadí skryté.`:'Umístění ve světových souřadnicích. Šipka ukazuje uložený směr efektu.':'Vazba má nerozpoznaná data. Značka ukazuje uložené souřadnice bez převodu na svět.';
+    const visible=Boolean(view.contextGeometry?.visible);geometry.setAttribute('aria-pressed',String(visible));geometry.textContent=visible?'Skrýt geometrii mise':'Zobrazit geometrii mise';properties?.select(selected.fields.position);
+  },(frame,values,mode)=>{
+    if(mode!=='translate')return;
+    const effect=file.effects.find(effect=>effect.id===frame.id);state.texts.set(effect.fields.position,values.position);view.updateEffect(frame.id,{position:values.position});properties?.select(effect.fields.position);status('Posun efektu je rozepsaný. Uložte jej v inspektoru.');
+  });state.viewport=view;view.effectsPath=file.path;view.projectRoot=state.project.root;view.loadEffects(file);view.gizmo.setMode('translate');if(previous)view.restoreCamera(previous.camera);
+  objects.onchange=()=>view.select(objects.value);fit.onclick=()=>view.fit();focus.onclick=()=>{if(selected)view.fit(view.frames.get(selected.id));};
+  const resolveTexture=async texture=>{const p=texture.replaceAll('\\','/').toLowerCase(),asset=state.project.assets.find(a=>a.path.toLowerCase()===`maps/${p}`||a.path.toLowerCase()===p);return asset?api.media(asset.path):null;};
+  let geometryLoad;
+  async function showGeometry(value){
+    const revision=++geometryRevision;
+    if(value&&!view.contextGeometry){
+      geometryLoad??=(async()=>{
+        const path=file.path.slice(0,file.path.lastIndexOf('/'))+'/scene.4ds',model=await api.inspect(path);if(view.disposed)return;
+        if(model.type!=='model')throw new Error('Geometrii této mise nelze zobrazit.');
+        const group=new Group();group.scale.z=-1;group.visible=false;view.addModel(model,group,'effects-context/');view.scene.add(group);view.contextGeometry=group;view.loadTextures(resolveTexture);
+      })().catch(error=>{geometryLoad=null;throw error;});
+      await geometryLoad;
+    }
+    if(view.disposed||revision!==geometryRevision)return;view.showGeometry(value);geometry.setAttribute('aria-pressed',String(value));geometry.textContent=value?'Skrýt geometrii mise':'Zobrazit geometrii mise';
+    if(value)notice.textContent='Pozadí zobrazuje samotnou scene.4ds. Efekty vázané na objekty jsou skryté, protože jejich souřadnice jsou lokální.';
+  }
+  geometry.onclick=()=>run(()=>showGeometry(!view.contextGeometry?.visible));
+  const grouped={...file,objects:file.effects.map(effect=>({id:effect.id,name:label(effect)})),entries:file.entries.map(entry=>({...entry,context:label(file.effects.find(effect=>entry.id.startsWith(effect.id+'/')))}))};
+  properties=renderProperties(inspector,grouped,(name,changes,hash)=>api.saveEffects(name,changes,hash,context),(entry,value)=>{
+    const effect=file.effects.find(effect=>[effect.fields.position,effect.fields.direction].includes(entry.id));if(effect&&Array.isArray(value)&&value.length===3&&value.every(Number.isFinite))view.updateEffect(effect.id,{[entry.id===effect.fields.position?'position':'direction']:value});
+  });
+  const selection=state.nextEffectId!==undefined?state.nextEffectId:previous?.selectedId;delete state.nextEffectId;
+  if(selection&&view.effectRecords.has(selection))view.select(selection,true,false);
+  if(previous?.geometry&&(!selected||!selected.frame&&selected.bindingEditable))showGeometry(true).catch(error=>status(error.message,true));
+  async function discardEffects(){if(!await discard())return false;state.texts.clear();for(const effect of file.effects)view.updateEffect(effect.id,effect);return true;}
+  add.onclick=()=>run(async()=>{if(!await discardEffects())return;effectDialog(file);});configure.onclick=()=>run(async()=>{if(!await discardEffects())return;effectDialog(file,selected);});
+  async function structural(action){
+    if(!selected||!await discardEffects())return;const result=await api.changeEffects(file.path,{action,id:selected.id},file.sha256,context);
+    state.nextEffectId=action==='duplicate'?result.effects.at(-1).id:null;state.file=result;await refresh();renderDetail();status('Seznam efektů uložený do modu se zálohou.');
+  }
+  duplicate.onclick=()=>run(()=>structural('duplicate'));remove.onclick=()=>run(()=>structural('delete'));
+  center.append(element('p','Značky upravují umístění a směr, nikoli simulaci částic. Typy se čtou z tables/effects.tbl. Oheň, kouř a další částice vykreslí hra po novém načtení mise. Definice emitorů se tímto panelem nemění.','notice'));
+  for(const warning of context.warnings)center.append(element('p',warning,'notice'));
+  if(file.unknownChunks||file.tailBytes)center.append(element('p',`${file.unknownChunks} nerozpoznaných bloků · ${file.tailBytes} doplňkových bajtů za hlavním blokem. Data se zachovají; jejich podporu ve hře nelze potvrdit.`,'notice'));
+}
+function effectDialog(file,effect=null){
+  const context=file.context,dialog=element('dialog'),form=element('form',undefined,'mission-form'),fields=element('div',undefined,'mission-fields');dialog.append(element('h2',effect?'Nastavit efekt mise':'Přidat efekt mise'),form);
+  function field(label,input){const row=element('label',label);input.setAttribute('aria-label',label);row.append(input);fields.append(row);return input;}
+  const type=field('Typ z effects.tbl',element('select'));type.required=true;
+  for(const item of context.items.filter(item=>item.available||item.effectId===effect?.effectId)){const option=element('option',`${item.effectId} · ${item.name}${item.available?'':' · nedostupný model'}`);option.value=String(item.effectId);type.append(option);}
+  if(effect&&!context.items.some(item=>item.effectId===effect.effectId)){const option=element('option',`${effect.effectId} · neznámý typ (zachovat)`);option.value=String(effect.effectId);type.append(option);}
+  if(effect)type.value=String(effect.effectId);
+  const vectors={};for(const [kind,label,initial]of [['position','Pozice',effect?.position??[0,0,0]],['direction','Směr',effect?.direction??[0,1,0]]])vectors[kind]=['X','Y','Z'].map((axis,i)=>{const input=field(`${label} ${axis}`,element('input'));input.type='number';input.step='any';input.required=true;input.value=Object.is(initial[i],-0)?'-0':String(initial[i]);return input;});
+  const frame=field('Vazba na objekt',element('select')),world=element('option','Světové souřadnice');world.value='';frame.append(world);
+  for(const name of context.frames){const option=element('option',name);option.value=name;frame.append(option);}
+  if(effect?.frame&&!context.frames.includes(effect.frame)){const option=element('option',`${effect.frame} · současná vazba`);option.value=effect.frame;frame.append(option);}frame.value=effect?.frame??'';frame.disabled=effect?.bindingEditable===false;
+  const info=element('p','','notice');const describe=()=>{const item=context.items.find(item=>item.effectId===Number(type.value));info.textContent=item?`${item.model} · ${item.emitters} emitorů · rotace pozice: ${item.rotatePosition?'ano':'ne'} · rotace směru: ${item.rotateDirection?'ano':'ne'}. Při vazbě na objekt zadáváte jeho lokální souřadnice.`:'Neznámý typ lze zachovat, nelze ho nově vytvořit.';};type.onchange=describe;describe();
+  const message=element('p','','notice'),actions=element('div',undefined,'tools'),cancel=element('button','Zrušit'),submit=element('button',effect?'Uložit efekt':'Vložit efekt','primary');cancel.type='button';cancel.onclick=()=>dialog.close();submit.type='submit';actions.append(cancel,submit);form.append(fields,info,message,element('p','Změna se uloží do samostatného modu a lze ji vrátit jedním undo. Ostatní řádky matice a neznámá data zůstanou zachované.'),actions);
+  if(effect?.bindingEditable===false)form.append(element('p','Vazba obsahuje neznámá data a zůstane beze změny.'));
+  form.onsubmit=event=>{event.preventDefault();if(!form.reportValidity()||state.busy)return;run(async()=>{submit.disabled=cancel.disabled=true;fields.inert=true;try{
+    const values={effectId:Number(type.value),position:vectors.position.map(input=>Number(input.value)),direction:vectors.direction.map(input=>Number(input.value))};
+    if(effect){const changes=Object.entries(values).map(([key,value])=>({id:effect.fields[key],value}));if(effect.bindingEditable)changes.push({id:effect.fields.frame,value:frame.value});state.file=await api.saveEffects(file.path,changes,file.sha256,context);state.nextEffectId=effect.id;}
+    else{state.file=await api.changeEffects(file.path,{action:'add',...values,frame:frame.value},file.sha256,context);state.nextEffectId=state.file.effects.at(-1).id;}
+    dialog.close();await refresh();renderDetail();status('Efekt uložený do modu se zálohou.');
+  }catch(error){message.textContent=error.message;throw error;}finally{submit.disabled=cancel.disabled=false;fields.inert=false;}});};
+  dialog.addEventListener('cancel',event=>{if(state.busy)event.preventDefault();});dialog.addEventListener('close',()=>dialog.remove(),{once:true});document.body.append(dialog);dialog.showModal();type.focus();
 }
 function renderMedia(main, file) {
   const container = element('div', undefined, 'media-preview'), caption = element('p', 'Načítám náhled…'); main.append(container, caption);

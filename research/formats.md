@@ -13,7 +13,7 @@ Rozcestník: [MafiaHub/awesome-mafia](https://github.com/MafiaHub/awesome-mafia/
 | check.bin | Navigační body a propojení pro pěší/vozidla; MafiaFormats, mafia-formats | CheckBIN Editor, CheckRE |
 | road.bin | Síť navigace aut; MafiaFormats, mafia-formats | Road.bin Creator, Road.bin Editor, RoadRE |
 | tree.klz | Kolize; MafiaFormats, mafia-formats, mLib | Dostupné informace je nutné porovnat s reálnými soubory |
-| effects.bin | Efekty mise; DCED2 a přidružené reference | Effects.bin Editor |
+| effects.bin / effects.tbl | Umístění částic / definice typů; RoadTrain/mafia-formats a st0rm94/mafia-reverse-engineering-export | Effects.bin Editor; vlastní editor umístění s 3D značkami, exportem a undo |
 | TextDB .def | Texty a titulky; MafiaFormats, mafia-formats | MTE, SSDM, CSVtoDEF |
 | Ostatní .def/.dat | Tabulky aut, zbraní, předmětů a menu; MafiaFormats, mEdit, mLib | M Editor, RHAM, Predmety.def Editor, Mafia Menu Editor |
 | BMP | Textury; materiály 4DS mohou odkazovat na diffuse, alpha a environment mapy | Texture Resizer, 4ds Texture Manager |
@@ -22,6 +22,16 @@ Rozcestník: [MafiaHub/awesome-mafia](https://github.com/MafiaHub/awesome-mafia/
 | CHG / REP | Objekty cutscény / časová osa herního záznamu; Cutscene-Tools-, reverse engineering | CHG transformace a skripty; REP časová osa, události a 3D přehrávání propojených modelů, 5DS a zvuků |
 | BIK/AVI | Předrenderované video | Přehrávání ve hře ověřeno; náhled v editoru zatím není implementovaný |
 | rmorf.bin/DNC/GMF | Zbývající specializovaná data; DCED_misc, DCED2, mLib | Rmorf.bin Editor, DNC Extractor, GmfRE |
+
+## Umístění částicových efektů
+
+[`effects.bin.bt`](https://github.com/RoadTrain/mafia-formats/blob/master/effects.bin.bt) potvrzuje chunkové hlavičky a index typu. Úplnou 64bajtovou matici a volitelnou vazbu potvrzuje [`particle.md`, §5b](https://github.com/st0rm94/mafia-reverse-engineering-export/blob/main/structs/particle.md) a uložený anotovaný kód: `particle_manager_load_static_particles` (VA 0x005a5750) přijímá hlavní blok 100 a umístění 1000. `particle_manager_create_static_particle` (0x005a4dc0) předává čtvrtý řádek matice jako pozici a druhý jako směr. `particle_effect_init` (0x005a3290) tyto vektory kopíruje bez požadavku jednotkové délky. Editor proto zachovává jejich délku, nulové hodnoty i ostatní řádky matice; šipka pouze normalizuje zobrazovaný směr.
+
+V místních datech je volitelný název framu v prvním podbloku 1001, ukončený nulou v Windows-1250. Neznámý podblok zůstává neprůhledný a nemá editovatelné pole vazby. U rozpoznané vazby se při přejmenování zachovají koncové bajty a další podbloky; odstranění vazby s neznámým doplňkem se odmítne. Vnější koncová data a cizí hlavní bloky zůstávají zachované, avšak čtečka hry cizí hlavní blok neakceptuje, proto panel výslovně hlásí neověřenou podporu takového souboru.
+
+`effects.tbl` obsahuje po sobě jdoucí kořenové bloky 100; pořadí určuje ID typu. Editor čte jen metadata: 101 počítá emitory, 103 je název, 104 model, 110 dva bajty. Podle volání `particle_effect_init` je první bajt rotace směru a druhý rotace pozice. Definice emitorů a fází se nepřepisují. V auditovaném projektu má všech 93 typů dostupný podporovaný model. Nové vazby se omezují na jednoznačné názvy z `scene.4ds` a `scene2.bin`; vnitřní děti externích modelů se do katalogu vazeb zatím nedoplňují. Stávající nevyřešenou vazbu lze zachovat při posunu efektu.
+
+Samostatný panel nabízí umístění, nikoli simulaci částic. Zobrazení navázaného efektu používá jeho uložené lokální souřadnice a vypne pozadí, aby je nevydávalo za světové. Náhled pozadí neobsahuje cache ani externí modely. Částice vykreslí herní runtime; účinek nových umístění a ovládání panelu ještě čekají na ověření.
 
 ## Náhled rotací a animací
 

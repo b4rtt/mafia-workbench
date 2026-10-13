@@ -22,6 +22,7 @@ import { parseCollision } from './collision.js';
 import { collisionOwnership, ownedCollisionRecords, prepareSceneCollision, collisionSurfacePreview } from './scene-collision.js';
 import { parseVehicleTable, vehicleModelDefinition, validateVehicleModel } from './vehicles.js';
 import { inspectVehicleTable, editVehicleTable } from './vehicle-table.js';
+import { parseEffects, editEffects, changeEffects, parseEffectTypes } from './effects.js';
 
 const MANIFEST = 'workbench.json';
 const key = p => relativeAssetPath(p).normalize('NFC').toLowerCase();
@@ -381,6 +382,10 @@ export class ModProject {
     if (/textdb_[a-z]{2}\.def$/i.test(name)) return { type: 'textdb', ...parseTextDb(bytes, name), path: asset.path, size: bytes.length, sha256: hash(bytes) };
     if (/scene2\.bin$/i.test(name)) return { type: 'scene', ...inspectScene(bytes), path: asset.path, size: bytes.length, sha256: hash(bytes) };
     let warning;
+    if (/^missions\/[^/]+\/effects\.bin$/i.test(name)) {
+      try { return { type:'effects', ...common, ...parseEffects(bytes), context:await this.effectContext(name) }; }
+      catch (error) { warning = error.message; }
+    }
     if (/\.tck$/i.test(name)) {
       try { return { type: 'track', ...common, ...parseTrack(bytes) }; }
       catch (error) { warning = error.message; }
@@ -432,6 +437,52 @@ export class ModProject {
       return editFourDs(before, changes);
     }, 'Úprava modelu 4DS');
   }
+  async effectContext(name) {
+    const context={items:[],tableHash:null,modelHashes:{},frames:[],frameHashes:{},warnings:[]};
+    try{
+      const table=await this.read('tables/effects.tbl');context.tableHash=hash(table);const cache=new Map();
+      for(const item of parseEffectTypes(table).items){
+        const result={...item,available:false};context.items.push(result);
+        if(!item.emitters||!item.model||!/^([^/\\]+)\.i3d$/i.test(item.model))continue;
+        try{const asset=this.asset(`models/${item.model.replace(/\.i3d$/i,'.4ds')}`);
+          if(!cache.has(asset.path)){const bytes=await this.read(asset.path);parseFourDs(bytes);cache.set(asset.path,hash(bytes));}
+          result.modelPath=asset.path;result.available=true;context.modelHashes[asset.path]=cache.get(asset.path);
+        }catch{/* A missing/unsupported model is visible in the catalog but cannot be added. */}
+      }
+    }catch(error){context.warnings.push('Katalog efektů: '+error.message);}
+    const folder=name.slice(0,name.lastIndexOf('/')),names=new Map();
+    const add=(name,source)=>{if(!name)return;const id=name.normalize('NFC').toLowerCase(),entry=names.get(id)??{name,counts:{}};entry.counts[source]=(entry.counts[source]??0)+1;names.set(id,entry);};
+    try{
+      for(const [filename,source] of [['scene.4ds','geometry'],['scene2.bin','scene']]){
+        const asset=this.asset(`${folder}/${filename}`),bytes=await this.read(asset.path);context.frameHashes[asset.path]=hash(bytes);
+        const frames=source==='geometry'?parseFourDs(bytes).meshes:inspectScene(bytes).objects;
+        for(const frame of frames)add(frame.name,source);
+      }
+      context.frames=[...names.values()].filter(entry=>Math.max(...Object.values(entry.counts))===1).map(entry=>entry.name).sort((a,b)=>a.localeCompare(b));
+    }catch(error){context.frames=[];context.frameHashes={};context.warnings.push('Vazby na scénu: '+error.message);}
+    return context;
+  }
+  async writeEffects(name,prepare,expectedHash,dependencies={},validateChanges=true) {
+    if(!/^missions\/[^/]+\/effects\.bin$/i.test(name))throw new Error('Vyberte effects.bin mise.');
+    const before=await this.read(name);if(hash(before)!==expectedHash)throw new Error('Soubor se od otevření změnil. Otevřete jej znovu.');
+    const old=parseEffects(before),after=prepare(before),revised=parseEffects(after),files=new Map([[key(name),{path:name,data:after,expectedHash}]]);
+    const changed=validateChanges?revised.effects.filter(effect=>{const original=old.effects.find(row=>row.id===effect.id);return !original||original.effectId!==effect.effectId||original.frame!==effect.frame;}):[];
+    if(changed.length){
+      const context=await this.effectContext(name);
+      const protect=async(path,expected)=>{const asset=this.asset(path),bytes=await this.read(path);if(expected!==hash(bytes))throw new Error('Data efektu nebo vazby se od otevření změnila. Otevřete editor znovu.');files.set(key(asset.path),{path:asset.path,data:bytes,expectedHash:expected});};
+      for(const effect of changed){
+        const original=old.effects.find(row=>row.id===effect.id);
+        if(!original||original.effectId!==effect.effectId){const item=context.items.find(item=>item.effectId===effect.effectId&&item.available);if(!item)throw new Error('Typ efektu nemá dostupnou definici a model.');await protect('tables/effects.tbl',dependencies.tableHash);await protect(item.modelPath,dependencies.modelHashes?.[item.modelPath]);}
+        if(effect.frame&&(!original||original.frame!==effect.frame)){
+          if(!context.frames.some(frame=>frame.normalize('NFC').toLowerCase()===effect.frame.normalize('NFC').toLowerCase()))throw new Error('Vazba efektu musí odkazovat na jednoznačný objekt mise.');
+          for(const path of Object.keys(context.frameHashes))await protect(path,dependencies.frameHashes?.[path]);
+        }
+      }
+    }
+    await this.changeBatch([...files.values()],'Úprava částicových efektů mise');
+  }
+  async saveEffects(name,changes,expectedHash,dependencies) { await this.writeEffects(name,before=>editEffects(before,changes),expectedHash,dependencies); }
+  async changeEffects(name,request,expectedHash,dependencies) { await this.writeEffects(name,before=>changeEffects(before,request),expectedHash,dependencies,request?.action!=='delete'); }
   async saveItems(name, changes, expectedHash) {
     if (!/^tables\/predmety\.def$/i.test(name)) throw new Error('Soubor není tabulka předmětů.');
     await this.change(name, before => {
