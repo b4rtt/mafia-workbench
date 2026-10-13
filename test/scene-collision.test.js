@@ -24,6 +24,16 @@ async function setup(t){
 const operation={kind:'add-model',name:'WB_CRATE',model:'models/crate.4ds',position:[5,0,5],rotation:[1,0,0,0],scale:[1,1,1],collision:{kind:'aabb',material:7}};
 async function add(p,scene){await p.changeSceneObject(scenePath,operation,hash(scene));return p.read(scenePath);}
 
+test('pickup rename preserves other owned collisions without duplicating geometry dependencies',async t=>{
+  const {p,scene}=await setup(t),table=Buffer.alloc(188*2);table.write('Crate item',188);table.write('Crate.i3d',188+36);
+  await p.createFiles([{path:'tables/predmety.def',data:table}]);const withCrate=await add(p,scene),catalog=await p.pickupItems(),item=catalog.items[0],collision=await p.read(klzPath);
+  await p.changeSceneObject(scenePath,{kind:'add-pickup',name:'PICKUP',position:[0,0,0],rotation:[1,0,0,0],scale:[1,1,1],itemId:1,clip:0,reserve:0,itemTableHash:catalog.sha256,itemModelHash:item.modelHash},hash(withCrate));
+  const added=await p.read(scenePath),object=inspectScene(added).objects.find(object=>object.name==='PICKUP');
+  await p.saveScene(scenePath,[{id:object.fields.name,value:'RENAMED_PICKUP'}],hash(added));
+  assert.equal(inspectScene(await p.read(scenePath)).objects.find(object=>object.name==='RENAMED_PICKUP').pickup.name,'RENAMED_PICKUP');assert.deepEqual(await p.read(klzPath),collision);
+  await p.undo();assert.deepEqual(await p.read(scenePath),added);await p.undo();assert.deepEqual(await p.read(scenePath),withCrate);assert.deepEqual(await p.read(klzPath),collision);
+});
+
 test('adding a model and collision publishes atomically, reopens, exports, transforms and undoes together',async t=>{
   const {p,root,scene,klz}=await setup(t),added=await add(p,scene),collision=await p.read(klzPath),history=p.manifest.history.at(-1);
   assert.deepEqual(history.files.map(f=>f.path),[scenePath,klzPath]);assert.equal(collisionOwnership(p.manifest,scenePath).length,1);

@@ -108,6 +108,7 @@ app.whenReady().then(async () => {
   handle('asset:inspect', name => current().inspect(name));
   handle('asset:map', name => current().inspectMap(name));
   handle('asset:car-models', () => current().carModels());
+  handle('asset:pickup-items', () => current().pickupItems());
   handle('replay:missions', name => replayMissions(current(), name));
   handle('replay:context', (name, scene, difference) => loadCutsceneContext(current(), name, scene, difference));
   handle('playtest:get', () => playtest.attach(project));

@@ -662,6 +662,7 @@ function renderMap(main, file, previous = null) {
   }
   const add = element('button', 'Vložit model…'), addHuman=element('button','Přidat postavu…'), addCar=element('button','Přidat auto…'), duplicate = element('button', 'Duplikovat…'), remove = element('button', 'Odstranit…'), focus = element('button', 'Zarámovat objekt'), collision=element('button','Kolize modelu…');
   duplicate.disabled = remove.disabled = focus.disabled = collision.disabled = true;
+  const addPickup=element('button','Přidat předmět k sebrání…'),configurePickup=element('button','Nastavit předmět…');configurePickup.disabled=true;
   const addDoor=element('button','Vytvořit dveře…'),addPhysical=element('button','Vytvořit fyzikální předmět…'),addLight=element('button','Přidat světlo…'),addSound=element('button','Přidat zvuk…'),addDetector=element('button','Přidat skriptový bod…');addDoor.disabled=addPhysical.disabled=true;
   const view = new Viewport(viewport, frame => {
     const object = frame.sceneObject; selected.textContent = object ? object.name : `${frame.name} · geometrie ve scene.4ds`;
@@ -670,9 +671,10 @@ function renderMap(main, file, previous = null) {
     selectedId = frame.id;
     cameraMoved = true;
     view.selectedName = object?.name ?? frame.name;
-    const independent = object && [2,4,6,9].includes(object.frameType) && !object.actorBound && !file.geometry.meshes.some(mesh => mesh.name.toLowerCase() === object.name.toLowerCase());
+    const independent = object && [2,4,6,9].includes(object.frameType) && (!object.actorBound || object.pickup) && !file.geometry.meshes.some(mesh => mesh.name.toLowerCase() === object.name.toLowerCase());
     duplicate.disabled = remove.disabled = !independent; focus.disabled = false;
-    collision.disabled=!independent||object.frameType!==9||!file.collision||Boolean(file.collision.warning);
+    configurePickup.disabled=!object?.pickup;
+    collision.disabled=!independent||object.actorBound||object.frameType!==9||!file.collision||Boolean(file.collision.warning);
     const actorBound=file.entries.some(entry=>entry.label==='Název aktéra'&&entry.value.toLowerCase()===(object?.name??frame.name).toLowerCase());
     addDoor.disabled=Boolean(frame.ownerId)||actorBound||!(object?.frameType===9||frame.type===1&&[0,1].includes(frame.visual));
     addPhysical.disabled=Boolean(frame.ownerId)||actorBound||object?.frameType!==9||!object?.model||file.geometry.meshes.some(mesh=>mesh.name.toLowerCase()===object.name.toLowerCase());
@@ -757,11 +759,38 @@ function renderMap(main, file, previous = null) {
     addLight.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před vložením světla uložte rozepsané vlastnosti.');lightDialog(file,selectedObject?.position);});
     addSound.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před vložením zvuku uložte rozepsané vlastnosti.');soundDialog(file,selectedObject?.position);});
     addDetector.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před vložením skriptového bodu uložte rozepsané vlastnosti.');detectorDialog(file,selectedObject?.position);});
-    tools.append(add, addHuman, addCar, addDoor, addPhysical, addLight, addSound, addDetector, duplicate, remove,collision);
+    for(const [button,configure] of [[addPickup,false],[configurePickup,true]])button.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před vložením nebo nastavením předmětu uložte rozepsané vlastnosti.');const catalog=await api.pickupItems();if(!catalog.items.length)throw new Error('Tabulka neobsahuje předměty s dostupným podporovaným modelem.');pickupDialog(file,catalog,configure?selectedObject:null,selectedObject?.position);});
+    tools.append(add, addHuman, addCar, addPickup, configurePickup, addDoor, addPhysical, addLight, addSound, addDetector, duplicate, remove,collision);
   }
   view.loadTextures(resolveTexture);
   properties = renderProperties(inspector, file, file.cacheSource ? api.saveCache : async (...args) => { await api.saveScene(...args); return api.map(file.path); }, (entry, value) => { const field = byField.get(entry.id); if (field && ['position','rotation','scale'].includes(field.kind)) view.update(field.id, { [field.kind]: value }); updateSoundExtent(); });
   center.append(element('p', file.cacheSource ? 'Statické modely vybrané části cache.bin. Transformace se ukládají do samostatného modu; oranžové body označují chybějící modely.' : 'Geometrie scene.4ds a objekty scene2.bin. Modré body označují objekty bez modelu; oranžové body chybějící model. Generované kolize se přepočítají při uložení transformace a vracejí se společně s objektem.', 'notice'));
+}
+function pickupDialog(file,catalog,object=null,position=[0,0,0]){
+  const dialog=element('dialog'),form=element('form',undefined,'mission-form'),fields=element('div',undefined,'mission-fields');
+  dialog.append(element('h2',object?'Nastavit předmět k sebrání':'Přidat předmět k sebrání'),element('p','Předmět se uloží do samostatného modu. Vložení i změny lze vrátit. Hráč ho sebere běžným tlačítkem akce po načtení mise.'),form);
+  function field(label,input){const row=element('label',label);input.setAttribute('aria-label',label);row.append(input);fields.append(row);return input;}
+  function number(label,value,max=2147483647){const input=element('input');input.type='number';input.step='1';input.required=true;input.min='0';input.max=String(max);input.value=String(value);return field(label,input);}
+  const name=field('Název předmětu',element('input'));name.value=object?.name??'WB_PICKUP';name.required=true;name.maxLength=63;name.disabled=Boolean(object);
+  const search=field('Hledat předmět',element('input'));search.type='search';
+  const items=field('Předmět z tabulky',element('select'));items.required=true;
+  const clip=number('Náboje v zásobníku',object?.pickup.clip??0),reserve=number('Náboje v zásobě',object?.pickup.reserve??0);
+  const coordinates=object?[]:['X','Y','Z'].map((axis,i)=>{const input=number(`Pozice předmětu ${axis}`,position[i]??0);input.removeAttribute('min');input.removeAttribute('max');input.step='any';return input;});
+  const heading=object?null:number('Natočení předmětu kolem Y (stupně)',0);if(heading){heading.removeAttribute('min');heading.removeAttribute('max');heading.step='any';}
+  const info=element('p','','notice');
+  function show(reset=false){const item=catalog.items.find(item=>item.itemId===Number(items.value));if(!item){info.textContent='Žádný odpovídající předmět.';return;}if(reset){clip.value=String(item.clip);reserve.value=String(item.reserve);}info.textContent=`${item.name} · ID ${item.itemId} · ${item.model}. U nástrojů a ostatních předmětů ponechte počty nábojů na nule.`;}
+  function fill(){const previous=items.value,query=search.value.toLowerCase();items.replaceChildren(...catalog.items.filter(item=>`${item.itemId} ${item.name} ${item.model}`.toLowerCase().includes(query)).map(item=>{const option=element('option',`${item.itemId} · ${item.name}`);option.value=String(item.itemId);return option;}));if([...items.options].some(option=>option.value===previous))items.value=previous;show(items.value!==previous);}
+  search.oninput=fill;items.onchange=()=>show(true);fill();
+  if(object){items.value=String(object.pickup.itemId);clip.value=String(object.pickup.clip);reserve.value=String(object.pickup.reserve);show();if(!items.value)throw new Error('Původní předmět nemá dostupný model v katalogu.');}
+  const message=element('p','','notice'),actions=element('div',undefined,'tools'),cancel=element('button','Zrušit'),submit=element('button',object?'Uložit předmět':'Vložit do modu','primary');
+  cancel.type='button';cancel.onclick=()=>dialog.close();submit.type='submit';actions.append(cancel,submit);form.append(fields,info,message,actions);
+  form.onsubmit=event=>{event.preventDefault();if(!form.reportValidity()||state.busy)return;run(async()=>{submit.disabled=cancel.disabled=true;try{
+    const item=catalog.items.find(item=>item.itemId===Number(items.value));if(!item)throw new Error('Vyberte předmět.');
+    const request={kind:object?'configure-pickup':'add-pickup',id:object?.id,name:name.value,itemId:item.itemId,clip:Number(clip.value),reserve:Number(reserve.value),itemTableHash:catalog.sha256,itemModelHash:item.modelHash,collisionHash:file.collision?.sha256};
+    if(!object){const radians=Number(heading.value)%360*Math.PI/180;Object.assign(request,{position:coordinates.map(input=>Number(input.value)),rotation:[Math.cos(radians/2),0,Math.sin(radians/2),0],scale:[1,1,1]});}
+    state.file=await api.changeSceneObject(file.path,request,file.sha256);state.selectSceneName=name.value;dialog.close();await refresh();renderDetail();status('Předmět a inicializační skript uložené společně se zálohou.');
+  }catch(error){message.textContent=error.message;throw error;}finally{submit.disabled=cancel.disabled=false;}});};
+  dialog.addEventListener('cancel',event=>{if(state.busy)event.preventDefault();});dialog.addEventListener('close',()=>dialog.remove(),{once:true});document.body.append(dialog);dialog.showModal();if(!object){name.focus();name.select();}
 }
 function soundDialog(file,position=[0,0,0]){
   const assets=state.project.assets.filter(asset=>/^sounds\/.+\.wav$/i.test(asset.path));

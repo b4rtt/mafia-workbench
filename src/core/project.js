@@ -9,6 +9,7 @@ import { parseFourDs, editFourDs } from './fourds.js';
 import { parseFiveDs, editFiveDs } from './fiveds.js';
 import { inspectCache, editCache } from './cache.js';
 import { parseItems, editItems } from './items.js';
+import { pickupParameters } from '../shared/pickups.js';
 import { parseNavigation, prepareNavigationEdits, changeNavigationConnection, changeNavigationPoint } from './navigation.js';
 import { remapSegments } from './segments.js';
 import { parseRoads, editRoads } from './roads.js';
@@ -258,13 +259,21 @@ export class ModProject {
     // Removing a loop chunk shifts the IDs of later sound properties. Apply
     // structural loop toggles after all fields referenced by the original IDs.
     const ordered=changes.filter(change=>!change.id?.endsWith(':sound.loop')).concat(changes.filter(change=>change.id?.endsWith(':sound.loop')));
-    if(collisionOwnership(this.manifest,name).length){
-      const before=await this.read(name);if(hash(before)!==expectedHash)throw new Error('Soubor se od otevření změnil. Otevřete jej znovu.');
+    const before=await this.read(name);if(hash(before)!==expectedHash)throw new Error('Soubor se od otevření změnil. Otevřete jej znovu.');
+    const pickups=inspectScene(before).objects.filter(object=>object.pickup && ordered.some(change=>change.id===object.fields.name && change.value!==object.name));
+    if(collisionOwnership(this.manifest,name).length || pickups.length){
       let after=before;for(const {id,value} of ordered)after=editScene(after,id,value);
       const oldScene=inspectScene(before),newScene=inspectScene(after),renames=new Map();
       for(const object of oldScene.objects){const current=newScene.objects.find(o=>o.id===object.id);if(current&&current.name!==object.name)renames.set(object.name,current.name);}
-      const collision=await prepareSceneCollision(this,name,before,after,{renames});
-      return this.changeBatch([{path:name,data:after,expectedHash},...collision.files],'Úprava scény a jejích kolizí',collision.ownership);
+      const dependencies=[];
+      if(pickups.length){
+        const geometryPath=name.slice(0,name.lastIndexOf('/'))+'/scene.4ds',bytes=await this.read(geometryPath),geometry=parseFourDs(bytes);
+        for(const object of pickups)if(geometry.meshes.some(mesh=>key(mesh.name)===key(renames.get(object.name))))throw new Error('Předmět: název již existuje v geometrii mise.');
+        dependencies.push({path:geometryPath,data:bytes,expectedHash:hash(bytes)});
+      }
+      const collision=collisionOwnership(this.manifest,name).length?await prepareSceneCollision(this,name,before,after,{renames}):null;
+      const files=new Map([{path:name,data:after,expectedHash},...dependencies,...(collision?.files??[])].map(file=>[key(file.path),file]));
+      return this.changeBatch([...files.values()],'Úprava scény a jejích vazeb',collision?.ownership);
     }
     await this.change(name, before => {
       if (expectedHash !== hash(before)) throw new Error('Soubor se od otevření změnil. Otevřete jej znovu.');
@@ -280,6 +289,18 @@ export class ModProject {
     const folder = this.asset(name).path.slice(0, this.asset(name).path.lastIndexOf('/'));
     const geometryPath=`${folder}/scene.4ds`,geometryBytes=await this.read(geometryPath),geometry = parseFourDs(geometryBytes);
     let request = operation;const dependencies=[];
+    if(['add-pickup','configure-pickup'].includes(operation?.kind)){
+      pickupParameters(operation.itemId,operation.clip,operation.reserve);
+      const tablePath=this.asset('tables/predmety.def').path,tableBytes=await this.read(tablePath);
+      if(operation.itemTableHash!==hash(tableBytes))throw new Error('Tabulka předmětů se od otevření změnila. Otevřete dialog znovu.');
+      const item=parseItems(tableBytes).records[operation.itemId];
+      if(!item?.model||!/^([^/\\]+)\.i3d$/i.test(item.model))throw new Error('Předmět nemá dostupný model v hlavní složce models.');
+      const modelPath=this.asset(`models/${item.model.replace(/\.i3d$/i,'.4ds')}`).path,modelBytes=await this.read(modelPath),model=parseFourDs(modelBytes,true);
+      if(operation.itemModelHash!==hash(modelBytes))throw new Error('Model předmětu se od otevření změnil. Otevřete dialog znovu.');
+      if(model.meshes.some(mesh=>mesh.joint||mesh.skin?.length||[2,3,5].includes(mesh.visual))||!model.meshes.some(mesh=>mesh.type===1&&[0,1].includes(mesh.visual)&&mesh.lods?.[0]?.faces.some(face=>face.indices.length)))throw new Error('Předmět: model nemá podporovanou statickou geometrii.');
+      request={...operation,model:modelPath.slice(7).replace(/\.4ds$/i,'.i3d')};
+      dependencies.push({path:geometryPath,data:geometryBytes,expectedHash:hash(geometryBytes)},{path:tablePath,data:tableBytes,expectedHash:hash(tableBytes)},{path:modelPath,data:modelBytes,expectedHash:hash(modelBytes)});
+    }
     if(['add-light','add-sound','add-detector'].includes(operation?.kind))dependencies.push({path:geometryPath,data:geometryBytes,expectedHash:hash(geometryBytes)});
     if(operation?.kind==='add-sound'){
       const soundPath=relativeAssetPath(operation.sound);
@@ -331,7 +352,7 @@ export class ModProject {
       if(owned){const klz=parseCollision(await this.read(`${folder}/tree.klz`)),record=ownedCollisionRecords(klz,[owned])[0];requests.push({name:operation.name,kind:owned.kind,material:record.material,doubleSided:owned.doubleSided});}
     }
     const collision=await prepareSceneCollision(this,name,before,after,{requests,expectedHash:operation?.collisionHash});
-    const label={ 'add-model': 'Vložení modelu do mise', 'add-human':'Vložení postavy a jejího skriptu','add-car':'Vložení automobilu a jeho aktéra','add-light':'Vložení světla do mise','add-sound':'Vložení prostorového zvuku do mise','add-detector':'Vložení skriptového bodu','attach-door':'Vytvoření dveřního aktéra','attach-physical':'Vytvoření fyzikálního předmětu', duplicate: 'Duplikace objektu mise', delete: 'Odstranění objektu mise',collision:'Generování kolize modelu' }[operation?.kind]??'Úprava objektů mise';
+    const label={ 'add-model': 'Vložení modelu do mise', 'add-human':'Vložení postavy a jejího skriptu','add-car':'Vložení automobilu a jeho aktéra','add-light':'Vložení světla do mise','add-sound':'Vložení prostorového zvuku do mise','add-detector':'Vložení skriptového bodu','add-pickup':'Vložení předmětu k sebrání','configure-pickup':'Nastavení předmětu k sebrání','attach-door':'Vytvoření dveřního aktéra','attach-physical':'Vytvoření fyzikálního předmětu', duplicate: 'Duplikace objektu mise', delete: 'Odstranění objektu mise',collision:'Generování kolize modelu' }[operation?.kind]??'Úprava objektů mise';
     const files=new Map([{path:name,data:after,expectedHash},...dependencies,...(collision?.files??[])].map(file=>[key(file.path),file]));
     await this.changeBatch([...files.values()],label,collision?.ownership);
   }
@@ -340,6 +361,19 @@ export class ModProject {
     for(const asset of this.manifest.assets){const definition=vehicleModelDefinition(table,asset.path);if(!definition)continue;
       try{validateVehicleModel(parseFourDs(await this.read(asset.path)));models.push(definition);}catch{rejected++;}}
     return {models,sha256:hash(bytes),rejected};
+  }
+  async pickupItems(){
+    const bytes=await this.read('tables/predmety.def'),items=[];let rejected=0;
+    for(const item of parseItems(bytes).records){
+      if(!item.index||!item.model)continue;
+      try{
+        if(!/^[^/\\]+\.i3d$/i.test(item.model))throw new Error('Model');
+        const modelPath=this.asset(`models/${item.model.replace(/\.i3d$/i,'.4ds')}`).path,modelBytes=await this.read(modelPath),model=parseFourDs(modelBytes,true);
+        if(model.meshes.some(mesh=>mesh.joint||mesh.skin?.length||[2,3,5].includes(mesh.visual))||!model.meshes.some(mesh=>mesh.type===1&&[0,1].includes(mesh.visual)&&mesh.lods?.[0]?.faces.some(face=>face.indices.length)))throw new Error('Geometrie');
+        items.push({itemId:item.index,name:item.name,model:modelPath,itemType:item.itemType,clip:Math.max(0,item.magazine),reserve:Math.max(0,item.reserve),modelHash:hash(modelBytes)});
+      }catch{rejected++;}
+    }
+    return {items,sha256:hash(bytes),rejected};
   }
   async inspect(name) {
     const asset = this.asset(name), bytes = await this.read(name);

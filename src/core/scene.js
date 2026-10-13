@@ -5,6 +5,7 @@ import { sceneSectors, validateNewLight } from '../shared/lights.js';
 import { validateNewSound } from '../shared/sounds.js';
 import { inspectPhysical, editPhysical, createPhysical } from './physical.js';
 import { detectorScriptLayout, editDetectorMask, createDetector } from './detectors.js';
+import { pickupScript, parsePickupScript } from '../shared/pickups.js';
 const containers = new Set([0x4c53, 0x4000, 0x4010, 0x4020, 0x4040, 0x4060, 0xae20, 0xae21, 0xae50]);
 const names = new Map([[0x4c53, 'Scéna'], [0x4000, 'Objekty'], [0x4010, 'Objekt'], [0x4020, 'Rodič'], [0x4040, 'Světlo'], [0x4060, 'Zvuk'], [0xae20, 'Aktéři'], [0xae21, 'Aktér'], [0xae50, 'Skripty'], [0xae51, 'Skript']]);
 const fields = new Map([
@@ -101,7 +102,7 @@ function humanParameterLayout(kind, data) {
   return humanFields;
 }
 export function inspectScene(source) {
-  const roots = tree(source), entries = [], objects = [], actorScripts = [];
+  const roots = tree(source), entries = [], objects = [], actorScripts = [], pickups = [];
   let opaque = 0;
   function visit(nodes, parent = '') {
     const named = nodes.find(n => n.type === 0x10 || n.type === 0xae23);
@@ -134,6 +135,8 @@ export function inspectScene(source) {
           const value={name:string(name),code:iconv.decode(data.subarray(layout.codeStart,layout.codeStart+layout.length),'windows-1250')};
           actorScripts.push(value);
           entries.push({id:node.children.find(n=>n.type===0xae24).id,label:'Skript aktéra',kind:'script',value,actorScript:true,actorKind,context:`${context} / ${value.name}`.replace(/^ \/ /,''),bytes:data.length});
+          const pickup = actorKind === 5 && parsePickupScript(value.name, value.code);
+          if (pickup && kind.length === 4 && name.equals(Buffer.concat([encode(value.name),Buffer.from([0])])) && node.children.length === 3 && node.children.every((child,i)=>child.type===[0xae23,0xae22,0xae24][i]) && data.equals(createDetector(value.code, 0))) pickups.push({ ...pickup, name:value.name, actorId:node.id, actorNameId:node.children[0].id, scriptId:node.children[2].id });
         }
       }
       if (node.type === 0x4010 && node.children) {
@@ -155,7 +158,12 @@ export function inspectScene(source) {
   }
   visit(roots);
   const actorNames = new Set(entries.filter(e => e.label === 'Název aktéra').map(e => e.value.normalize('NFC').toLowerCase()));
-  for (const object of objects) object.actorBound = actorNames.has(object.name.normalize('NFC').toLowerCase());
+  for (const object of objects) {
+    const sameName = name => name.normalize('NFC').toLowerCase() === object.name.normalize('NFC').toLowerCase();
+    object.actorBound = actorNames.has(object.name.normalize('NFC').toLowerCase());
+    const candidates = pickups.filter(pickup=>pickup.name===object.name);
+    if (object.frameType===9 && candidates.length===1 && entries.filter(entry=>entry.label==='Název aktéra' && sameName(entry.value)).length===1 && objects.filter(other=>sameName(other.name)).length===1) object.pickup=candidates[0];
+  }
   return { entries, opaque, objects, actorScripts };
 }
 export function editScene(source, id, value) {
@@ -213,13 +221,21 @@ export function editScene(source, id, value) {
   const result = Buffer.concat(roots.map(write));
   if (!found) throw new Error('Scene: vlastnost neexistuje nebo není podporovaná.');
   inspectScene(result);
+  const pickup = scene.objects.find(object=>object.pickup && object.fields.name===id)?.pickup;
+  if (pickup && value!==pickup.name) {
+    pickupScript(value, pickup.itemId, pickup.clip, pickup.reserve);
+    if (['primary sector','backdrop sector'].includes(value.toLowerCase()) || scene.objects.some(object=>object.name.toLowerCase()===value.toLowerCase()) || scene.entries.some(entry=>entry.label==='Název aktéra' && entry.value.toLowerCase()===value.toLowerCase())) throw new Error('Předmět: název již existuje.');
+    if (scene.entries.some(entry=>entry.kind==='script' && entry.id!==pickup.scriptId && entry.value.code.toLowerCase().includes(pickup.name.toLowerCase())) || scene.objects.some(object=>object.parent?.toLowerCase()===pickup.name.toLowerCase())) throw new Error('Předmět: na původní název odkazuje skript nebo potomek. Nejprve upravte jeho odkaz.');
+    const renamed = editScene(result, pickup.actorNameId, value);
+    return editScene(renamed, pickup.scriptId, {name:value,code:pickupScript(value,pickup.itemId,pickup.clip,pickup.reserve)});
+  }
   return result;
 }
 
 // Existing opaque actor data, scripts, geometry overrides and sibling chunks
 // remain intact. New human actors use the verified C_human v6 layout.
 export function changeSceneObject(source, operation, geometryNames = [], geometryFrames = []) {
-  if (!operation || !['add-model', 'add-human', 'add-car', 'add-light', 'add-sound', 'add-detector', 'attach-door', 'attach-physical', 'duplicate', 'delete'].includes(operation.kind)) throw new Error('Scene: neplatná operace s objektem.');
+  if (!operation || !['add-model', 'add-human', 'add-car', 'add-pickup', 'configure-pickup', 'add-light', 'add-sound', 'add-detector', 'attach-door', 'attach-physical', 'duplicate', 'delete'].includes(operation.kind)) throw new Error('Scene: neplatná operace s objektem.');
   const scene = inspectScene(source), roots = tree(source), all = [];
   function collect(nodes) { for (const node of nodes) { all.push(node); if (node.children) collect(node.children); } }
   collect(roots);
@@ -227,14 +243,26 @@ export function changeSceneObject(source, operation, geometryNames = [], geometr
   const chunk = (type, payload) => { const header = Buffer.alloc(6); header.writeUInt16LE(type); header.writeUInt32LE(payload.length + 6, 2); return Buffer.concat([header, payload]); };
   const containers = all.filter(n => n.type === 0x4000);
   if (containers.length !== 1) throw new Error('Scene: scéna nemá jednoznačný seznam objektů.');
-  const container = containers[0]; let added, removed, actorAdded, actorContainer;
-  if (!['delete','attach-door','attach-physical'].includes(operation.kind)) {
+  const container = containers[0]; let added, removed, actorAdded, actorContainer, actorRemoved;
+  function pickupActor(name, parameters) {
+    const actors=all.filter(node=>node.type===0xae20);
+    if(actors.length>1||roots.length!==1)throw new Error('Scene: nejednoznačný seznam aktérů.');
+    actorContainer=actors[0];const type=Buffer.alloc(4);type.writeUInt32LE(5);
+    return chunk(0xae21,Buffer.concat([chunk(0xae23,Buffer.concat([encode(name),Buffer.from([0])])),chunk(0xae22,type),chunk(0xae24,createDetector(pickupScript(name,parameters.itemId,parameters.clip,parameters.reserve),0))]));
+  }
+  if (!['delete','attach-door','attach-physical','configure-pickup'].includes(operation.kind)) {
     const name = operation.name;
     if (typeof name !== 'string' || name !== name.trim() || !/^[a-zA-Z0-9_#][a-zA-Z0-9_# -]{0,62}$/.test(name)) throw new Error('Název objektu: 1–63 znaků, písmena bez diakritiky, číslice, mezera, #, pomlčka nebo podtržítko.');
     const used = [...scene.objects.map(o => o.name), ...geometryNames, ...scene.entries.filter(e => e.label === 'Název aktéra').map(e => e.value), 'Primary sector', 'Backdrop sector'];
     if (used.some(value => key(value) === key(name))) throw new Error('Scene: název objektu již existuje ve scéně nebo geometrii.');
   }
-  if(operation.kind==='add-detector'){
+  if(operation.kind==='configure-pickup'){
+    const object=scene.objects.find(object=>object.id===operation.id);
+    if(!object?.pickup)throw new Error('Předmět: vyberte předmět s nezměněným inicializačním skriptem editoru.');
+    if(typeof operation.model!=='string'||!/\.i3d$/i.test(operation.model)||operation.model.length>255||/[\x00-\x1f/\\:*?"<>|]/.test(operation.model))throw new Error('Scene: neplatná cesta modelu.');
+    const changed=editScene(source,object.fields.model,operation.model);
+    return editScene(changed,object.pickup.scriptId,{name:object.name,code:pickupScript(object.name,operation.itemId,operation.clip,operation.reserve)});
+  }else if(operation.kind==='add-detector'){
     const {name,position}=operation,actors=all.filter(node=>node.type===0xae20);
     if(actors.length>1||roots.length!==1)throw new Error('Scene: nejednoznačný seznam aktérů.');
     if(!Array.isArray(position)||position.length!==3||!Array.from(position).every(n=>typeof n==='number'&&Number.isFinite(n)&&Number.isFinite(Math.fround(n))))throw new Error('Detektor: neplatná pozice.');
@@ -282,7 +310,7 @@ export function changeSceneObject(source, operation, geometryNames = [], geometr
     if(actors.length>1||roots.length!==1)throw new Error('Scene: nejednoznačný seznam aktérů.');
     actorContainer=actors[0];const name=geometry[0]?.name??objects[0].name,type=Buffer.alloc(4);type.writeUInt32LE(6);
     actorAdded=chunk(0xae21,Buffer.concat([chunk(0xae23,Buffer.concat([encode(name),Buffer.from([0])])),chunk(0xae22,type),chunk(0xae24,createDoor(operation.parameters))]));
-  }else if (['add-model','add-human','add-car'].includes(operation.kind)) {
+  }else if (['add-model','add-human','add-car','add-pickup'].includes(operation.kind)) {
     const { name, model, position, rotation, scale } = operation;
     if (typeof model !== 'string' || !/\.i3d$/i.test(model) || model.length > 255 || /[\x00-\x1f/\\:*?"<>|]/.test(model)) throw new Error('Scene: neplatná cesta modelu.');
     if (!Array.isArray(rotation) || rotation.length !== 4 || rotation.some(v => typeof v !== 'number' || !Number.isFinite(v)) || Math.abs(Math.hypot(...rotation) - 1) > .0001) throw new Error('Scene: rotace musí být jednotkový quaternion WXYZ.');
@@ -295,6 +323,7 @@ export function changeSceneObject(source, operation, geometryNames = [], geometr
       chunk(0x4020, chunk(0x10, Buffer.from('Primary sector\0'))), chunk(0x2012, Buffer.concat([encode(model), Buffer.from([0])]))
     ]));
     if(operation.kind==='add-car'&&(!Array.isArray(scale)||scale.length!==3||scale.some(n=>n!==1)))throw new Error('Scene: auto používá měřítko 1, aby odpovídalo fyzice.');
+    if(operation.kind==='add-pickup')actorAdded=pickupActor(name,operation);
     if(['add-human','add-car'].includes(operation.kind)) {
       const actors=all.filter(node=>node.type===0xae20), sceneRoots=roots.filter(node=>node.type===0x4c53);
       if(actors.length>1||sceneRoots.length!==1)throw new Error('Scene: nejednoznačný seznam aktérů.');
@@ -322,24 +351,30 @@ export function changeSceneObject(source, operation, geometryNames = [], geometr
     }
   } else {
     const object = scene.objects.find(o => o.id === operation.id);
-    if (!object || ![2,4,6,9].includes(object.frameType) || object.actorBound || geometryNames.some(name => key(name) === key(object.name))) throw new Error('Scene: lze upravit pouze samostatný model, světlo, zvuk nebo pomocný bod bez navázaného aktéra a původní geometrie.');
+    if (!object || ![2,4,6,9].includes(object.frameType) || object.actorBound && !object.pickup || geometryNames.some(name => key(name) === key(object.name))) throw new Error('Scene: lze upravit pouze samostatný model, světlo, zvuk nebo pomocný bod bez navázaného aktéra a původní geometrie; výjimkou je předmět vytvořený editorem.');
     if (scene.objects.filter(o => key(o.name) === key(object.name)).length !== 1) throw new Error('Scene: název vybraného objektu není jednoznačný.');
     const node = container.children.find(n => n.id === object.id);
     if (!node) throw new Error('Scene: objekt není v hlavním seznamu.');
     if (operation.kind === 'duplicate') {
       // Rename a byte-preserving copy; its local transform and parent stay intact.
-      const renamed = tree(editScene(source, object.fields.name, operation.name));
-      function find(nodes) { for (const n of nodes) { if (n.id === object.id) return n; const found = n.children && find(n.children); if (found) return found; } }
-      added = find(renamed).raw;
+      if(object.pickup){
+        added=chunk(node.type,Buffer.concat(node.children.map(child=>child.id===object.fields.name?chunk(child.type,encodeField('string',operation.name,child.payload)):child.raw)));
+        actorAdded=pickupActor(operation.name,object.pickup);
+      }else{
+        const renamed = tree(editScene(source, object.fields.name, operation.name));
+        function find(nodes) { for (const n of nodes) { if (n.id === object.id) return n; const found = n.children && find(n.children); if (found) return found; } }
+        added = find(renamed).raw;
+      }
     } else {
       if (scene.objects.some(o => o.parent && key(o.parent) === key(object.name))) throw new Error('Scene: objekt má potomky. Nejprve upravte jejich rodiče.');
-      if (scene.entries.some(e => e.kind === 'script' && e.value.code.toLowerCase().includes(object.name.toLowerCase()))) throw new Error('Scene: na objekt odkazuje skript. Nejprve upravte jeho odkaz.');
+      if (scene.entries.some(e => e.kind === 'script' && e.id!==object.pickup?.scriptId && e.value.code.toLowerCase().includes(object.name.toLowerCase()))) throw new Error('Scene: na objekt odkazuje skript. Nejprve upravte jeho odkaz.');
       removed = node;
+      if(object.pickup)actorRemoved=all.find(node=>node.id===object.pickup.actorId);
     }
   }
   function write(node) {
     if (!node.children) return node.raw;
-    const children = node.children.filter(child => child !== removed).map(write);
+    const children = node.children.filter(child => child !== removed && child !== actorRemoved).map(write);
     if (node === container && added) children.push(added);
     if (actorAdded && node === actorContainer) children.push(actorAdded);
     if (actorAdded && !actorContainer && node.type === 0x4c53) children.push(chunk(0xae20,actorAdded));
