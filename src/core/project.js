@@ -23,6 +23,7 @@ import { collisionOwnership, ownedCollisionRecords, prepareSceneCollision, colli
 import { parseVehicleTable, vehicleModelDefinition, validateVehicleModel } from './vehicles.js';
 import { inspectVehicleTable, editVehicleTable } from './vehicle-table.js';
 import { parseEffects, editEffects, changeEffects, parseEffectTypes } from './effects.js';
+import { parseBmp, editBmp } from './bmp.js';
 
 const MANIFEST = 'workbench.json';
 const key = p => relativeAssetPath(p).normalize('NFC').toLowerCase();
@@ -426,9 +427,20 @@ export class ModProject {
       try { return { type: 'model', ...common, ...parseFourDs(bytes, true) }; }
       catch (error) { warning = error.message; }
     }
-    if (/\.(bmp|png|jpe?g)$/i.test(name)) return { type: 'image', ...common };
+    if (/\.bmp$/i.test(name)) {
+      try { return { type:'image', ...common, bitmap:parseBmp(bytes) }; }
+      catch (error) { return { type:'image', ...common, warning:error.message }; }
+    }
+    if (/\.(png|jpe?g)$/i.test(name)) return { type: 'image', ...common };
     if (/\.(wav|ogg|mp3)$/i.test(name)) return { type: 'audio', ...common };
     return { type: 'binary', ...common, warning, hex: bytes.subarray(0, 4096).toString('hex'), signature: bytes.subarray(0, 16).toString('ascii').replace(/[^\x20-\x7e]/g, '.') };
+  }
+  async saveBitmap(name, changes, expectedHash) {
+    if(!/\.bmp$/i.test(name))throw new Error('Soubor není BMP textura.');
+    await this.change(name,before=>{
+      if(expectedHash!==hash(before))throw new Error('Soubor se od otevření změnil. Otevřete jej znovu.');
+      return editBmp(before,changes);
+    },'Úprava BMP textury');
   }
   async saveModel(name, changes, expectedHash) {
     if (!/\.4ds$/i.test(name)) throw new Error('Soubor není 4DS model.');

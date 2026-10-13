@@ -10,6 +10,7 @@ import { soundTypes, soundDefaults } from '../shared/sounds.js';
 import { soundExtentSettings } from './sound-extent.js';
 import { roadGraph, roadEntries, roadReference } from '../shared/roads.js';
 import { Viewport } from './viewport.js';
+import { renderBitmap } from './bitmap.js';
 import { EffectsViewport } from './effects.js';
 import { AnimationPreview } from './animation.js';
 import { NavigationViewport } from './navigation.js';
@@ -104,6 +105,7 @@ function renderDetail() {
   badges.replay = 'REP · ČASOVÁ OSA';
   badges.vehicles = 'AUTA · FYZIKA A PŘEVODY';
   badges.effects = 'EFEKTY · UMÍSTĚNÍ ČÁSTIC';
+  if(file.bitmap)badges.image='BMP · EDITACE TEXTURY';
   const head = element('div', undefined, 'file-header'); head.append(element('h2', file.path), element('span', badges[file.type] ?? 'BINÁRNÍ SOUBOR', 'badge')); main.append(head);
   const source = state.project.assets.find(a => a.path === file.path);
   main.append(element('div', `${file.size.toLocaleString('cs')} bajtů · ${source?.archive} · ${source?.variants ?? 1} variant archivů`, 'file-meta'));
@@ -673,6 +675,8 @@ function effectDialog(file,effect=null){
   dialog.addEventListener('cancel',event=>{if(state.busy)event.preventDefault();});dialog.addEventListener('close',()=>dialog.remove(),{once:true});document.body.append(dialog);dialog.showModal();type.focus();
 }
 function renderMedia(main, file) {
+  if(file.bitmap){renderBitmap(main,file,{edits:state.texts,run,status,busy:()=>state.busy,save:async changes=>{state.file=await api.saveBitmap(file.path,changes,file.sha256);state.texts.clear();await refresh();renderDetail();status('BMP textura uložená do modu se zálohou a undo.');}});return;}
+  if(file.warning)main.append(element('p',file.warning+' Soubor lze prohlížet nebo nahradit externě.','notice'));
   const container = element('div', undefined, 'media-preview'), caption = element('p', 'Načítám náhled…'); main.append(container, caption);
   const media = element(file.type === 'image' ? 'img' : 'audio');
   if (file.type === 'image') { media.alt = file.path; media.onload = () => { caption.textContent = `${media.naturalWidth} × ${media.naturalHeight} px`; }; }

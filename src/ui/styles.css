@@ -11,3 +11,12 @@
 .sound-dialog audio{width:100%;margin-top:12px}
 
 .material-dialog{width:min(720px,calc(100vw - 40px));max-width:720px;max-height:calc(100vh - 40px);overflow-y:auto}.material-color{grid-column:1/-1;display:grid;grid-template-columns:60px repeat(3,minmax(0,1fr));gap:10px;border:1px solid var(--line);border-radius:5px}.material-color input{width:100%}.material-color input[type=color]{height:38px;padding:3px}
+
+.bitmap-area { height: 440px; overflow: auto; padding: 12px; border: 1px solid var(--line); background: repeating-conic-gradient(#ddd 0% 25%,#fff 0% 50%) 50% / 16px 16px; }
+.bitmap-area canvas { display: block; image-rendering: pixelated; touch-action: none; cursor: crosshair; max-width: none; }
+.bitmap-tools { align-items: center; }
+.bitmap-tools input[type=color] { width: 48px; height: 34px; padding: 2px; }
+.bitmap-tools input[type=number] { width: 74px; }
+.bitmap-palette { display: grid; grid-template-columns: repeat(32, 18px); gap: 2px; overflow-x: auto; padding: 12px 0; }
+.bitmap-palette button { width: 18px; height: 18px; min-width: 0; padding: 0; border-radius: 2px; border: 1px solid #777; }
+.bitmap-palette button[aria-pressed="true"] { outline: 2px solid var(--accent); outline-offset: 1px; z-index: 1; }

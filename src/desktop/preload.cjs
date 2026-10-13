@@ -26,6 +26,7 @@ contextBridge.exposeInMainWorld('workbench', {
   saveScene: (name, changes, expectedHash) => invoke('asset:scene', name, changes, expectedHash),
   changeSceneObject: (name, operation, expectedHash) => invoke('asset:scene-object', name, operation, expectedHash),
   saveModel: (name, changes, expectedHash) => invoke('asset:model', name, changes, expectedHash),
+  saveBitmap: (name, changes, expectedHash) => invoke('asset:bitmap', name, changes, expectedHash),
   saveEffects: (name, changes, expectedHash, dependencies) => invoke('asset:effects', name, changes, expectedHash, dependencies),
   changeEffects: (name, request, expectedHash, dependencies) => invoke('asset:effects-change', name, request, expectedHash, dependencies),
   saveAnimation: (name, changes, expectedHash) => invoke('asset:animation', name, changes, expectedHash),

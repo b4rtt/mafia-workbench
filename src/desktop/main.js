@@ -123,6 +123,7 @@ app.whenReady().then(async () => {
   handle('asset:scene', (name, changes, expectedHash) => operation(async () => { await current().saveScene(name, changes, expectedHash); return current().inspect(name); }));
   handle('asset:scene-object', (name, request, expectedHash) => operation(async () => { await current().changeSceneObject(name, request, expectedHash); return current().inspectMap(name); }));
   handle('asset:model', (name, changes, expectedHash) => operation(async () => { await current().saveModel(name, changes, expectedHash); return current().inspect(name); }));
+  handle('asset:bitmap', (name, changes, expectedHash) => operation(async () => { await current().saveBitmap(name, changes, expectedHash); return current().inspect(name); }));
   handle('asset:effects', (name, changes, expectedHash, dependencies) => operation(async () => { await current().saveEffects(name, changes, expectedHash, dependencies); return current().inspect(name); }));
   handle('asset:effects-change', (name, request, expectedHash, dependencies) => operation(async () => { await current().changeEffects(name, request, expectedHash, dependencies); return current().inspect(name); }));
   handle('asset:animation', (name, changes, expectedHash) => operation(async () => { await current().saveAnimation(name, changes, expectedHash); return current().inspect(name); }));
