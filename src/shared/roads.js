@@ -8,12 +8,12 @@ export function roadGraph(file) {
     const links=(section==='crossings'?record.links:[record.previous,record.next]).filter(value=>value!==65535).map(value=>({index:linkCount++,target:target(value),type:0}));
     points.push({index:points.length,position:[...record.position],type:section==='crossings'?1:2,section,recordIndex:record.index,links});
   }
-  return {points,linkCount,editable:false};
+  return {points,linkCount,editable:true};
 }
 export function roadEntries(file,section,index) {
   const record=file[section][index],context=`${section==='crossings'?'Křižovatka':'Bod'} ${index}`;
   const entry=(field,label,kind,value,where=context)=>({id:`${section}/${index}/${field}`,context:where,label,kind,value});
-  const result=[entry('speed','Rychlost (herní jednotky)','float',record.speed)];
+  const result=[entry('position','Pozice XYZ','vec3',record.position),entry('speed','Rychlost (herní jednotky)','float',record.speed)];
   if(section==='crossings') {
     result.push(entry('semaphore','Příznak semaforu (raw)','uint8',record.semaphore));
     record.directions.forEach((direction,slot)=>{

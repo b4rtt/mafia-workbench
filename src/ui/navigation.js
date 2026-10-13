@@ -29,12 +29,13 @@ export class NavigationViewport extends Viewport {
     const color = type & 8 ? 0xb78cff : type & 4 ? 0xff8c6c : type & 2 ? 0xffd56a : type & 1 ? 0x5fcaff : 0x8cbd9b;
     this.markers.setColorAt(index,new THREE.Color(color)); this.markers.instanceColor.needsUpdate = true;
   }
-  select(id) {
+  select(id, _editable, focus=this.focusOnSelect) {
     const index = Number(id); if (!Number.isInteger(index) || !this.positions[index]) return;
     this.selectedPoint = index; this.proxy.visible = true; this.proxy.position.fromArray(this.positions[index]);
     this.proxy.userData.frame = {id:String(index),navigationIndex:index,editable:this.navigationEditable};
     if(this.navigationEditable)this.gizmo.attach(this.proxy);else this.gizmo.detach();
     this.drawHighlight(); this.onSelect(this.proxy.userData.frame);
+    if(focus)this.fit(this.proxy);
   }
   drawHighlight() {
     const vertices = [];
