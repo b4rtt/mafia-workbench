@@ -23,8 +23,11 @@ import { TrackViewport, companionAnimation } from './track.js';
 import { CutsceneViewport, CutsceneAudio, activeCutsceneAudio } from './cutscene.js';
 import { Group } from 'three';
 import { Drafts } from './drafts.js';
+import { missionParts } from '../shared/mission-parts.js';
+import { MissionViews } from './mission-views.js';
 const api = window.workbench;
 const shell = initializeWorkspace();
+const missionViews = new MissionViews();
 const $ = id => document.getElementById(id);
 const state = { project: null, file: null, category: 'levels', texts: new Drafts(buttons), textIndex: 0, busy: false, viewport: null };
 function element(tag, text, className) { const node = document.createElement(tag); if (text !== undefined) node.textContent = text; if (className) node.className = className; return node; }
@@ -40,6 +43,7 @@ function buttons() {
   $('export').disabled = state.busy || !state.project;
   $('new-mission').disabled = state.busy || !state.project;
   $('stop-level').disabled = state.busy;
+  for (const part of document.querySelectorAll('[data-mission-part]')) part.disabled = state.busy;
   for(const launch of document.querySelectorAll('[data-play-level]')){
     launch.disabled=state.busy||Boolean(state.texts.size);
     const reason=state.texts.size?'Nejdřív uložte rozepsané změny.':state.busy?'Probíhá operace editoru.':'Spustit tuto misi ve hře.';
@@ -99,17 +103,54 @@ function renderFiles() {
   $('count').textContent = `${files.length.toLocaleString('cs')} SOUBORŮ · ${groups.length} SLOŽEK`;
 }
 async function openFile(name) { state.file = await api.inspect(name); renderDetail(); renderFiles(); status(`Otevřeno: ${name}`); }
+function renderMissionParts(main, file) {
+  const parts = missionParts(state.project.assets, file.path);
+  if (!parts.length) return;
+  const navigation = element('nav', undefined, 'mission-parts');
+  navigation.setAttribute('aria-label', 'Části této mise');
+  for (const part of parts) {
+    const button = element('button', part.label), active = part.path === file.path && part.type === file.type;
+    button.dataset.missionPart = ''; button.classList.toggle('selected', active);
+    if (active) button.setAttribute('aria-current', 'page');
+    button.title = part.type === 'binary' ? `${part.path} · zatím bez specializovaného editoru kolizí` : part.path;
+    button.onclick = () => run(async () => {
+      if (active || !await discard()) return;
+      status(`Načítám: ${part.label}…`);
+      // Keep the current editor and drafts if loading the destination fails.
+      const next = await (part.type === 'map' ? api.map(part.path) : api.inspect(part.path));
+      state.texts.clear(); state.textIndex = 0; state.file = next;
+      renderDetail(); renderFiles(); status(`Otevřeno: ${part.path}`);
+    });
+    button.onkeydown = event => {
+      const buttons = [...navigation.querySelectorAll('button')], index = buttons.indexOf(button);
+      const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : event.key === 'ArrowRight' ? (index + 1) % buttons.length : event.key === 'ArrowLeft' ? (index + buttons.length - 1) % buttons.length : null;
+      if (next === null) return;
+      event.preventDefault(); buttons[next].focus(); buttons[next].scrollIntoView({block:'nearest',inline:'nearest'});
+    };
+    navigation.append(button);
+  }
+  navigation.addEventListener('wheel', event => {
+    if (navigation.scrollWidth <= navigation.clientWidth) return;
+    event.preventDefault(); navigation.scrollLeft += event.deltaX || event.deltaY;
+  }, {passive:false});
+  main.append(navigation);
+  navigation.querySelector('[aria-current]')?.scrollIntoView({block:'nearest',inline:'nearest'});
+}
 function renderDetail() {
   const file = state.file; if (!file) return;
   const previous = state.viewport;
+  missionViews.remember(previous);
+  const remembered = missionViews.get(state.project.root, file);
   const mapView = file.type === 'map' && previous?.mapPath === file.path && previous.projectRoot === state.project.root
-    ? { camera: previous.captureCamera(), selectedName: previous.selectedName, mode: previous.gizmo.mode, backdrop: previous.backdrop?.visible, collisions: previous.collisionOverlay?.visible, sounds: previous.soundExtentVisible, lights: previous.lightPreviewVisible } : null;
+    ? { camera: previous.captureCamera(), selectedName: previous.selectedName, mode: previous.gizmo.mode, backdrop: previous.backdrop?.visible, collisions: previous.collisionOverlay?.visible, sounds: previous.soundExtentVisible, lights: previous.lightPreviewVisible } : remembered;
   const modelView = file.type === 'model' && previous?.modelPath === file.path && previous.projectRoot === state.project.root
-    ? { camera: previous.captureCamera(), selectedId: previous.selectedId, mode: previous.gizmo.mode, wireframe: previous.modelWireframe } : null;
+    ? { camera: previous.captureCamera(), selectedId: previous.selectedId, mode: previous.gizmo.mode, wireframe: previous.modelWireframe } : remembered;
   const effectsView = file.type === 'effects' && previous?.effectsPath === file.path && previous.projectRoot === state.project.root
-    ? { camera:previous.captureCamera(), selectedId:previous.selectedId, geometry:previous.contextGeometry?.visible } : null;
+    ? { camera:previous.captureCamera(), selectedId:previous.selectedId, geometry:previous.contextGeometry?.visible } : remembered;
   const roadView = file.type === 'roads' && previous?.roadPath === file.path && previous.projectRoot === state.project.root
-    ? {camera:previous.captureCamera(),geometry:previous.roadGeometryWanted} : null;
+    ? {camera:previous.captureCamera(),geometry:previous.roadGeometryWanted,selectedPoint:previous.selectedPoint} : remembered;
+  const navigationView = file.type === 'navigation' && previous?.navigationPath === file.path && previous.projectRoot === state.project.root
+    ? {camera:previous.captureCamera(),geometry:previous.navigationGeometryWanted,selectedPoint:previous.selectedPoint} : remembered;
   const animationView=file.type==='animation'&&previous?.animationPath===file.path&&previous.projectRoot===state.project.root?{camera:previous.captureCamera(),model:previous.animationModel,...previous.animationState()}:null;
   const trackView=file.type==='track'&&previous?.trackPath===file.path&&previous.projectRoot===state.project.root?{camera:previous.captureCamera(),model:previous.trackModel,animation:previous.trackAnimation,time:previous.time,search:previous.trackSearch()}:null;
   state.viewport?.dispose(); state.viewport = null;
@@ -121,6 +162,7 @@ function renderDetail() {
   badges.effects = 'EFEKTY · UMÍSTĚNÍ ČÁSTIC';
   if(file.bitmap)badges.image='BMP · EDITACE TEXTURY';
   const head = element('div', undefined, 'file-header'); head.append(element('h2', file.path), element('span', badges[file.type] ?? 'BINÁRNÍ SOUBOR', 'badge')); main.append(head);
+  renderMissionParts(main, file);
   const source = state.project.assets.find(a => a.path === file.path);
   main.append(element('div', `${file.size.toLocaleString('cs')} bajtů · ${source?.archive} · ${source?.variants ?? 1} variant archivů`, 'file-meta'));
   const toolbar = element('div', undefined, 'tools');
@@ -146,7 +188,7 @@ function renderDetail() {
   else if (file.type === 'items') renderItems(main, file);
   else if (file.type === 'vehicles') renderVehicles(main, file);
   else if (file.type === 'effects') renderEffects(main, file, effectsView);
-  else if (file.type === 'navigation') renderNavigation(main, file);
+  else if (file.type === 'navigation') renderNavigation(main, file, navigationView);
   else if (file.type === 'roads') renderRoads(main, file, roadView);
   else if (file.type === 'track') renderTrack(main, file, trackView);
   else if (file.type === 'difference') renderDifference(main, file);
@@ -308,10 +350,11 @@ function renderRoads(main, file, previous=null) {
     const point=graph.points[frame.navigationIndex],record=file[point.section][point.recordIndex];section.value=point.section;number.value=String(point.recordIndex);range();state.roadIndex=point.index;
     insert.disabled=!point.links.some(link=>point.section==='nodes'||graph.points[link.target].section==='nodes');
     remove.disabled=point.section!=='nodes'||point.links.length!==2||point.links.every(link=>graph.points[link.target].section==='crossings');
-    inspector.replaceChildren(element('h3',`${point.section==='crossings'?'Křižovatka':'Bod'} ${point.recordIndex}`),element('p',`Pozice XYZ: ${record.position.join(', ')}`,'notice'));
+    const pane=inspector.querySelector(':scope>.inspector-content')??inspector;
+    pane.replaceChildren(element('h3',`${point.section==='crossings'?'Křižovatka':'Bod'} ${point.recordIndex}`),element('p',`Pozice XYZ: ${record.position.join(', ')}`,'notice'));
     const bindings=point.section==='crossings'?record.links.map((value,i)=>`Výjezd ${i}: ${roadReference(value)}`):[['Předchozí',record.previous],['Následující',record.next],['Předchozí křižovatka',record.previousCrossing],['Následující křižovatka',record.nextCrossing]].map(([label,value])=>`${label}: ${roadReference(value)}`);
-    inspector.append(element('p',bindings.join(' · '),'notice'));
-    properties=renderProperties(inspector,{...file,entries:roadEntries(file,point.section,point.recordIndex)},api.saveRoads,(entry,value)=>{
+    pane.append(element('p',bindings.join(' · '),'notice'));
+    properties=renderProperties(pane,{...file,entries:roadEntries(file,point.section,point.recordIndex)},api.saveRoads,(entry,value)=>{
       if(entry.id===`${point.section}/${point.recordIndex}/position`&&Array.isArray(value)&&value.length===3&&value.every(Number.isFinite))view.updatePoint(point.index,value);
     });
   },(frame,values)=>{
@@ -340,7 +383,7 @@ function renderRoads(main, file, previous=null) {
   }
   background.onclick=()=>run(toggleGeometry);
   if(previous?.geometry)toggleGeometry().catch(error=>status(error.message,true));
-  if(graph.points.length)view.select(String(Math.min(state.roadIndex??0,graph.points.length-1)),true,false);else inspector.append(element('p','Tato mise nemá silniční síť.','notice'));
+  if(graph.points.length)view.select(String(Math.min(previous?.selectedPoint??state.roadIndex??0,graph.points.length-1)),true,false);else inspector.append(element('p','Tato mise nemá silniční síť.','notice'));
 }
 function roadPointDialog(file,graph,index,action){
   const point=graph.points[index],label=point=>`${point.section==='crossings'?'Křižovatka':'Bod'} ${point.recordIndex}`;
@@ -365,7 +408,7 @@ function roadPointDialog(file,graph,index,action){
   });};
   dialog.addEventListener('cancel',event=>{if(state.busy)event.preventDefault();});dialog.addEventListener('close',()=>dialog.remove(),{once:true});document.body.append(dialog);dialog.showModal();
 }
-function renderNavigation(main, file) {
+function renderNavigation(main, file, previous) {
   main.append(element('p', `${file.points.length.toLocaleString('cs')} bodů · ${file.linkCount.toLocaleString('cs')} směrovaných vazeb. Číslo bodu je jeho pořadí od nuly, uložené ID se může opakovat. Modrá: chodci, žlutá: AI, oranžová: vozidla, fialová: zastávky.`, 'notice'));
   main.append(element('p','Uložení posunu přepočítá délky navazujících cest. Při změně pořadí bodů se jejich čísla a odkazy aktualizují společně; vybraný bod zůstane vybraný.','notice'));
   for (const warning of file.warnings.slice(0,10)) main.append(element('p',warning,'notice'));
@@ -402,18 +445,19 @@ function renderNavigation(main, file) {
   }
   const view = new NavigationViewport(viewport, frame => {
     if(pickingTarget){if(frame.navigationIndex===state.navigationIndex){status('Vyberte jiný bod než začátek spojení.',true);return;}target.value=String(frame.navigationIndex);pickingTarget=false;pickTarget.textContent='Vybrat cíl ve 3D';view.select(String(state.navigationIndex));status(`Cílový bod: ${target.value}`);return;}
-    const point = file.points[frame.navigationIndex]; number.value = String(point.index); state.navigationIndex = point.index; inspector.replaceChildren();
+    const point = file.points[frame.navigationIndex]; number.value = String(point.index); state.navigationIndex = point.index;
+    const pane=inspector.querySelector(':scope>.inspector-content')??inspector; pane.replaceChildren();
     if(target.value===''||Number(target.value)===point.index)target.value=String(point.links[0]?.target??(point.index+1)%file.points.length);
     const connections=element('div',undefined,'tools'),connect=element('button','Propojit body'),disconnect=element('button','Odpojit body');
     connections.append(target,pickTarget,direction,connect,disconnect);
-    inspector.append(element('h3',`Spojení bodu ${point.index}`),connections,element('p','Nové spojení respektuje kategorie bodů a vzdálenost. Jednosměrná cesta uloží i protější blokovanou vazbu; odpojení odstraní oba směry.','notice'));
+    pane.append(element('h3',`Spojení bodu ${point.index}`),connections,element('p','Nové spojení respektuje kategorie bodů a vzdálenost. Jednosměrná cesta uloží i protější blokovanou vazbu; odpojení odstraní oba směry.','notice'));
     for(const [button,action] of [[connect,'connect'],[disconnect,'disconnect']])button.onclick=()=>run(async()=>{
       if(state.texts.size)throw new Error('Před změnou spojení uložte nebo zahoďte rozepsané vlastnosti.');
       if(target.value==='')throw new Error('Vyberte cílový bod spojení.');
       state.file=await api.changeNavigationConnection(file.path,{action,from:point.index,to:Number(target.value),direction:direction.value},file.sha256);
       await refresh();renderDetail();status(action==='connect'?'Body propojené v modu se zálohou.':'Body odpojené v modu se zálohou.');
     });
-    properties = renderProperties(inspector,{...file,entries:entries(point)},api.saveNavigation,(entry,value)=>{
+    properties = renderProperties(pane,{...file,entries:entries(point)},api.saveNavigation,(entry,value)=>{
       const [section,index,key] = entry.id.split('/');
       if (section === 'points' && key === 'position' && Array.isArray(value) && value.length === 3 && value.every(n=>typeof n==='number'&&Number.isFinite(n))) view.updatePoint(Number(index),value);
       if (section === 'points' && key === 'type' && Number.isInteger(value) && value>=0 && value<=65535) view.setType(Number(index),value);
@@ -424,21 +468,33 @@ function renderNavigation(main, file) {
     if (JSON.stringify(values.position) === JSON.stringify(original)) state.texts.delete(id); else state.texts.set(id,values.position);
     view.updatePoint(frame.navigationIndex,values.position); properties?.select(id); status('Posun navigačního bodu je rozepsaný; uložte změny.');
   });
-  state.viewport = view; view.loadNavigation(file);
+  state.viewport = view; view.navigationPath=file.path; view.projectRoot=state.project.root; view.focusOnSelect=true; view.loadNavigation(file);
+  if (previous) view.restoreCamera(previous.camera);
   jump.onclick = () => { const index = Number(number.value); if (number.value !== '' && Number.isInteger(index) && index>=0 && index<file.points.length) view.select(String(index)); else status('Číslo bodu je mimo rozsah.',true); };
   fit.onclick = () => view.fit(view.markers); focus.onclick = () => { if (view.selectedPoint !== null) view.fit(view.proxy); };
-  let geometry;
-  background.onclick = () => run(async()=>{
-    if (geometry) { geometry.visible = !geometry.visible; background.textContent = geometry.visible ? 'Skrýt geometrii mise' : 'Zobrazit geometrii mise'; return; }
-    const model = await api.inspect(file.path.replace(/check\.bin$/i,'scene.4ds')); if (state.file !== file) return;
-    if (model.type !== 'model') throw new Error(model.warning ?? 'Geometrii mise zatím nelze načíst.');
-    geometry = new Group(); view.root.add(geometry);
-    for (const object of view.addModel(model,geometry,'nav-context/').values()) object.userData.frame.editable = false;
-    geometry.traverse(object=>{object.raycast=()=>{};});
-    await view.loadTextures(async texture=>{const path=texture.replaceAll('\\','/').toLowerCase(),asset=state.project.assets.find(a=>a.path.toLowerCase()===`maps/${path}`||a.path.toLowerCase()===path);return asset?api.media(asset.path):null;});
-    background.textContent = 'Skrýt geometrii mise';
-  });
-  if (file.points.length) view.select(String(Math.min(state.navigationIndex ?? 0,file.points.length-1)));
+  let geometry, geometryLoading;
+  async function toggleGeometry() {
+    view.navigationGeometryWanted = !view.navigationGeometryWanted;
+    background.textContent = view.navigationGeometryWanted ? 'Skrýt geometrii mise' : 'Zobrazit geometrii mise';
+    if (geometry) { geometry.visible = view.navigationGeometryWanted; return; }
+    if (!view.navigationGeometryWanted) return;
+    if (!geometryLoading) geometryLoading = (async () => {
+      const model = await api.inspect(file.path.replace(/check\.bin$/i,'scene.4ds'));
+      if (state.file !== file || view.disposed) return;
+      if (model.type !== 'model') throw new Error(model.warning ?? 'Geometrii mise zatím nelze načíst.');
+      geometry = new Group(); geometry.visible=false; view.root.add(geometry);
+      for (const object of view.addModel(model,geometry,'nav-context/').values()) object.userData.frame.editable = false;
+      geometry.traverse(object=>{object.raycast=()=>{};});
+      await view.loadTextures(async texture=>{const path=texture.replaceAll('\\','/').toLowerCase(),asset=state.project.assets.find(a=>a.path.toLowerCase()===`maps/${path}`||a.path.toLowerCase()===path);return asset?api.media(asset.path):null;});
+      if (state.file === file && !view.disposed) geometry.visible=view.navigationGeometryWanted;
+    })();
+    try { await geometryLoading; }
+    catch (error) { view.navigationGeometryWanted=false; background.textContent='Zobrazit geometrii mise'; throw error; }
+    finally { geometryLoading=null; }
+  }
+  background.onclick = () => run(toggleGeometry);
+  if (previous?.geometry) toggleGeometry().catch(error=>status(error.message,true));
+  if (file.points.length) view.select(String(Math.min(previous?.selectedPoint??state.navigationIndex??0,file.points.length-1)),true,false);
   else inspector.append(element('p','Tato mise nemá navigační body.','notice'));
 }
 function renderVehicles(main, file) {
@@ -1245,6 +1301,7 @@ for (const [id, action] of [['open', api.open], ['create', api.create]]) $(id).o
   status(id === 'create' ? 'Vyberte hru a umístění nového projektu…' : 'Vyberte projekt…');
   const project = await action(); if (!project) { status('Zrušeno'); return; }
   state.viewport?.dispose(); state.viewport = null;
+  missionViews.clear();
   state.texts.clear(); state.file = null; shell.spatial(false); $('detail').classList.remove('spatial-detail','view-focus'); $('detail').replaceChildren(element('h2', 'Projekt je připravený'), element('p', 'Vyberte soubor vlevo. České texty najdete filtrem Texty.'));
   await refresh(project); status('Projekt otevřený; původní hra zůstala zachovaná.');
 });

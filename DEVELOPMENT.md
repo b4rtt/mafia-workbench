@@ -8,7 +8,8 @@ Aktualizace: 13. října 2026. Vývoj pokračuje; komplexní editor není dokon�
 - Implementováno: seskupit tvorbu objektů, operace výběru a zobrazení do nabídek; vysvětlení přesunout do nápovědy; přehrávání pod pohled.
 - Implementováno: samostatné číselné vstupy XYZ/WXYZ/RGB, skupiny modelových objektů a zaměření objektu ze seznamu. Zachovat existující funkce, kameru a rozepsané změny.
 - Implementováno: ve 3D mapě, modelech a efektech je vlevo jeden řádek na objekt a vpravo společný formulář jeho vlastností, transformací a navázaného aktéra. Jedno uložení zahrne všechny drafty. Rozpracované neplatné číselné složky se při přepnutí výběru zachovají.
-- Dále: zlepšit navigaci mezi soubory mise a souvisejícími editory, ověřit malé rozměry okna a práci klávesnicí. Před dokončením projít běžné pracovní postupy přímo v aplikaci.
+- Implementováno: horizontální přepínání částí téže mise (3D scéna, vlastnosti, geometrie, navigace, silnice, efekty, dostupná cache a soubor kolizí), ochrana draftů a zapamatování kamery/výběru prostorových pohledů v rámci otevřeného projektu. Navigace a silnice při změně výběru zachovávají panely inspektoru a aktualizují levý seznam.
+- Dále: ověřit malé rozměry okna a práci klávesnicí. Před dokončením projít běžné pracovní postupy přímo v aplikaci.
 
 ## Uzavřené změny této etapy
 
@@ -18,12 +19,14 @@ Aktualizace: 13. října 2026. Vývoj pokračuje; komplexní editor není dokon�
 - Objektový inspektor: zobrazení celé postavy TommyHAT v TUTORIAL, transformací a nastavení aktéra ověřené v okně. Na odděleném projektu ověřeno současné přepsání polohy a energie, zachování platného i neúplného vstupu při přepnutí objektu, společné uložení, přesný export a byte-for-byte undo. Seznam vlastností TCK/REP/navigace/silnic se při obnově formuláře přesouvá do levého panelu; přepínání TCK klíčů ověřené, REP/bodů ještě vyžaduje přímý test.
 - TCK: model s odpovídající 5DS, kosterní pohyb a směr, zarámování postavy, zachování modelu/kamery/času po uložení a živý náhled směrových změn. Audit 283 podporovaných párů; v okně ověřené přehrávání, přepínání klíčů, společné uložení polohy a směru, byte-local zápis, export a přesné undo. Viz research/formats.md.
 - Pohybové TCK v cutscéně: automatické načtení pouze pro lidské stopy s příznakem 0x1000, rotace místního posunu do souřadnic REP a doložený směr; jiné stopy se nemění. Audit všech 5 dotčených cutscén mezi 92 podporovanými REP, 4 155 vzorků, konečné a opakovatelné transformace, shodné zdrojové hashe. V odděleném okně ověřeno record06a / MISE06-SALIERY / dif06a: 5/5 vazeb, 1 TCK, příchod dveřmi kolem 4 989 ms, přehrávání/pauza a návrat na čas 0. Přesné srovnání všech záběrů s hrou ještě zbývá.
-- Celá sada po těchto změnách: 245 testů prošlo; syntaktické kontroly a sestavení prošly.
+- Přepínání mise: v odděleném Electronu na TUTORIAL ověřen přechod scéna → navigace → silnice, návrat na bod 28 s kamerou a zapnutou geometrií, návrat na TommyHAT s detailní kamerou, zrušení přechodu se zachováním draftu a přechod po zahození testovací změny. Výběr dalšího bodu/křižovatky aktualizoval levý seznam a zachoval záložky inspektoru. Zapamatování platí do zavření projektu/aplikace; herní soubory se při přepínání nezapisují.
+- Celá sada po těchto změnách: 248 testů prošlo; syntaktické kontroly a sestavení prošly.
 
 ## Další funkce a ověřování
 
 - Požadavky na značky a světla implementované: zvuk/reproduktor, skriptový bod/kód, světlo/žárovka; orientační náhled vybraných světel 1–4 s živými parametry a gizmem, hranicemi a přepínačem. Datové testy a přímé UI ověření, limity v research/object-creation.md. „Spustit level“ je disabled při libovolném draftu i běžící operaci, s důvodem; v UI ověřena změna i opětovné povolení po návratu původní hodnoty.
 - Tvorba objektů: model, postava, auto, dveřní aktér, fyzikální předmět, pickup, světlo, zvuk, skriptový bod již mají implementaci. Přehled doložených typů a zdrojů: research/object-creation.md. Doplňovat další typy podle referenčních editorů a enginu, nikoli odhadem. Dynamické kolize aut/dveří/předmětů vytváří hra.
+- Kolize — další hlavní vývojový blok podle výslovného požadavku uživatele: plnohodnotný samostatný 3D editor původních tree.klz, výběr a úpravy tvarů/povrchů, přidávání/mazání, materiály, přepočet prostorové mřížky a zachování vazeb, zálohy/export/undo a herní ověření. Současný odkaz „Kolize (soubor)“ je pouze přístup k souboru a tento požadavek nesplňuje.
 - Kolize: generovaný box i přesný povrch modelu, transformace, kopie a odstranění mají datové testy; box ověřen ve hře. Přesný povrch potřebuje dokončit herní test průchodů/kolizí. Původní kolize nezahazovat.
 - 4DS: transformace, materiály, vrcholy, UV, topologie a více LOD implementované. Nové panely geometrie a materiálů potřebují UI/runtime ověření. Dále sektory/portály a tvary skin/morph; zachovat instance a neznámá data.
 - BMP: kreslení, kapátko, paleta a alpha implementované a datově ověřené; nové ovládání i textura ve hře ještě vyžadují test.
