@@ -14,6 +14,8 @@ import { renderBitmap } from './bitmap.js';
 import { geometryDialog } from './model-geometry.js';
 import { EffectsViewport } from './effects.js';
 import { AnimationPreview } from './animation.js';
+import { renderAnimationTimeline } from './animation-timeline.js';
+import { toLs3dRotation } from './transforms.js';
 import { NavigationViewport } from './navigation.js';
 import { TrackViewport } from './track.js';
 import { CutsceneViewport, CutsceneAudio, activeCutsceneAudio } from './cutscene.js';
@@ -99,6 +101,7 @@ function renderDetail() {
     ? { camera:previous.captureCamera(), selectedId:previous.selectedId, geometry:previous.contextGeometry?.visible } : null;
   const roadView = file.type === 'roads' && previous?.roadPath === file.path && previous.projectRoot === state.project.root
     ? {camera:previous.captureCamera(),geometry:previous.roadGeometryWanted} : null;
+  const animationView=file.type==='animation'&&previous?.animationPath===file.path&&previous.projectRoot===state.project.root?{camera:previous.captureCamera(),model:previous.animationModel,...previous.animationState()}:null;
   state.viewport?.dispose(); state.viewport = null;
   for (const audio of $('detail').querySelectorAll('audio')) { audio.pause(); audio.removeAttribute('src'); audio.load(); }
   const main = $('detail'); main.replaceChildren();
@@ -141,7 +144,7 @@ function renderDetail() {
   else if (file.type === 'cache') renderCache(main, file);
   else if (file.type === 'model') renderModel(main, file, modelView);
   else if (file.type === 'map') renderMap(main, file, mapView);
-  else if (file.type === 'animation') renderAnimation(main, file);
+  else if (file.type === 'animation') renderAnimation(main, file, animationView);
   else if (file.type === 'image' || file.type === 'audio') renderMedia(main, file);
   else {
     if (file.warning) main.append(element('p', file.warning, 'notice'));
@@ -752,20 +755,20 @@ function materialDialog(file,view){
   cancel.onclick=()=>dialog.close();form.onsubmit=event=>{event.preventDefault();if(state.busy||!valid())return;run(async()=>{save.disabled=cancel.disabled=true;fields.inert=true;try{if([...state.texts.values()].some(value=>value?.invalid))throw new Error('Opravte neplatné rozepsané vlastnosti modelu.');state.file=await api.saveModel(file.path,[...state.texts].map(([id,value])=>({id,value})),file.sha256);saved=true;state.texts.clear();dialog.close();await refresh();renderDetail();status('Materiály a vlastnosti modelu uložené do modu se zálohou.');}catch(error){message.textContent=error.message;throw error;}finally{save.disabled=cancel.disabled=false;fields.inert=false;}});};
   dialog.addEventListener('cancel',event=>{if(state.busy)event.preventDefault();});dialog.addEventListener('close',()=>{for(const timer of loads.values())clearTimeout(timer);if(!saved){state.texts=initial;for(const i of edited)if(view.updateMaterial(i,materialDraft(file.materials[i],i,initial)))view.loadTextures(view.resolveTexture,{index:i});status(initial.size?'Původní rozepsané vlastnosti zůstaly zachované.':'Změny tohoto dialogu jsou zahozené.');}dialog.remove();},{once:true});document.body.append(dialog);show();dialog.showModal();
 }
-function renderAnimation(main, file) {
+function renderAnimation(main, file, previousView=null) {
   const layout = element('div', undefined, 'model-workspace'), center = element('section', undefined, 'model-center'), inspector = element('section', undefined, 'model-inspector');
   layout.append(center, inspector); main.append(layout);
   const tools = element('div', undefined, 'tools'), search = element('input'), models = element('select'), load = element('button', 'Načíst model pro animaci');
-  search.type = 'search'; search.value = 'Tommy'; search.placeholder = 'Hledat model…'; search.setAttribute('aria-label', 'Hledat model pro animaci'); models.setAttribute('aria-label', 'Model pro animaci');
+  search.type = 'search'; search.value = previousView?.search??'Tommy'; search.placeholder = 'Hledat model…'; search.setAttribute('aria-label', 'Hledat model pro animaci'); models.setAttribute('aria-label', 'Model pro animaci');
   const caption = element('p', `${file.nodes.length} animovaných uzlů · snímky 0–${file.frames}. Vyberte model se shodnými názvy uzlů.`, 'notice');
   const viewport = element('div', undefined, 'viewport'), timeline = element('div', undefined, 'tools');
   const play = element('button', 'Přehrát'), previous = element('button', 'Předchozí snímek'), next = element('button', 'Další snímek'), slider = element('input'), fps = element('input'), frameLabel = element('output');
   slider.type = 'range'; slider.min = '0'; slider.max = String(file.frames); slider.step = '1'; slider.value = '0'; slider.setAttribute('aria-label', 'Snímek animace');
-  fps.type = 'number'; fps.min = '1'; fps.max = '120'; fps.value = '25'; fps.setAttribute('aria-label', 'Rychlost náhledu ve snímcích za sekundu');
+  fps.type = 'number'; fps.min = '1'; fps.max = '120'; fps.value = previousView?.fps??'25'; fps.setAttribute('aria-label', 'Rychlost náhledu ve snímcích za sekundu');
   const fpsLabel = element('label', 'snímků/s'); fpsLabel.prepend(fps);
   timeline.append(play, previous, next, slider, frameLabel, fpsLabel); tools.append(search, models, load); center.append(tools, caption, viewport, timeline);
-  let view, preview, frame = 0, playing = false, lastTime = null;
-  function showFrame(value) { frame = Math.max(0, Math.min(file.frames, value)); slider.value = String(Math.round(frame)); frameLabel.textContent = `${Math.round(frame)} / ${file.frames}`; preview?.apply(frame, state.texts); }
+  let view, preview, editor, frame = 0, playing = false, lastTime = null;
+  function showFrame(value) { const animation=editor?.animation()??file;frame = Math.max(0, Math.min(animation.frames, value)); slider.max=String(animation.frames);slider.value = String(Math.round(frame)); frameLabel.textContent = `${Math.round(frame)} / ${animation.frames}`;if(preview)preview.nodes=animation.nodes;preview?.apply(frame, state.texts);if(preview)play.disabled=!preview.matches.length||animation.frames===0;editor?.draw(); }
   function pause() { playing = false; lastTime = null; play.textContent = 'Přehrát'; }
   function fillModels() {
     const matches = state.project.assets.filter(a => /\.4ds$/i.test(a.path) && a.path.toLowerCase().includes(search.value.toLowerCase()));
@@ -774,31 +777,36 @@ function renderAnimation(main, file) {
     if (matches.length > 200) caption.textContent = 'Zobrazeno prvních 200 modelů. Zpřesněte hledání.';
     else if (!preview) caption.textContent = `${file.nodes.length} animovaných uzlů · snímky 0–${file.frames}. Vyberte model se shodnými názvy uzlů.`;
   }
-  search.oninput = fillModels; fillModels(); showFrame(0); for (const button of [play, previous, next, slider]) button.disabled = true;
+  search.oninput = fillModels; fillModels(); showFrame(0);play.disabled=true;
   load.onclick = () => run(async () => {
     const model = await api.inspect(models.value); if (state.file !== file) return;
     if (model.type !== 'model') throw new Error(model.warning ?? 'Model není podporovaný.');
+    showModel(model);
+  });
+  function showModel(model,camera=null,initialFrame=0){
     pause(); view?.dispose(); view = new Viewport(viewport); state.viewport = view;
-    const frames = view.addModel(model); preview = new AnimationPreview(frames, file); view.fit(); showFrame(0);
+    view.animationPath=file.path;view.projectRoot=state.project.root;view.animationModel=model;view.animationState=()=>({frame,fps:fps.value,search:search.value});
+    const frames = view.addModel(model); preview = new AnimationPreview(frames, editor.animation());if(camera)view.restoreCamera(camera);else view.fit();showFrame(initialFrame);
     // The preview has no transform gizmo: scrubbing never writes a game file.
     view.onSelect = selected => { caption.textContent = `Uzel modelu: ${selected.name}`; };
     view.select = id => { const object = view.frames.get(id); if (object) view.onSelect(object.userData.frame); };
     view.onFrame = time => {
       if (!playing) return;
-      if (lastTime !== null) showFrame((frame + (time - lastTime) / 1000 * Math.max(1, Math.min(120, Number(fps.value) || 25))) % (file.frames + 1));
+      if (lastTime !== null) showFrame((frame + (time - lastTime) / 1000 * Math.max(1, Math.min(120, Number(fps.value) || 25))) % (editor.animation().frames + 1));
       lastTime = time;
     };
-    for (const button of [play, previous, next, slider]) button.disabled = !preview.matches.length; play.disabled ||= file.frames === 0;
+    play.disabled=!preview.matches.length||editor.animation().frames===0;
     caption.textContent = `${preview.matches.length}/${file.nodes.length} uzlů propojeno s ${model.path}.` + (preview.unmatched.length ? ` Chybí nebo jsou nejednoznačné: ${preview.unmatched.slice(0, 8).join(', ')}${preview.unmatched.length > 8 ? '…' : ''}.` : '') + (view.skinWarnings.length ? ` Nepodporované váhy: ${view.skinWarnings.join(', ')}; tyto části zůstávají statické.` : '') + (model.meshes.some(m => [3,5].includes(m.visual)) ? ' Morfování není podporované.' : '');
-    await view.loadTextures(async texture => {
+    view.loadTextures(async texture => {
       const name = texture.replaceAll('\\', '/').toLowerCase(), match = state.project.assets.find(a => a.path.toLowerCase() === `maps/${name}` || a.path.toLowerCase() === name);
       return match ? api.media(match.path) : null;
     });
-  });
+  }
   play.onclick = () => { if (playing) pause(); else { playing = true; lastTime = null; play.textContent = 'Pozastavit'; } };
   slider.oninput = () => { pause(); showFrame(Number(slider.value)); };
   previous.onclick = () => { pause(); showFrame(Math.round(frame) - 1); }; next.onclick = () => { pause(); showFrame(Math.round(frame) + 1); };
-  renderProperties(inspector, file, api.saveAnimation, () => showFrame(frame));
+  editor=renderAnimationTimeline(inspector,file,{drafts:state.texts,run,status,frame:()=>frame,seek:value=>{pause();showFrame(value);},update:()=>{pause();showFrame(frame);},pose:(node,channel)=>{const object=preview?.matches.find(match=>match.node.id===node)?.object;return object?channel==='rotation'?toLs3dRotation(object.quaternion):channel==='note'?0:object[channel].toArray():null;},save:async(request,expectedHash)=>{state.file=await api.saveAnimationTimeline(file.path,request,expectedHash);state.texts.clear();await refresh();renderDetail();}});
+  if(previousView?.model){models.value=previousView.model.path;showModel(previousView.model,previousView.camera,previousView.frame);}
 }
 function renderCache(main, file) {
   main.append(element('p', `${file.parts.length} částí města · ${file.parts.reduce((sum, part) => sum + part.objects.length, 0)} statických modelů. Vyberte část pro 3D editaci rozmístění modelů.`));

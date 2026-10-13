@@ -129,6 +129,7 @@ app.whenReady().then(async () => {
   handle('asset:effects', (name, changes, expectedHash, dependencies) => operation(async () => { await current().saveEffects(name, changes, expectedHash, dependencies); return current().inspect(name); }));
   handle('asset:effects-change', (name, request, expectedHash, dependencies) => operation(async () => { await current().changeEffects(name, request, expectedHash, dependencies); return current().inspect(name); }));
   handle('asset:animation', (name, changes, expectedHash) => operation(async () => { await current().saveAnimation(name, changes, expectedHash); return current().inspect(name); }));
+  handle('asset:animation-timeline',(name,request,expectedHash)=>operation(async()=>{await current().saveAnimationTimeline(name,request,expectedHash);return current().inspect(name);}));
   handle('asset:cache', (name, changes, expectedHash) => operation(async () => { await current().saveCache(name, changes, expectedHash); return current().inspect(name); }));
   handle('asset:items', (name, changes, expectedHash) => operation(async () => { await current().saveItems(name, changes, expectedHash); return current().inspect(name); }));
   handle('asset:vehicles', (name, changes, expectedHash) => operation(async () => { await current().saveVehicles(name, changes, expectedHash); return current().inspect(name); }));

@@ -32,6 +32,7 @@ contextBridge.exposeInMainWorld('workbench', {
   saveEffects: (name, changes, expectedHash, dependencies) => invoke('asset:effects', name, changes, expectedHash, dependencies),
   changeEffects: (name, request, expectedHash, dependencies) => invoke('asset:effects-change', name, request, expectedHash, dependencies),
   saveAnimation: (name, changes, expectedHash) => invoke('asset:animation', name, changes, expectedHash),
+  saveAnimationTimeline: (name, request, expectedHash) => invoke('asset:animation-timeline', name, request, expectedHash),
   saveCache: (name, changes, expectedHash) => invoke('asset:cache', name, changes, expectedHash),
   saveItems: (name, changes, expectedHash) => invoke('asset:items', name, changes, expectedHash),
   saveVehicles: (name, changes, expectedHash) => invoke('asset:vehicles', name, changes, expectedHash),

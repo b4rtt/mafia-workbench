@@ -29,3 +29,9 @@
 .geometry-topology { border-top: 1px solid var(--line); margin-top: 10px; padding-top: 10px; }
 .geometry-topology input { width: 82px; }
 .geometry-topology input[aria-invalid=true] { border-color: #d74838; }
+.animation-editor>label { display: flex; flex-direction: column; gap: 4px; margin: 9px 0; font-size: 12px; }
+.animation-editor canvas { width: 100%; height: 60px; touch-action: none; cursor: pointer; }
+.animation-values { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 8px; }
+.animation-values label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+.animation-values input { width: 100%; }
+.animation-editor input[aria-invalid=true] { border-color: #d74838; }

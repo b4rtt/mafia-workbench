@@ -7,6 +7,7 @@ import { parseTextDb, editTextDb } from './textdb.js';
 import { inspectScene, editScene, changeSceneObject } from './scene.js';
 import { parseFourDs, editFourDs } from './fourds.js';
 import { parseFiveDs, editFiveDs } from './fiveds.js';
+import { editAnimationTimeline } from './animation-timeline.js';
 import { inspectCache, editCache } from './cache.js';
 import { parseItems, editItems } from './items.js';
 import { pickupParameters } from '../shared/pickups.js';
@@ -589,6 +590,10 @@ export class ModProject {
       if (expectedHash !== hash(before)) throw new Error('Soubor se od otevření změnil. Otevřete jej znovu.');
       return editFiveDs(before, changes);
     }, 'Úprava klíčů animace 5DS');
+  }
+  async saveAnimationTimeline(name, request, expectedHash) {
+    if(!/\.5ds$/i.test(name))throw new Error('Soubor není 5DS animace.');
+    await this.change(name,before=>{if(expectedHash!==hash(before))throw new Error('Soubor se od otevření změnil. Otevřete jej znovu.');return editAnimationTimeline(before,request);},'Úprava časové osy 5DS');
   }
   async saveCache(name, changes, expectedHash) {
     if (!/\bcache\.bin$/i.test(name)) throw new Error('Soubor není cache.bin.');

@@ -1,6 +1,6 @@
 import iconv from 'iconv-lite';
 const HEADER = 18;
-export function parseFiveDs(source) {
+export function parseFiveDs(source, layout = false) {
   const bytes = Buffer.from(source), entries = [], nodes = [];
   function bounds(offset, size) { if (!Number.isSafeInteger(offset) || offset < 0 || size < 0 || offset + size > bytes.length) throw new Error('5DS: data překračují soubor.'); }
   bounds(0, 22);
@@ -18,12 +18,12 @@ export function parseFiveDs(source) {
     entries.push({ id: `nodes/${i}/name`, label: 'Název uzlu', kind: 'string', value: name, context: name, offset: nameOffset, length: end - nameOffset + 1, pointer: 22 + i * 8 });
     for (const [channel, bit, components] of [['rotation', 4, 4], ['position', 2, 3], ['scale', 8, 3], ['note', 16, 1]]) {
       if (!(flags & bit)) continue;
-      bounds(cursor, 2); const length = bytes.readUInt16LE(cursor); cursor += 2; bounds(cursor, length * 2);
+      const start=cursor;bounds(cursor, 2); const length = bytes.readUInt16LE(cursor); cursor += 2; bounds(cursor, length * 2);const timeOffset=cursor;
       const times = Array.from({ length }, (_, k) => bytes.readUInt16LE(cursor + k * 2)); cursor += length * 2;
       // The header stores the final frame number, not the number of samples (0..frames inclusive).
       if (times.some((time, k) => time > frames || (k && time < times[k - 1]))) throw new Error('5DS: neplatné pořadí snímků.');
       if (channel !== 'note' && length % 2 === 0) { bounds(cursor, 2); cursor += 2; }
-      const stride = channel === 'note' ? 2 : components * 4; bounds(cursor, length * stride);
+      const stride = channel === 'note' ? 2 : components * 4; bounds(cursor, length * stride);const valueOffset=cursor;
       const values = [];
       for (let k = 0; k < length; k++) {
         const offset = cursor + k * stride, value = channel === 'note' ? bytes.readUInt16LE(offset) : Array.from({ length: components }, (_, c) => bytes.readFloatLE(offset + c * 4));
@@ -32,9 +32,9 @@ export function parseFiveDs(source) {
       }
       cursor += length * stride;
       if (channel === 'note') { bounds(cursor, 2); cursor += 2; }
-      node.tracks[channel] = { times, values };
+      node.tracks[channel] = { times, values, ...(layout?{layout:{start,end:cursor,timeOffset,valueOffset,stride}}:{}) };
     }
-    nodes.push(node);
+    if(layout)node.layout={start:dataOffset,end:cursor,pointer:26+i*8};nodes.push(node);
   }
   return { version: 20, frames, nodes, entries };
 }
