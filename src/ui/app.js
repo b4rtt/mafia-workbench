@@ -10,7 +10,7 @@ import { lightTypes, lightDefaults, sceneSectors } from '../shared/lights.js';
 import { soundTypes, soundDefaults } from '../shared/sounds.js';
 import { soundExtentSettings } from './sound-extent.js';
 import { lightPreviewSettings } from './light-preview.js';
-import { roadGraph, roadEntries, roadReference } from '../shared/roads.js';
+import { roadGraph, roadEntries, roadReference, roadConnections } from '../shared/roads.js';
 import { roadTopologyDialog } from './road-topology.js';
 import { Viewport } from './viewport.js';
 import { actionMenu, initializeWorkspace, spatialWorkspace } from './workspace.js';
@@ -385,12 +385,13 @@ function renderRoads(main, file, previous=null) {
     const isCross=point.section==='crossings';
     splitCross.disabled=isCross;
     connect.disabled=!isCross||file.crossings.length<2||!record.links.some((ref,i)=>ref===65535&&record.directions[i].target===65535);
-    disconnect.disabled=!isCross||!record.directions.some(direction=>direction.target!==65535);
+    disconnect.disabled=!isCross||!roadConnections(file,point.recordIndex).length;
     deleteCross.disabled=!isCross||record.links.some(ref=>ref!==65535)||record.directions.some(direction=>direction.target!==65535);
     const pane=inspector.querySelector(':scope>.inspector-content')??inspector;
     pane.replaceChildren(element('h3',`${point.section==='crossings'?'Křižovatka':'Bod'} ${point.recordIndex}`),element('p',`Pozice XYZ: ${record.position.join(', ')}`,'notice'));
     const bindings=point.section==='crossings'?record.links.map((value,i)=>`Výjezd ${i}: ${roadReference(value)}`):[['Předchozí',record.previous],['Následující',record.next],['Předchozí křižovatka',record.previousCrossing],['Následující křižovatka',record.nextCrossing]].map(([label,value])=>`${label}: ${roadReference(value)}`);
     pane.append(element('p',bindings.join(' · '),'notice'));
+    if(isCross)for(const connection of roadConnections(file,point.recordIndex))pane.append(element('p',`Směr ke křižovatce ${connection.target}: ${connection.enabled?'povolený':'vypnutý'}`));
     properties=renderProperties(pane,{...file,entries:roadEntries(file,point.section,point.recordIndex)},api.saveRoads,(entry,value)=>{
       if(entry.id===`${point.section}/${point.recordIndex}/position`&&Array.isArray(value)&&value.length===3&&value.every(Number.isFinite))view.updatePoint(point.index,value);
     });

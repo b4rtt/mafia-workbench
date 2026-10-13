@@ -5,6 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 import {changeRoadTopology} from '../src/core/road-topology.js';
 import {parseRoads} from '../src/core/roads.js';
+import {roadConnections} from '../src/shared/roads.js';
 import {ModProject} from '../src/core/project.js';
 import {hash,writeSafe} from '../src/core/files.js';
 const empty=()=>{const b=Buffer.alloc(12);b.writeUInt32LE(2);return b;};
@@ -16,7 +17,7 @@ const bytesSlot=(data,cross,index)=>Buffer.from(data.subarray(8+cross*236+28+ind
 function routes(data){
   const file=parseRoads(data);
   for(const cross of file.crossings)for(let s=0;s<4;s++){
-    const d=cross.directions[s];if(d.target===65535){assert.equal(cross.links[s],65535);continue;}
+    const d=cross.directions[s];if(d.target===65535)continue;
     const visited=new Set();let previous=cross.index,ref=cross.links[s],length=0,pos=cross.position;
     while(ref&32768){assert.notEqual(ref,65535);assert.ok(!visited.has(ref));visited.add(ref);const n=file.nodes[ref&32767];assert.ok(n);length+=Math.hypot(...n.position.map((v,i)=>v-pos[i]));pos=n.position;assert.ok([n.previousCrossing,n.nextCrossing].includes(cross.index));assert.ok([n.previousCrossing,n.nextCrossing].includes(d.target));assert.ok(n.previous===previous||n.next===previous);const next=n.previous===previous?n.next:n.previous;previous=ref;ref=next;}
     assert.equal(ref,d.target);assert.ok(file.crossings[ref].links.includes(previous));length+=Math.hypot(...file.crossings[ref].position.map((v,i)=>v-pos[i]));const stored=data.readFloatLE(8+cross.index*236+28+s*52+4);assert.ok(Math.abs(stored-length)<1e-4);assert.ok(d.lanes.some(l=>l.type));
@@ -106,9 +107,44 @@ test('split resolves the selected chain when two different roads have the same e
 test('split crossing rejects orphan, shared, ambiguous or collapsed roads and invalid settings without mutating the source',()=>{
   const source=connect(base(),0,1).data,start=12+6*236;
   for(const request of [{index:-1},{index:1},{index:0,speed:-1},{index:0,semaphore:2}])assert.throws(()=>changeRoadTopology(source,{action:'split-crossing',...request}));
-  for(const modify of [data=>data.writeUInt16LE(5,start+20),data=>{data.writeUInt16LE(32768,8+22);data.writeUInt16LE(1,8+28+52);},data=>data.writeUInt16LE(32768,8+2*236+20),data=>data.writeUInt16LE(65535,8+236+28),data=>data.writeFloatLE(0,start)]){
+  for(const modify of [data=>data.writeUInt16LE(5,start+20),data=>{data.writeUInt16LE(32768,8+22);data.writeUInt16LE(1,8+28+52);},data=>data.writeUInt16LE(32768,8+2*236+20),data=>data.writeUInt16LE(65535,8+236+20),data=>data.writeFloatLE(0,start)]){
     const data=Buffer.from(source);modify(data);const before=Buffer.from(data);assert.throws(()=>changeRoadTopology(data,{action:'split-crossing',index:0}));assert.deepEqual(data,before);
   }
+});
+test('one-way roads retain reciprocal geometry but disable the chosen target and all four traffic lane bytes',()=>{
+  for(const forwardEnabled of [true,false]){
+    const source=base(),result=connect(source,0,1,{forwardEnabled,reverseEnabled:!forwardEnabled,positions:[[3,0,2],[9,0,2]]}),file=routes(result.data);
+    for(const [cross,target,enabled]of [[0,1,forwardEnabled],[1,0,!forwardEnabled]]){
+      const connections=roadConnections(file,cross);assert.equal(connections.length,1);assert.equal(connections[0].target,target);assert.equal(connections[0].enabled,enabled);
+      const s=connections[0].slot,d=file.crossings[cross].directions[s];assert.equal(d.target,enabled?target:65535);assert.ok(file.crossings[cross].links[s]&32768);
+      assert.deepEqual(d.lanes.map(l=>l.type),enabled?[2,0,0,0]:[0,0,0,0]);
+    }
+    assert.throws(()=>connect(result.data,0,1),/už mají/);
+    const removed=changeRoadTopology(result.data,{action:'disconnect',from:1,to:0});assert.equal(routes(removed.data).nodes.length,0);assert.deepEqual(removed.mapping.slice(6),[null,null]);assert.equal(roadConnections(parseRoads(removed.data),0).length,0);
+    assert.deepEqual(source,base());
+  }
+  for(const extra of [{forwardEnabled:0},{reverseEnabled:'false'},{forwardEnabled:false,reverseEnabled:false}])assert.throws(()=>connect(base(),0,1,extra));
+});
+test('split preserves inactive original directions even with nonzero legacy lanes and opaque metadata',()=>{
+  for(const inactive of [0,1])for(const positions of [[[3,0,2],[6,0,3],[9,0,2]],[[6,0,2]]]){
+    const source=connect(base(),0,1,{positions}).data,disabledSlot=slot(source,inactive,1-inactive),at=8+inactive*236+28+disabledSlot*52;
+    source.writeUInt16LE(65535,at);source.writeFloatLE(123.5,at+4);source[at+12]=0x9e;source.writeUInt32LE(0x7fc01234,at+32);
+    const template=bytesSlot(source,inactive,disabledSlot),before=Buffer.from(source),index=parseRoads(source).nodes.findIndex(n=>n.position[0]===6),result=changeRoadTopology(source,{action:'split-crossing',index}),file=routes(result.data);
+    for(const [cross,target,enabled]of [[0,6,inactive!==0],[1,6,inactive!==1],[6,0,inactive!==1],[6,1,inactive!==0]]){
+      const link=roadConnections(file,cross).find(c=>c.target===target);assert.ok(link);assert.equal(link.enabled,enabled);
+      if(!enabled)assert.deepEqual(bytesSlot(result.data,cross,link.slot),template);
+    }
+    assert.deepEqual(source,before);
+    const removed=changeRoadTopology(result.data,{action:'disconnect',from:inactive,to:6});routes(removed.data);assert.equal(roadConnections(parseRoads(removed.data),inactive).length,0);assert.equal(roadConnections(parseRoads(removed.data),6).length,1);
+  }
+});
+test('physical connection lookup does not offer orphan or cyclic chains and closed original roads are not recreated as duplicates',()=>{
+  const source=connect(base(),0,1).data;
+  source.writeUInt16LE(65535,8+28);source.writeUInt16LE(65535,8+236+28);
+  assert.equal(roadConnections(parseRoads(source),0)[0].enabled,false);assert.throws(()=>connect(source,0,1),/už mají/);
+  const split=changeRoadTopology(source,{action:'split-crossing',index:0});assert.ok(roadConnections(parseRoads(split.data),6).every(c=>!c.enabled));
+  const broken=Buffer.from(source);broken.writeUInt16LE(65535,12+6*236+18);assert.deepEqual(roadConnections(parseRoads(broken),0),[]);assert.throws(()=>changeRoadTopology(broken,{action:'disconnect',from:0,to:1}));
+  const cyclic=Buffer.from(source);cyclic.writeUInt16LE(32768,12+6*236+18);assert.deepEqual(roadConnections(parseRoads(cyclic),0),[]);
 });
 test('split crossing uses compacted indices even at the native node limit and rejects crossings beyond the limit',()=>{
   const count=32767,data=Buffer.alloc(12+6*236+count*24);base().copy(data);data.writeUInt32LE(count,8+6*236);data.writeFloatLE(count+1,8+236);

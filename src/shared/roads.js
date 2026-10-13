@@ -1,6 +1,20 @@
 export function roadReference(value) {
   return value===65535?'Bez vazby':value&32768?`Bod ${value&32767}`:`Křižovatka ${value}`;
 }
+// Physical adjacency survives a disabled traffic direction in original files.
+// A broken or cyclic chain is not offered as an editable connection.
+export function roadConnections(file,index){
+  const crossing=file.crossings[index];if(!crossing)return [];
+  return crossing.links.flatMap((ref,slot)=>{
+    const seen=new Set();let previous=index;
+    while(ref!==65535&&(ref&32768)){
+      if(seen.has(ref))return [];seen.add(ref);
+      const node=file.nodes[ref&32767];if(!node||node.previous!==previous&&node.next!==previous)return [];
+      const next=node.previous===previous?node.next:node.previous;previous=ref;ref=next;
+    }
+    return ref!==65535&&ref!==index&&file.crossings[ref]? [{slot,target:ref,enabled:crossing.directions[slot].target===ref&&crossing.directions[slot].lanes.some(l=>l.type)}]:[];
+  });
+}
 export function roadGraph(file) {
   const total=file.crossings.length,points=[],target=value=>value&32768?total+(value&32767):value;
   let linkCount=0;
