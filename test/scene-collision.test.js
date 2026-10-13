@@ -9,6 +9,8 @@ import { inspectScene } from '../src/core/scene.js';
 import { parseCollision } from '../src/core/collision.js';
 import { collisionOwnership } from '../src/core/scene-collision.js';
 import { collisionFixture } from './fixtures/collision.js';
+import { editCollision } from '../src/core/collision-editor.js';
+import { collisionTriangleVertices } from '../src/core/collision-surfaces.js';
 
 const scenePath='missions/NEW/scene2.bin',klzPath='missions/NEW/tree.klz';
 const u16=n=>{const b=Buffer.alloc(2);b.writeUInt16LE(n);return b;},floats=values=>{const b=Buffer.alloc(values.length*4);values.forEach((n,i)=>b.writeFloatLE(n,i*4));return b;};
@@ -23,6 +25,17 @@ async function setup(t){
 }
 const operation={kind:'add-model',name:'WB_CRATE',model:'models/crate.4ds',position:[5,0,5],rotation:[1,0,0,0],scale:[1,1,1],collision:{kind:'aabb',material:7}};
 async function add(p,scene){await p.changeSceneObject(scenePath,operation,hash(scene));return p.read(scenePath);}
+
+test('automatic model collisions keep independent manual surfaces across regeneration, export and undo',async t=>{
+  const {p,scene,root}=await setup(t);await p.changeSceneObject(scenePath,{...operation,collision:{kind:'mesh',material:7}},hash(scene));
+  const before=await p.read(klzPath),manualPoints=[[12,0,12],[12,3,12],[12,0,14]],manual=editCollision(before,[{kind:'add',array:'triangles',changes:{points:manualPoints,material:21}}]).bytes;
+  await p.change(klzPath,manual,'Manual collision surface');const snapshot=await p.read(scenePath),map=await p.inspectMap(scenePath);assert.equal(map.collision.warning,undefined);
+  await p.saveScene(scenePath,[{id:map.objects[0].fields.position,value:[15,0,15]}],map.sha256);
+  const result=await p.read(klzPath),q=parseCollision(result),owned=collisionOwnership(p.manifest,scenePath)[0],independent=q.primitives.triangles.records.find(r=>r.material===21);
+  assert.ok(independent);assert.equal(q.vertexCount,9);assert.equal(owned.vertexStart,6);assert.deepEqual(collisionTriangleVertices(q,independent).sort(),manualPoints.sort());assert.equal((await p.inspectMap(scenePath)).collision.warning,undefined);
+  const destination=path.join(root,'mixed-export');await p.export(destination);assert.deepEqual(await fs.readFile(path.join(destination,klzPath)),result);
+  await p.undo();assert.deepEqual(await p.read(klzPath),manual);assert.deepEqual(await p.read(scenePath),snapshot);assert.equal((await p.inspectMap(scenePath)).collision.warning,undefined);
+});
 
 test('pickup rename preserves other owned collisions without duplicating geometry dependencies',async t=>{
   const {p,scene}=await setup(t),table=Buffer.alloc(188*2);table.write('Crate item',188);table.write('Crate.i3d',188+36);

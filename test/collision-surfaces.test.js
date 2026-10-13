@@ -53,6 +53,18 @@ test('replacement reuses the owned vertex suffix and remaps cells without accumu
   assert.throws(()=>replaceCollisionSurfaces(first.bytes,[],{removedIndices:[1,2],vertexBase:3}),/jiný povrch/);
   for(const options of [{removedIndices:[1,1]},{vertexBase:1},{removedIndices:[99]}])assert.throws(()=>replaceCollisionSurfaces(first.bytes,[],options),/KLZ/);
 });
+test('regeneration removes only owned vertices when manual surfaces follow or separate generated blocks',()=>{
+  const first=replaceCollisionSurfaces(fixture(),[wall,{...wall,name:'manual',positions:wall.positions.map((n,i)=>i%3===0?n+3:n)},{...wall,name:'second',positions:wall.positions.map((n,i)=>i%3===0?n+10:n)}]);
+  const p=parseCollision(first.bytes),manual=first.groups[1],before=p.primitives.triangles.records.slice(manual.triangleStart,manual.triangleStart+manual.triangleCount).map(t=>collisionTriangleVertices(p,t));
+  const q=parseCollision(replaceCollisionSurfaces(first.bytes,[wall],{removedIndices:[1,2,5,6],removedVertexIndices:[3,4,5,9,10,11]}).bytes);
+  assert.equal(q.vertexCount,9);assert.equal(q.primitives.triangles.count,5);assert.deepEqual(q.extraVertices.subarray(0,36),p.extraVertices.subarray(0,36));
+  assert.deepEqual(q.primitives.triangles.records.slice(1,3).map(t=>collisionTriangleVertices(q,t)),before);assert.deepEqual(q.tail,p.tail);
+  for(const t of q.primitives.triangles.records.slice(1,3)){assert.ok(t.vertices.every(v=>v.index>=3&&v.index<6));assert.equal(t.material,wall.material);}
+  assert.throws(()=>replaceCollisionSurfaces(first.bytes,[],{removedIndices:[1,2],removedVertexIndices:[3,4,5,6]}),/jiný povrch/);
+  assert.throws(()=>replaceCollisionSurfaces(first.bytes,[],{removedVertexIndices:[3,3]}),/evidence/);
+  assert.throws(()=>replaceCollisionSurfaces(first.bytes,[],{removedVertexIndices:[99]}),/evidence/);
+  assert.throws(()=>replaceCollisionSurfaces(first.bytes,[],{removedVertexIndices:[],vertexBase:3}),/evidence/);
+});
 test('invalid geometry, oversized world pools and unresolved imported faces fail before publishing bytes',()=>{
   const before=fixture();
   for(const surface of [{...wall,indices:[0,0,0]},{...wall,indices:[0,1,99]},{...wall,material:256},{...wall,positions:[Infinity,0,0]},{...wall,positions:Array(65537*3).fill(0)}])assert.throws(()=>replaceCollisionSurfaces(before,[surface]),/KLZ/);

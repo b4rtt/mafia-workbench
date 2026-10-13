@@ -20,7 +20,7 @@ function classification(n,a,b) {
   return Math.abs(b[0]-a[0])>=.0001?7:6;
 }
 
-function face(points, indices, material, reverse) {
+export function collisionFace(points, indices, material, reverse) {
   const p=indices.map(i=>points.slice(i*3,i*3+3)),u=p[2].map((n,i)=>n-p[0][i]),v=p[1].map((n,i)=>n-p[0][i]);
   // Native GetNormal(v0,v2,v1), opposite the conventional rendered winding.
   let normal=[u[1]*v[2]-u[2]*v[1],u[2]*v[0]-u[0]*v[2],u[0]*v[1]-u[1]*v[0]];
@@ -34,15 +34,22 @@ function face(points, indices, material, reverse) {
   return {raw,min:[0,1,2].map(i=>Math.min(...p.map(p=>p[i]))),max:[0,1,2].map(i=>Math.max(...p.map(p=>p[i])))};
 }
 
-// Replace only caller-owned triangle records and their exclusive vertex suffix.
+// Replace only caller-owned triangle records and their exclusive vertices.
 // Native frame triangles, volume arrays, opaque headers, gaps and flags survive.
 export function replaceCollisionSurfaces(source, surfaces, options={}) {
   const parsed=parseCollision(source),removedIndices=options.removedIndices??[],vertexBase=options.vertexBase??parsed.vertexCount;
   if(!Array.isArray(surfaces)||surfaces.length>65536||!Array.isArray(removedIndices)||new Set(removedIndices).size!==removedIndices.length||removedIndices.some(i=>!Number.isInteger(i)||i<0||i>=parsed.primitives.triangles.count)||!Number.isInteger(vertexBase)||vertexBase<0||vertexBase>parsed.vertexCount)fail('neplatná evidence odstraňovaného povrchu.');
-  if(!surfaces.length&&!removedIndices.length&&vertexBase===parsed.vertexCount)return {bytes:Buffer.from(source),groups:[]};
-  const removed=new Set(removedIndices),retained=parsed.primitives.triangles.records.filter(t=>!removed.has(t.index)),remapped=new Map(retained.map((t,i)=>[t.index,i]));
-  if(retained.some(t=>t.vertices[0].link===0x7fff&&t.vertices.some(v=>v.index>=vertexBase)))fail('vrcholy generované kolize používá jiný povrch.');
-  const records=[],vertexBlocks=[],groups=[];let vertexCount=vertexBase;
+  const removedVertices=options.removedVertexIndices??Array.from({length:parsed.vertexCount-vertexBase},(_,i)=>vertexBase+i);
+  if(!Array.isArray(removedVertices)||new Set(removedVertices).size!==removedVertices.length||removedVertices.some(i=>!Number.isInteger(i)||i<0||i>=parsed.vertexCount)||options.removedVertexIndices!==undefined&&options.vertexBase!==undefined)fail('neplatná evidence odstraňovaných vrcholů.');
+  if(!surfaces.length&&!removedIndices.length&&!removedVertices.length)return {bytes:Buffer.from(source),groups:[]};
+  const removed=new Set(removedIndices),removedVertexSet=new Set(removedVertices),originalRetained=parsed.primitives.triangles.records.filter(t=>!removed.has(t.index)),remapped=new Map(originalRetained.map((t,i)=>[t.index,i])),vertexMap=new Map(),vertexParts=[];
+  for(let i=0;i<parsed.vertexCount;i++)if(!removedVertexSet.has(i)){vertexMap.set(i,vertexParts.length);vertexParts.push(parsed.extraVertices.subarray(i*12,i*12+12));}
+  if(originalRetained.some(t=>t.vertices[0].link===0x7fff&&t.vertices.some(v=>!vertexMap.has(v.index))))fail('vrcholy generované kolize používá jiný povrch.');
+  const retained=originalRetained.map(t=>{
+    if(t.vertices[0].link!==0x7fff||t.vertices.every(v=>vertexMap.get(v.index)===v.index))return t;
+    const raw=Buffer.from(t.raw),vertices=t.vertices.map(v=>({...v,index:vertexMap.get(v.index)}));vertices.forEach((v,i)=>raw.writeUInt16LE(v.index,4+i*4));return {...t,raw,vertices};
+  });
+  const records=[],vertexBlocks=[],groups=[];let vertexCount=vertexParts.length;
   const {grid}=parsed;let minX=grid.minX,minZ=grid.minZ,maxX=grid.maxX,maxZ=grid.maxZ;
   for(const surface of surfaces){
     const positions=surface?.positions,indices=surface?.indices,material=surface?.material??0;
@@ -51,7 +58,7 @@ export function replaceCollisionSurfaces(source, surfaces, options={}) {
     const points=positions.map(Math.fround),block=Buffer.alloc(points.length*4);points.forEach((n,i)=>block.writeFloatLE(n,i*4));vertexBlocks.push(block);
     const group={name:surface.name,triangleStart:retained.length+records.length,triangleCount:0,vertexStart:vertexCount,vertexCount:points.length/3,doubleSided:surface.doubleSided!==false};
     for(let i=0;i<indices.length;i+=3){
-      const local=indices.slice(i,i+3),front=face(points,local,material,false);for(const record of group.doubleSided?[front,face(points,local,material,true)]:[front]){
+      const local=indices.slice(i,i+3),front=collisionFace(points,local,material,false);for(const record of group.doubleSided?[front,collisionFace(points,local,material,true)]:[front]){
         // Local input indices become global pool indices after the plane math.
         for(let j=0;j<3;j++)record.raw.writeUInt16LE(record.raw.readUInt16LE(4+j*4)+vertexCount,4+j*4);
         records.push(record);group.triangleCount++;minX=Math.min(minX,record.min[0]);minZ=Math.min(minZ,record.min[2]);maxX=Math.max(maxX,record.max[0]);maxZ=Math.max(maxZ,record.max[2]);
@@ -74,7 +81,7 @@ export function replaceCollisionSurfaces(source, surfaces, options={}) {
   });
   const minimums=new Map();const minimum=index=>{
     if(index>=retained.length)return records[index-retained.length].min[0];
-    if(!minimums.has(index)){const points=collisionTriangleVertices(parsed,retained[index],options.resolveFrame);minimums.set(index,points[0][0]);}return minimums.get(index);
+    if(!minimums.has(index)){const points=collisionTriangleVertices(parsed,originalRetained[index],options.resolveFrame);minimums.set(index,points[0][0]);}return minimums.get(index);
   };
   const cells=[];
   for(let row=0;row<length;row++)for(let col=0;col<width;col++){
@@ -91,6 +98,6 @@ export function replaceCollisionSurfaces(source, surfaces, options={}) {
   }
   const gridRaw=Buffer.from(grid.raw);gridRaw.writeFloatLE(x[0],0);gridRaw.writeFloatLE(z[0],4);gridRaw.writeFloatLE(x.at(-1),8);gridRaw.writeFloatLE(z.at(-1),12);gridRaw.writeUInt32LE(width,24);gridRaw.writeUInt32LE(length,28);gridRaw.writeUInt32LE(retained.length+records.length,0x30);gridRaw.writeUInt32LE(vertexCount,0x60);
   const bounds=Buffer.alloc((x.length+z.length)*4);[...x,...z].forEach((n,i)=>bounds.writeFloatLE(n,i*4));
-  const bytes=Buffer.concat([parsed.bytes.subarray(0,parsed.gridOffset),gridRaw,bounds,parsed.separator,...Object.values(parsed.primitives).flatMap(a=>a.type===0?[...retained.map(t=>t.raw),...records.map(t=>t.raw)]:[a.raw]),parsed.extraVertices.subarray(0,vertexBase*12),...vertexBlocks,parsed.cellSeparator,...cells,parsed.tail]);
+  const bytes=Buffer.concat([parsed.bytes.subarray(0,parsed.gridOffset),gridRaw,bounds,parsed.separator,...Object.values(parsed.primitives).flatMap(a=>a.type===0?[...retained.map(t=>t.raw),...records.map(t=>t.raw)]:[a.raw]),...vertexParts,...vertexBlocks,parsed.cellSeparator,...cells,parsed.tail]);
   parseCollision(bytes);return {bytes,groups};
 }

@@ -42,6 +42,14 @@ export function parseCollision(source) {
       if(spec.type===0){record.vertices=Array.from({length:3},(_,i)=>({index:raw.readUInt16LE(4+i*4),link:raw.readUInt16LE(6+i*4)}));record.plane=Array.from({length:4},(_,i)=>raw.readFloatLE(16+i*4));}
       else{record.link=raw.readUInt32LE(4);if(record.link>=links.length)fail('primitivum odkazuje mimo framy.');}
       if(spec.name==='aabbs'){record.min=Array.from({length:3},(_,i)=>raw.readFloatLE(8+i*4));record.max=Array.from({length:3},(_,i)=>raw.readFloatLE(20+i*4));}
+      if(spec.name==='xtobbs'||spec.name==='obbs'){
+        const base=spec.name==='xtobbs'?32:8;
+        record.extentMin=Array.from({length:3},(_,i)=>raw.readFloatLE(base+i*4));record.extentMax=Array.from({length:3},(_,i)=>raw.readFloatLE(base+12+i*4));
+        record.matrix=Array.from({length:16},(_,i)=>raw.readFloatLE(base+24+i*4));record.inverse=Array.from({length:16},(_,i)=>raw.readFloatLE(base+88+i*4));
+        if(spec.name==='xtobbs'){record.min=Array.from({length:3},(_,i)=>raw.readFloatLE(8+i*4));record.max=Array.from({length:3},(_,i)=>raw.readFloatLE(20+i*4));}
+      }
+      if(spec.name==='spheres'){record.center=Array.from({length:3},(_,i)=>raw.readFloatLE(8+i*4));record.radius=raw.readFloatLE(20);}
+      if(spec.name==='cylinders'){record.center=[raw.readFloatLE(8),raw.readFloatLE(12)];record.radius=raw.readFloatLE(16);}
       records.push(record);
     }
     offset+=count*spec.size;primitives[spec.name]={...spec,count,start,raw:bytes.subarray(start,offset),records};

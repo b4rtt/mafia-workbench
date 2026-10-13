@@ -40,7 +40,7 @@ export function collisionSurfacePreview(parsed, owned) {
 // Native static triangles can refer to prefixed children of external model
 // frames, not just scene.4ds visuals (e.g. zboren27.Box01). Resolve those using
 // the same parent transforms and protect every read model in the transaction.
-async function collisionGeometry(project,scene,geometry,parsed,dependencies) {
+export async function collisionGeometry(project,scene,geometry,parsed,dependencies) {
   const names=new Set(geometry.meshes.map(m=>key(m.name))),roots=new Set();
   for(const record of parsed.primitives.triangles.records){if(record.vertices[0].link===0x7fff)continue;const name=key(parsed.links[record.vertices[0].link].name);if(names.has(name))continue;
     const candidates=scene.objects.filter(o=>o.model&&name.startsWith(key(o.name)+'.')).sort((a,b)=>b.name.length-a.name.length);if(candidates[0])roots.add(candidates[0]);
@@ -72,9 +72,7 @@ export async function prepareSceneCollision(project, scenePath, before, after, o
     else {if(request.doubleSided!==undefined&&typeof request.doubleSided!=='boolean')throw new Error('Kolize: neplatná oboustrannost.');desired.set(key(request.name),{...previous,name:request.name,kind:request.kind,material:request.material,doubleSided:request.doubleSided??previous?.previous?.doubleSided??true});}
   }
   const geometryPath=`${folder}/scene.4ds`,geometryBytes=await project.read(geometryPath),geometry=parseFourDs(geometryBytes,true),dependencies=new Map([[geometryPath,geometryBytes]]),removed=new Set(owned.filter(record=>record.kind!=='mesh').map(record=>record.index)),boxes=[],surfaces=[],next=[];
-  const meshOwners=ownership.filter(o=>o.kind==='mesh').sort((a,b)=>a.vertexStart-b.vertexStart),vertexBase=meshOwners[0]?.vertexStart??parsed.vertexCount;let end=vertexBase;
-  for(const owner of meshOwners){if(owner.vertexStart!==end)throw new Error('Kolize: generované vrcholy nejsou souvislý oddělený blok.');end+=owner.vertexCount;}
-  if(end!==parsed.vertexCount)throw new Error('Kolize: za generovanými vrcholy jsou cizí data.');
+  const removedVertexIndices=ownership.filter(o=>o.kind==='mesh').flatMap(owner=>Array.from({length:owner.vertexCount},(_,i)=>owner.vertexStart+i));
   for(const definition of desired.values()){
     const matches=scene.objects.filter(object=>key(object.name)===key(definition.name)),object=matches[0];
     if(matches.length>1)throw new Error('Kolize: nejednoznačný objekt scény.');
@@ -88,7 +86,7 @@ export async function prepareSceneCollision(project, scenePath, before, after, o
       removed.delete(record.index);next.push({...definition.previous,name:object.name});
     }else boxes.push(box);
   }
-  const boxed=appendCollisionBoxes(bytes,boxes,[...removed]),replacement=replaceCollisionSurfaces(boxed,surfaces,{removedIndices:owned.filter(r=>r.kind==='mesh').flatMap(r=>r.records.map(t=>t.index)),vertexBase,resolveFrame:geometryCollisionResolver(scene,surfaces.length?await collisionGeometry(project,scene,geometry,parsed,dependencies):geometry)}),result=replacement.bytes,checked=parseCollision(result),first=parsed.primitives.aabbs.count-removed.size;
+  const boxed=appendCollisionBoxes(bytes,boxes,[...removed]),replacement=replaceCollisionSurfaces(boxed,surfaces,{removedIndices:owned.filter(r=>r.kind==='mesh').flatMap(r=>r.records.map(t=>t.index)),removedVertexIndices,resolveFrame:geometryCollisionResolver(scene,surfaces.length?await collisionGeometry(project,scene,geometry,parsed,dependencies):geometry)}),result=replacement.bytes,checked=parseCollision(result),first=parsed.primitives.aabbs.count-removed.size;
   boxes.forEach((box,i)=>next.push({name:box.name,kind:'aabb',signature:hash(checked.primitives.aabbs.records[first+i].raw)}));
   replacement.groups.forEach(group=>next.push({...group,kind:'mesh',signature:surfaceSignature(checked,group)}));
   return {files:[{path:klzPath,data:result,expectedHash},...[...dependencies].map(([path,data])=>({path,data,expectedHash:hash(data)}))],ownership:{path:project.asset(scenePath).path,objects:next}};
