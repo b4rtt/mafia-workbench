@@ -11,6 +11,7 @@ import { editAnimationTimeline } from './animation-timeline.js';
 import { inspectCache, editCache } from './cache.js';
 import { parseItems, editItems } from './items.js';
 import { pickupParameters } from '../shared/pickups.js';
+import { resolveMissionFlow } from '../shared/mission-flow.js';
 import { missionTaskScript } from '../shared/mission-task.js';
 import { missionDialogueScript, dialogueSpeakers } from '../shared/mission-dialogue.js';
 import { dialogueSoundPath, prepareDialogueWav } from './dialogue-audio.js';
@@ -358,7 +359,7 @@ export class ModProject {
         if(bytes.length<44||bytes.toString('ascii',0,4)!=='RIFF'||bytes.toString('ascii',8,12)!=='WAVE')throw new Error('Rozhovor: dabing nemá WAV hlavičku.');
         dependencies.push({path:asset.path,data:bytes,expectedHash:dialogue.soundHashes[id]});
       }
-      request={...operation,mask:1,code:missionDialogueScript({...dialogue,lines})};
+      request={...operation,mask:1,code:missionDialogueScript({...dialogue,lines,flow:resolveMissionFlow({...inspectScene(before),geometry},dialogue.flow,operation.name)})};
     }
     if(operation?.kind==='add-detector' && operation.task){
       const task=operation.task,textPath=relativeAssetPath(task.textDb);
@@ -377,7 +378,7 @@ export class ModProject {
         if(failure.humanName!=null){const human=dialogueSpeakers({...inspectScene(before),geometry}).find(actor=>key(actor.name)===key(failure.humanName));if(!human)throw new Error('Úkol: hlídaná postava musí být jednoznačný lidský aktér této mise.');failure={...failure,humanName:human.name};}
       }
       dependencies.push({path:asset.path,data:bytes,expectedHash:task.textHash});
-      request={...operation,mask:1,code:missionTaskScript({...task,failure})};
+      request={...operation,mask:1,code:missionTaskScript({...task,failure,flow:resolveMissionFlow({...inspectScene(before),geometry},task.flow,operation.name)})};
     }
     if(operation?.kind==='add-sound'){
       const soundPath=relativeAssetPath(operation.sound);
