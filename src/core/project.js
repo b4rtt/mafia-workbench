@@ -365,8 +365,9 @@ export class ModProject {
       if(!/^tables\/textdb_[a-z]{2}\.def$/i.test(textPath))throw new Error('Úkol: vyberte jazykový TextDB.');
       const asset=this.asset(textPath),bytes=await this.read(asset.path);
       if(hash(bytes)!==task.textHash)throw new Error('Úkol: texty se od otevření změnily. Otevřete dialog znovu.');
-      const ids=new Set(parseTextDb(bytes,asset.path).entries.map(entry=>entry.id));
+      const texts=parseTextDb(bytes,asset.path).entries,ids=new Set(texts.map(entry=>entry.id));
       if([task.objectiveId,task.interactionId,task.nextObjectiveId,task.completeId].some(id=>!ids.has(id)))throw new Error('Úkol: některé ID v jazykové tabulce neexistuje. Nejprve vytvořte vlastní texty.');
+      if(task.checkpointId!=null && !texts.slice(0,-1).some(entry=>entry.id===task.checkpointId && entry.text.trim()))throw new Error('Úkol: checkpoint potřebuje existující neprázdný název v jazykové tabulce. Vytvořte text s ID 5000–5599.');
       const targets=[...inspectScene(before).objects,...geometry.meshes].filter(object=>key(object.name)===key(task.targetName));
       if(targets.length!==1 || key(task.targetName)===key('Tommy'))throw new Error('Úkol: vyberte jednoznačný cílový objekt odlišný od hráče.');
       dependencies.push({path:asset.path,data:bytes,expectedHash:task.textHash});
