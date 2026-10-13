@@ -33,6 +33,14 @@ test('mission prelude preserves literal visibility and rejects control flow or d
   for(const command of ['findframe 0,"Other"','findframe flt[0],"Other"','dim_frm 2','let frm[0] = frm[1]'])assert.equal(sceneReplayReferences(scene(trigger+command+'\n'+block),'selected.rep')[0].visibility,null);
   for(const command of ['commandblock 0','goto 10'])assert.equal(sceneReplayReferences(scene(trigger+block.replace('frm_seton 0,0',command+'\nfrm_seton 0,0')),'selected.rep')[0].visibility,null);
 });
+test('door lock before a cutscene does not discard literal frame visibility or poison unrelated frame bindings',()=>{
+  const prefix='commandblock 1\ndim_frm 60\nfindframe 24,"Bguard"\nfindframe 25,"Bguard2"\nfindframe 53,"Radni"\nfindframe 59,"pevny""\ncommandblock 0\nlabel 1\nif flt[0] > 35,-1,1\n';
+  const block='commandblock 1\nfrm_seton 24,0\nfrm_seton 25,0\nfrm_seton 53,0\ndoor_lock 30,0\nloaddifferences "dif14c.chg"\nrecloadfull "record14c.rep"';
+  const scene=code=>({actorScripts:[{name:'akce proslov',code}],entries:[]});
+  assert.deepEqual(sceneReplayReferences(scene(prefix+block),'record14c.rep'),[{difference:'dif14c.chg',visibility:[{name:'Bguard',visible:false},{name:'Bguard2',visible:false},{name:'Radni',visible:false}]}]);
+  for(const command of ['door_lock 30,flt[0]','door_lock 30,2','door_lock 30,0,goto 1'])assert.equal(sceneReplayReferences(scene(prefix+block.replace('door_lock 30,0',command)),'record14c.rep')[0].visibility,null);
+  assert.equal(sceneReplayReferences(scene(prefix+'findframe 24,"Other"\n'+block),'record14c.rep')[0].visibility,null);
+});
 test('sound state zero enables a named frame and dialogue clips stop at the next line on their channel',()=>{
   const replay={duration:10000,events:{sounds:[{index:0,time:0,name:'Town',state:1},{index:1,time:100,name:'TOWN',state:0},{index:2,time:400,name:'Town',state:1}],dialogues:[{index:0,time:0,character:0,textId:1,command:true},{index:1,time:100,character:0,textId:12},{index:2,time:200,character:1,textId:13},{index:3,time:800,character:0,textId:14}]}};
   const assets=['sounds/town.wav','sounds/00000012.wav','sounds/00000013.wav'].map(path=>({path})),events=cutsceneAudioEvents(replay,[{frameType:4,name:'Town',resource:'town.wav'}],assets,new Map([[12,'Český dialog']]));

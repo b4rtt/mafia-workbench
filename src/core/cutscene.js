@@ -52,7 +52,7 @@ function preludeVisibility(lines) {
     if((match=/^frm_seton\s+(\d+)\s*,\s*([01])$/i.exec(line))&&frames.has(Number(match[1]))){const name=frames.get(Number(match[1]));states.set(canonical(name),{name,visible:match[2]==='1'});return true;}
     // These commands do not assign frame variables. No control flow, dynamic
     // frame lookup or frame-expression assignment is interpreted.
-    return /^(?:dim_(?:frm|act|flt)|findactor|commandblock|player_lockcontrols|mission_objectives(?:clear)?|zatmyse|act_setstate|setcitytrafficvisible|setcompass|enemy_block|setevent|wait|recwaitforend|recunload|cleardifferences|change_mission)\b/i.test(line)||Boolean(loadReference(line)||differenceReference(line));
+    return /^(?:dim_(?:frm|act|flt)|findactor|commandblock|player_lockcontrols|mission_objectives(?:clear)?|zatmyse|act_setstate|setcitytrafficvisible|setcompass|enemy_block|setevent|wait|recwaitforend|recunload|cleardifferences|change_mission)\b/i.test(line)||/^door_lock\s+\d+\s*,\s*[01]$/i.test(line)||Boolean(loadReference(line)||differenceReference(line));
   };
   for(let i=0;i<lines.length;i++)if(!apply(lines[i])){stopped=i;break;}
   if(stopped<0)return [...states.values()];
