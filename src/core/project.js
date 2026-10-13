@@ -12,6 +12,7 @@ import { inspectCache, editCache } from './cache.js';
 import { parseItems, editItems } from './items.js';
 import { pickupParameters } from '../shared/pickups.js';
 import { missionTaskScript } from '../shared/mission-task.js';
+import { dialogueSoundPath, prepareDialogueWav } from './dialogue-audio.js';
 import { parseNavigation, prepareNavigationEdits, changeNavigationConnection, changeNavigationPoint } from './navigation.js';
 import { remapSegments } from './segments.js';
 import { parseRoads, prepareRoadEdits, changeRoadPoint } from './roads.js';
@@ -174,12 +175,15 @@ export class ModProject {
       catch(error){this.manifest.history.pop();this.manifest.version=previousVersion;for(const row of changed){if(row.previousOverlay===undefined)delete row.asset.overlay;else row.asset.overlay=row.previousOverlay;}throw error;}
     }finally{this.busy=false;}
   }
-  async createFiles(files, label = 'Přidání souborů') {
+  async createFiles(files, label = 'Přidání souborů', dependencies = [], archive = 'Nová mise') {
     if (this.busy) throw new Error('Probíhá jiné ukládání.');
     if (!Array.isArray(files) || !files.length || files.length > 64) throw new Error('Neplatné nové soubory.');
+    if (!Array.isArray(dependencies) || dependencies.length > 64) throw new Error('Neplatné závislosti nových souborů.');
     this.busy = true;
     const previous = this.manifest.assets;
     try {
+      const checkDependencies=async()=>{for(const dependency of dependencies)if(typeof dependency.expectedHash!=='string'||hash(await this.read(dependency.path))!==dependency.expectedHash)throw new Error('Závislý soubor se během přidávání změnil. Otevřete dialog znovu.');};
+      await checkDependencies();
       const seen = new Set(), data = files.map(file => {
         const name = relativeAssetPath(file.path), canonical = key(name);
         if (this.index.has(canonical) || seen.has(canonical)) throw new Error(`Soubor již existuje: ${name}`);
@@ -195,11 +199,12 @@ export class ModProject {
       for (const file of data) {
         const original = `originals/created/${id}/${file.path}`, sha256 = hash(file.bytes);
         await writeSafe(this.root, original, file.bytes, true);
-        const variant = { original, sha256, size: file.bytes.length, archive: 'Nová mise' };
+        const variant = { original, sha256, size: file.bytes.length, archive };
         assets.push({ path: file.path, ...variant, created: true, creation: id, variants: [variant] });
       }
       const entry = { id, kind: 'create', files: assets.map(a => ({ path: a.path, sha256: a.sha256 })), label, date: new Date().toISOString() };
       await writeSafe(this.root, `history/${id}.json`, JSON.stringify(entry), true);
+      await checkDependencies();
       this.manifest.assets = [...previous, ...assets].sort((a,b) => a.path.localeCompare(b.path));
       this.manifest.history.push(entry);
       try { await this.saveManifest(); }
@@ -268,6 +273,23 @@ export class ModProject {
       if (expectedHash !== hash(before)) throw new Error('Soubor se od otevření změnil. Otevřete jej znovu.');
       return addTextDbEntry(before,name,entry);
     }, 'Nový text pro misi nebo dialog');
+  }
+  async importDialogue(name, id, source, expectedTextHash, expectedSoundHash = null) {
+    const textPath=relativeAssetPath(name),soundPath=dialogueSoundPath(id),{bytes,info}=prepareDialogueWav(source);
+    if(!/^tables\/textdb_[a-z]{2}\.def$/i.test(textPath))throw new Error('Dabing: vyberte jazykovou tabulku TextDB.');
+    const text=await this.read(textPath);
+    if(hash(text)!==expectedTextHash)throw new Error('Dabing: texty se od otevření změnily. Otevřete je znovu.');
+    const entries=parseTextDb(text,textPath).entries;
+    if(!entries.slice(0,-1).some(entry=>entry.id===id))throw new Error('Dabing: ID textu neexistuje nebo jde o hraniční záznam.');
+    const existing=this.index.get(key(soundPath));
+    if(existing){
+      if(typeof expectedSoundHash!=='string')throw new Error('Dabing již existuje. Nejprve načtěte jeho aktuální verzi.');
+      await this.changeBatch([{path:existing.path,data:bytes,expectedHash:expectedSoundHash},{path:textPath,data:text,expectedHash:expectedTextHash}],`Nahrazení dabingu ${id}`);
+    }else{
+      if(expectedSoundHash!==null)throw new Error('Dabing se od otevření změnil. Otevřete dialog znovu.');
+      await this.createFiles([{path:soundPath,data:bytes}],`Import dabingu ${id}`,[{path:textPath,expectedHash:expectedTextHash}],'Vlastní dabing');
+    }
+    return {path:existing?.path??soundPath,...info};
   }
   async saveScene(name, changes, expectedHash) {
     if (!/scene2\.bin$/i.test(name) || !Array.isArray(changes) || changes.length > 1024) throw new Error('Neplatná úprava scény.');

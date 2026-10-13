@@ -56,3 +56,22 @@ Projekt před zápisem znovu sestaví program a kontroluje existenci všech ID v
 Ověření 13. října 2026: v odděleném Electronu vytvořen bod se čtyřmi novými českými texty a cílem u modelu bedny. Přesný program, maska 1, pozice, export a UI undo byly ověřené. V izolované Wine hře se zobrazily všechny tři fáze. Kontrolní NPC použil `enemy_use_detector`, hráč byl později přesunut skriptem do cíle; ruční Action Button a běžná chůze v tomto testu nebyly ověřené. Herní kontrolní změny a čtyři texty byly vrácené, historie a text/scéna/model/KLZ mají původní bajty. Hra byla ukončená.
 
 Zbývá ověřit ruční interakci, volitelný návrat do menu a stav při restartu/načtení save. Šablona není hotový generátor kompletní mise ani větveného questu; návazná práce zahrnuje vlastní hlas a jeho vazbu, podmínky/failure a spolehlivý postup celou misí.
+
+## Vlastní dabing navázaný na TextDB
+
+PC engine `speech_channel_speak_line` (VA 005473b0) načítá `sounds/%08d.wav` podle stejného ID jako text a volitelný `tables/dat/%08d.dat` pro synchronizaci rtů. Podklad je [rozbor řečového kanálu](https://github.com/st0rm94/mafia-reverse-engineering-export/blob/main/structs/speech.md) a uložená anotovaná dekompilace. Formátování v této PC verzi používá signed int32; import dovoluje nezáporná ID do 2147483647. Chybějící DAT nebrání otevření WAV, import jej zatím nevytváří.
+
+V Texty vyberte existující běžné ID a **Importovat dabing…**. Dialog nabízí přehrání převedené nahrávky před uložením. Nový WAV nebo náhrada stávajícího je jediná vratná změna modu, s kontrolou verze TextDB i existujícího zvuku. Texty se tím nepřepisují. WAV stejného ID je společný všem jazykům; vytvoření jazykového textu samo o sobě nevytváří další hlasovou variantu.
+
+Příklad programu pro existujícího mluvčího:
+
+```text
+dim_act 1
+findactor 0, "Tommy"
+human_talk 0, 90000
+end
+```
+
+Pozor na rozdíl vůči MSDR: implementace PC příkazu 0x83 v `C_program` zahájí řečový kanál a opakovaně čeká, dokud mluví. Další instrukce pokračuje po jeho uvolnění. Jde o závěr z konkrétní dekompilace a omezeného lokálního herního testu, nikoli tvrzení o všech variantách příkazu či verzích hry. Import nedoplňuje skript automaticky, negeneruje lip DAT a nepředstavuje editor celé dialogové větve.
+
+Lokální ověření: nový float stereo WAV byl přes UI importovaný jako mono PCM16 44,1 kHz, náhled doběhl do konce. Přesný export, nahrazení kratší nahrávkou a UI undo obnovily bajty i historii. V izolované hře stejný kontrolní skript čekal déle s importovaným WAV než bez něj a následně změnil HUD; text a WAV byly v testovací kopii ověřené hashem. Fyzický zvukový výstup nebyl samostatně zachycený/poslechnutý. Všechny pomocné změny vrácené, testovací hry ukončené. Tento test nepotvrzuje lip synchronizaci, všechny vstupní sample rate ani dialogové větve.

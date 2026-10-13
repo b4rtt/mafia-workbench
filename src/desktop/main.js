@@ -5,6 +5,7 @@ import fs from 'node:fs/promises';
 import { Worker } from 'node:worker_threads';
 import { ModProject } from '../core/project.js';
 import { parseTextDb } from '../core/textdb.js';
+import { prepareDialogueWav } from '../core/dialogue-audio.js';
 import { randomUUID } from 'node:crypto';
 import { Playtest } from '../core/playtest.js';
 import { readEmptyMissionZip } from '../core/mission.js';
@@ -16,7 +17,7 @@ await fs.mkdir(profileRoot, { recursive: true });
 app.setPath('userData', profileRoot);
 app.setPath('sessionData', profileRoot);
 protocol.registerSchemesAsPrivileged([{ scheme: 'workbench', privileges: { standard: true, secure: true, supportFetchAPI: true } }]);
-let window, project, missionTemplate, busy = false;
+let window, project, missionTemplate, voiceImport, busy = false;
 // The user's verified runtime stays local, outside the public repository.
 const runtimeRoot = path.resolve(directory, '../../../.runtime');
 const playtest = new Playtest({ wine: path.join(runtimeRoot, 'wine-cx/wswine.bundle/bin/wine'), server: path.join(runtimeRoot, 'wine-cx/wswine.bundle/bin/wineserver'), dependencies: path.join(runtimeRoot, 'wine-cx/dependencies'), prefixTemplate: path.join(runtimeRoot, 'prefix-cx') });
@@ -56,11 +57,12 @@ app.whenReady().then(async () => {
   protocol.handle('workbench', async request => {
     const url = new URL(request.url);
     if (url.host !== 'app') return new Response('Not found', { status: 404 });
-    if (url.pathname === `/media/${mediaToken}`) {
+    const pendingVoice=voiceImport && voiceImport.project===project && url.pathname===`/voice/${voiceImport.token}`?voiceImport:null;
+    if (url.pathname === `/media/${mediaToken}` || pendingVoice) {
       try {
-        const name = url.searchParams.get('name'), type = mediaTypes.get(path.extname(name ?? '').toLowerCase());
+        const name = pendingVoice?'voice.wav':url.searchParams.get('name'), type = mediaTypes.get(path.extname(name ?? '').toLowerCase());
         if (!type) return new Response('Unsupported media', { status: 415 });
-        const active = current(), bytes = await active.read(name);
+        const active = current(), bytes = pendingVoice?pendingVoice.bytes:await active.read(name);
         if (bytes.length > 64 * 1024 * 1024) return new Response('Preview too large', { status: 413 });
         const headers = { 'Content-Type': type, 'Accept-Ranges': 'bytes', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' };
         const range = request.headers.get('range');
@@ -121,6 +123,19 @@ app.whenReady().then(async () => {
   });
   handle('asset:texts', (name, changes, expectedHash) => operation(async () => { await current().saveTexts(name, changes, expectedHash); return current().inspect(name); }));
   handle('asset:text-add', (name, entry, expectedHash) => operation(async () => { await current().addText(name, entry, expectedHash); return current().inspect(name); }));
+  handle('voice:choose', () => operation(async () => {
+    const active=current();voiceImport=null;
+    const result=await dialog.showOpenDialog(window,{title:'Vyberte hlasovou nahrávku WAV',properties:['openFile'],filters:[{name:'Hlasová nahrávka',extensions:['wav']}]});
+    if(result.canceled)return null;
+    const stat=await fs.stat(result.filePaths[0]);if(!stat.isFile()||stat.size>64*1024*1024)throw new Error('Nahrávka je příliš velká (maximum 64 MiB).');
+    const {bytes,info}=prepareDialogueWav(await fs.readFile(result.filePaths[0])),token=randomUUID();
+    voiceImport={project:active,bytes,token};return {token,name:path.basename(result.filePaths[0]),url:`workbench://app/voice/${token}`,...info};
+  }));
+  handle('voice:cancel', token => {if(voiceImport?.token===token)voiceImport=null;});
+  handle('voice:import', (token,name,id,textHash,soundHash) => operation(async () => {
+    if(!voiceImport||voiceImport.project!==current()||voiceImport.token!==token)throw new Error('Nejdřív vyberte hlasovou nahrávku pro tento projekt.');
+    const result=await current().importDialogue(name,id,voiceImport.bytes,textHash,soundHash);voiceImport=null;return result;
+  }));
   handle('asset:scene', (name, changes, expectedHash) => operation(async () => { await current().saveScene(name, changes, expectedHash); return current().inspect(name); }));
   handle('asset:scene-object', (name, request, expectedHash) => operation(async () => { await current().changeSceneObject(name, request, expectedHash); return current().inspectMap(name); }));
   handle('asset:model', (name, changes, expectedHash) => operation(async () => { await current().saveModel(name, changes, expectedHash); return current().inspect(name); }));

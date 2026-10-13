@@ -677,7 +677,7 @@ function renderTexts(main, file) {
       run(async()=>{save.disabled=true;try{state.file=await api.addText(file.path,{id:value,text:text.value},file.sha256);state.textIndex=state.file.entries.find(entry=>entry.id===value).index;dialog.close();await refresh();renderDetail();status(`Nový text ${value} uložený do modu se zálohou a undo.`);}catch(error){message.textContent=error.message;}finally{save.disabled=false;}});};dialog.showModal();text.focus();
   };
   function edit(entry) {
-    state.textIndex = entry.index; form.replaceChildren();
+    state.textIndex = entry.index;for(const audio of form.querySelectorAll('audio')){audio.pause();audio.removeAttribute('src');audio.load();}form.replaceChildren();
     const label = element('label', `Text ID ${entry.id} · záznam ${entry.index + 1}`); label.htmlFor = 'text-value';
     const textarea = element('textarea'); textarea.id = 'text-value'; textarea.value = state.texts.get(entry.index) ?? entry.text;
     textarea.oninput = () => { if (textarea.value === entry.text) state.texts.delete(entry.index); else state.texts.set(entry.index, textarea.value); save.textContent = state.texts.size ? `Uložit ${state.texts.size} změn` : 'Uložit změny'; save.disabled = !state.texts.size; };
@@ -686,7 +686,13 @@ function renderTexts(main, file) {
       state.file = await api.saveTexts(file.path, [...state.texts].map(([index, text]) => ({ index, text })), file.sha256);
       state.texts.clear(); await refresh(); renderDetail(); status('Texty uložené do modu. Změnu lze vrátit.');
     });
-    form.append(label, textarea, element('p', `Kódování: ${file.encoding}. ID a nerozpoznané části souboru zůstávají zachované.`), save);
+    const voice=element('button','Importovat dabing…');voice.disabled=entry.index===file.entries.length-1||entry.id>0x7fffffff;
+    voice.onclick=()=>run(async()=>{if(state.texts.size){status('Před importem dabingu uložte nebo vraťte rozepsané texty.');return;}await dialogueImportDialog(file,entry);});
+    const voicePath=`sounds/${String(entry.id).padStart(8,'0')}.wav`,existing=state.project.assets.find(asset=>asset.path.toLowerCase()===voicePath);
+    const voiceInfo=element('p',voice.disabled?'Tento záznam není podporované ID dabingu.':existing?`Dabing: ${existing.path} · sdílený všemi jazyky.`:'Dabing zatím chybí. Nová nahrávka bude sdílená všemi jazyky.','muted');
+    form.append(label, textarea, element('p', `Kódování: ${file.encoding}. ID a nerozpoznané části souboru zůstávají zachované.`), save,voiceInfo,voice);
+    if(existing){const audio=element('audio');audio.controls=true;audio.preload='metadata';api.media(existing.path).then(url=>{if(audio.isConnected)audio.src=url;}).catch(error=>status(error.message,true));form.append(audio);}
+
     for (const button of list.children) button.classList.toggle('active', Number(button.dataset.index) === entry.index);
   }
   function fill() {
@@ -700,6 +706,17 @@ function renderTexts(main, file) {
   }
   search.oninput = fill; fill(); indexPanel.append(add, search, list); workspace.append(indexPanel, form); main.append(workspace);
   if (file.entries.length) edit(file.entries[state.textIndex] ?? file.entries[0]);
+}
+async function dialogueImportDialog(file,entry){
+  const selected=await api.chooseVoice();if(!selected)return;
+  const path=`sounds/${String(entry.id).padStart(8,'0')}.wav`,existing=state.project.assets.find(asset=>asset.path.toLowerCase()===path);let soundHash=null;
+  try{if(existing)soundHash=(await api.inspect(existing.path)).sha256;}catch(error){await api.cancelVoice(selected.token);throw error;}
+  const dialog=element('dialog',undefined,'new-text-dialog voice-import-dialog'),message=element('p',undefined,'notice'),audio=element('audio'),actions=element('div',undefined,'tools'),cancel=element('button','Zrušit'),save=element('button',existing?'Nahradit dabing v modu':'Importovat dabing do modu','primary');
+  audio.controls=true;audio.preload='metadata';audio.src=selected.url;cancel.type=save.type='button';actions.append(cancel,save);
+  dialog.append(element('h2',`Dabing textu ${entry.id}`),element('p',entry.text),element('p',`${selected.name} → ${path}`),element('p',`${selected.duration.toFixed(2)} s · ${selected.sampleRate.toLocaleString('cs')} Hz · ${selected.sourceChannels===2?'stereo → mono':'mono'} · ${selected.sourceFormat} ${selected.sourceBits} bit → PCM 16 bit`),audio,element('p',existing?'Existující dabing se nahradí v modu se zálohou a undo.':'Nový zvuk se přidá do modu. Undo jej odstraní z projektu.'),element('p','Zvuk tohoto ID je společný všem jazykům. Vzorkovací frekvence zůstane stejná; stereo se zprůměruje do mono, WAV metadata se nekopírují. Import nevytváří animaci rtů ani nemění skripty.'),element('pre',`dim_act 1\nfindactor 0, "Tommy"\nhuman_talk 0, ${entry.id}\nend`),message,actions);
+  if(selected.clipped)message.textContent=`Pozor: ${selected.clipped} vzorků překročilo rozsah a při převodu bylo oříznuto.`;
+  cancel.onclick=()=>dialog.close();save.onclick=()=>run(async()=>{save.disabled=cancel.disabled=true;try{await api.importVoice(selected.token,file.path,entry.id,file.sha256,soundHash);dialog.close();await refresh();renderDetail();status(`Dabing ${entry.id} uložený do modu s undo.`);}catch(error){message.textContent=error.message;}finally{save.disabled=cancel.disabled=false;}});
+  dialog.addEventListener('cancel',event=>{if(state.busy)event.preventDefault();});dialog.addEventListener('close',()=>{audio.pause();audio.removeAttribute('src');audio.load();api.cancelVoice(selected.token).catch(()=>{});dialog.remove();},{once:true});document.body.append(dialog);dialog.showModal();save.focus();
 }
 function renderProperties(main, file, saveAPI, onEdit = () => {}, onPick = () => {}, initialSelection = true) {
   const workspace = element('div', undefined, 'text-workspace'), indexPanel = element('div', undefined, 'text-index'), form = element('div', undefined, 'text-form');

@@ -186,3 +186,5 @@ body.spatial-open .workspace>aside { position: absolute; inset: 0 auto 0 0; z-in
 .road-topology-dialog .mission-form > .tools { position: sticky; bottom: -24px; background: var(--panel); padding: 12px 0; margin-bottom: -24px; }
 
 .mission-task-dialog{width:min(700px,calc(100vw - 40px));max-width:700px;max-height:calc(100vh - 40px);overflow:auto}.mission-task-dialog .mission-fields{margin-bottom:16px}.mission-task-dialog .mission-fields label span{font-size:11px;color:var(--muted)}.mission-task-dialog textarea{width:100%}
+
+.voice-import-dialog{max-height:calc(100vh - 40px);overflow:auto}.voice-import-dialog audio,.text-form audio{display:block;max-width:100%;margin-top:12px}.voice-import-dialog pre{white-space:pre-wrap;overflow-wrap:anywhere}
