@@ -17,8 +17,18 @@ export function initializeWorkspace() {
   const browser=document.querySelector('.workspace>aside'),button=document.getElementById('toggle-files');
   browser.id='asset-browser';button.setAttribute('aria-controls',browser.id);
   const remembered=read('files');
-  function show(value,remember=false){document.body.classList.toggle('files-hidden',!value);button.setAttribute('aria-pressed',String(value));if(remember)write('files',value);}
+  function show(value,remember=false){document.body.classList.toggle('files-hidden',!value);browser.inert=!value;button.setAttribute('aria-pressed',String(value));button.setAttribute('aria-expanded',String(value));if(remember)write('files',value);}
   show(remembered??true);button.onclick=()=>show(document.body.classList.contains('files-hidden'),true);
+  document.getElementById('close-files').onclick=()=>{show(false,true);button.focus({preventScroll:true});};
+  document.addEventListener('keydown',event=>{
+    if(event.key!=='Escape'||event.defaultPrevented||document.querySelector('dialog[open]')||document.body.classList.contains('files-hidden')||document.body.classList.contains('view-focused'))return;
+    show(false,true);button.focus({preventScroll:true});event.preventDefault();event.stopPropagation();
+  },true);
+  document.addEventListener('pointerdown',event=>{
+    if(!document.body.classList.contains('spatial-open')||document.body.classList.contains('files-hidden')||event.target.closest('dialog')||browser.contains(event.target)||button.contains(event.target)||event.target.closest('.category-strip'))return;
+    // Dismiss the overlay without consuming the click on the editor underneath.
+    show(false,true);
+  });
   return {browse:()=>show(true),spatial:enabled=>{if(!enabled){clearResizers();document.getElementById('detail').onkeydown=null;}document.body.classList.remove('view-focused');document.body.classList.toggle('spatial-open',enabled);if(read('files')===null)show(!enabled);}};
 }
 function resizePanel(layout,panel,side,key) {

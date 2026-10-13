@@ -38,6 +38,9 @@
 
 /* Spatial editors use the available window, with independently scrolling panels. */
 body.files-hidden .workspace>aside { display: none; }
+.asset-browser-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; flex-shrink: 0; }
+.asset-browser-header strong { font-size: 12px; }
+.asset-browser-header button { padding: 4px 8px; font-size: 11px; }
 header { height: 54px; padding: 7px 12px; gap: 10px; }
 header nav { min-width: 0; overflow-x: auto; }
 header nav button { padding: 5px 9px; }

@@ -31,6 +31,7 @@ const shell = initializeWorkspace();
 const missionViews = new MissionViews();
 const $ = id => document.getElementById(id);
 const state = { project: null, file: null, category: 'levels', texts: new Drafts(buttons), textIndex: 0, busy: false, viewport: null };
+let renderedFiles = null;
 function element(tag, text, className) { const node = document.createElement(tag); if (text !== undefined) node.textContent = text; if (className) node.className = className; return node; }
 function status(text, error = false) { $('status').textContent = text; $('status').classList.toggle('error', error); }
 async function discard() {
@@ -83,24 +84,39 @@ function renderCategories() {
 function renderFiles() {
   if (!state.project) return;
   const filter = $('filter').value.toLowerCase();
+  const scope = JSON.stringify([state.project.root, state.category, filter]), listElement = $('file-list');
+  if (renderedFiles?.scope === scope && renderedFiles.assets === state.project.assets) {
+    renderedFiles.buttons.get(renderedFiles.selected)?.classList.remove('active');
+    renderedFiles.buttons.get(state.file?.path)?.classList.add('active');
+    renderedFiles.selected = state.file?.path;
+    return;
+  }
+  const sameScope = renderedFiles?.scope === scope, scroll = sameScope ? listElement.scrollTop : 0;
+  const expanded = new Map(sameScope ? [...listElement.querySelectorAll('details.folder')].map(node => [node.dataset.folder, node.open]) : []);
+  const fileButtons = new Map();
+  renderedFiles = { scope, assets: state.project.assets, selected: state.file?.path, buttons: fileButtons };
   const files = state.project.assets.filter(a => a.path.toLowerCase().includes(filter) && (state.category === 'all' || (state.category === 'changed' ? a.modified : a.category === state.category)));
   const fragment = document.createDocumentFragment();
   const groups = groupAssets(files);
   for (const { folder, files: group } of groups) {
-    const details = element('details', undefined, 'folder'), summary = element('summary', `${folder} (${group.length})`), list = element('div'); let count = 0;
+    const details = element('details', undefined, 'folder'), summary = element('summary', `${folder} (${group.length})`), list = element('div'); let filled = false;
+    details.dataset.folder = folder;
     function fill() {
-      const end = Math.min(count + 100, group.length);
-      for (; count < end; count++) {
-        const file = group[count], button = element('button', file.path.split('/').at(-1)); button.title = `${file.path} · ${file.archive} · ${file.size} bajtů`;
+      filled = true;
+      const rows = document.createDocumentFragment();
+      for (const file of group) {
+        const button = element('button', file.path.split('/').at(-1)); button.title = `${file.path} · ${file.archive} · ${file.size} bajtů`;
         button.classList.toggle('active', file.path === state.file?.path); button.classList.toggle('modified', file.modified);
-        button.onclick = () => run(async () => { if (!await discard()) return; state.texts.clear(); state.textIndex = 0; await openFile(file.path); }); list.append(button);
+        button.onclick = () => run(async () => { if (!await discard()) return; state.texts.clear(); state.textIndex = 0; await openFile(file.path); }); rows.append(button);
+        fileButtons.set(file.path, button);
       }
-      if (count < group.length) { const more = element('button', `Dalších ${Math.min(100, group.length - count)} souborů…`, 'load-more'); more.onclick = () => { more.remove(); fill(); }; list.append(more); }
+      list.append(rows);
     }
-    details.append(summary, list); details.ontoggle = () => { if (details.open && !count) fill(); };
-    details.open = groups.length === 1 || Boolean(filter) || group.some(f => f.path === state.file?.path); if (details.open) fill(); fragment.append(details);
+    details.append(summary, list); details.ontoggle = () => { if (details.open && !filled) fill(); };
+    details.open = expanded.get(folder) ?? (groups.length === 1 || Boolean(filter) || group.some(f => f.path === state.file?.path)); if (details.open) fill(); fragment.append(details);
   }
-  $('file-list').replaceChildren(fragment);
+  listElement.replaceChildren(fragment);
+  listElement.scrollTop = scroll;
   $('count').textContent = `${files.length.toLocaleString('cs')} SOUBORŮ · ${groups.length} SLOŽEK`;
 }
 async function openFile(name) { state.file = await api.inspect(name); renderDetail(); renderFiles(); status(`Otevřeno: ${name}`); }

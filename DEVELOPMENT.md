@@ -9,6 +9,7 @@ Aktualizace: 13. října 2026. Vývoj pokračuje; komplexní editor není dokon�
 - Implementováno: samostatné číselné vstupy XYZ/WXYZ/RGB, skupiny modelových objektů a zaměření objektu ze seznamu. Zachovat existující funkce, kameru a rozepsané změny.
 - Implementováno: ve 3D mapě, modelech a efektech je vlevo jeden řádek na objekt a vpravo společný formulář jeho vlastností, transformací a navázaného aktéra. Jedno uložení zahrne všechny drafty. Rozpracované neplatné číselné složky se při přepnutí výběru zachovají.
 - Implementováno: horizontální přepínání částí téže mise (3D scéna, vlastnosti, geometrie, navigace, silnice, efekty, dostupná cache a editor kolizí), ochrana draftů a zapamatování kamery/výběru prostorových pohledů v rámci otevřeného projektu. Navigace a silnice při změně výběru zachovávají panely inspektoru a aktualizují levý seznam.
+- Prohlížeč souborů: vlastní viditelné tlačítko Zavřít, Escape a kliknutí mimo překryvný panel. V otevřené složce jsou všechny soubory bez stránkování po 100; výběr souboru nepřestavuje seznam, obnova projektu zachová rozbalené složky a posun. V odděleném Electronu ověřené zavření tlačítkem/Escape z hledání, zachování draftu TCK a kliknutí na přehrávání skrz zavíraný panel. Seznam 3 143 modelů dovolil otevření položky 249 i posledního modelu bez dalšího načítání; poloha při výběru zůstala zachovaná. Vyhledávání ověřené, historie testovacího projektu zůstala prázdná.
 - Dále: ověřit malé rozměry okna a práci klávesnicí. Před dokončením projít běžné pracovní postupy přímo v aplikaci.
 
 ## Uzavřené změny této etapy
