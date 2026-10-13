@@ -25,6 +25,7 @@ import { Group } from 'three';
 import { Drafts } from './drafts.js';
 import { missionParts } from '../shared/mission-parts.js';
 import { MissionViews } from './mission-views.js';
+import { renderCollisions } from './collision-editor.js';
 const api = window.workbench;
 const shell = initializeWorkspace();
 const missionViews = new MissionViews();
@@ -151,6 +152,7 @@ function renderDetail() {
     ? {camera:previous.captureCamera(),geometry:previous.roadGeometryWanted,selectedPoint:previous.selectedPoint} : remembered;
   const navigationView = file.type === 'navigation' && previous?.navigationPath === file.path && previous.projectRoot === state.project.root
     ? {camera:previous.captureCamera(),geometry:previous.navigationGeometryWanted,selectedPoint:previous.selectedPoint} : remembered;
+  const collisionView=file.type==='collision'&&previous?.collisionPath===file.path&&previous.projectRoot===state.project.root?{camera:previous.captureCamera(),selectedId:previous.selectedId,search:previous.collisionSearch,type:previous.collisionType,mode:previous.gizmo.mode,geometry:previous.collisionGeometryWanted}:remembered;
   const animationView=file.type==='animation'&&previous?.animationPath===file.path&&previous.projectRoot===state.project.root?{camera:previous.captureCamera(),model:previous.animationModel,...previous.animationState()}:null;
   const trackView=file.type==='track'&&previous?.trackPath===file.path&&previous.projectRoot===state.project.root?{camera:previous.captureCamera(),model:previous.trackModel,animation:previous.trackAnimation,time:previous.time,search:previous.trackSearch()}:null;
   state.viewport?.dispose(); state.viewport = null;
@@ -160,6 +162,7 @@ function renderDetail() {
   badges.replay = 'REP · ČASOVÁ OSA';
   badges.vehicles = 'AUTA · FYZIKA A PŘEVODY';
   badges.effects = 'EFEKTY · UMÍSTĚNÍ ČÁSTIC';
+  badges.collision = 'KLZ · 3D KOLIZE';
   if(file.bitmap)badges.image='BMP · EDITACE TEXTURY';
   const head = element('div', undefined, 'file-header'); head.append(element('h2', file.path), element('span', badges[file.type] ?? 'BINÁRNÍ SOUBOR', 'badge')); main.append(head);
   renderMissionParts(main, file);
@@ -188,6 +191,7 @@ function renderDetail() {
   else if (file.type === 'items') renderItems(main, file);
   else if (file.type === 'vehicles') renderVehicles(main, file);
   else if (file.type === 'effects') renderEffects(main, file, effectsView);
+  else if (file.type === 'collision') renderCollisions(main,file,collisionView,{element,state,api,run,refresh,renderDetail,status});
   else if (file.type === 'navigation') renderNavigation(main, file, navigationView);
   else if (file.type === 'roads') renderRoads(main, file, roadView);
   else if (file.type === 'track') renderTrack(main, file, trackView);

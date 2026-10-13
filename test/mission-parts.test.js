@@ -6,7 +6,7 @@ import { MissionViews } from '../src/ui/mission-views.js';
 const assets = ['MISSIONS/TUTORIAL/SCENE2.BIN','missions/tutorial/scene.4ds','Missions/Tutorial/CHECK.bin','missions/TUTORIAL/road.bin','missions/tutorial/effects.bin','missions/tutorial/tree.klz','missions/OTHER/check.bin','models/scene.4ds'].map(path=>({path}));
 test('mission links resolve the exact mixed-case manifest paths and exclude other missions and unavailable parts',()=>{
   const parts=missionParts(assets,'missions\\tutorial\\SCENE2.bin');
-  assert.deepEqual(parts.map(part=>part.type),['map','scene','model','navigation','roads','effects','binary']);
+  assert.deepEqual(parts.map(part=>part.type),['map','scene','model','navigation','roads','effects','collision']);
   assert.equal(parts.find(part=>part.type==='navigation').path,'Missions/Tutorial/CHECK.bin');
   assert.equal(parts.find(part=>part.type==='map').path,parts.find(part=>part.type==='scene').path);
   assert.equal(parts.some(part=>/other|models\//i.test(part.path)),false);
@@ -34,4 +34,12 @@ test('mission view memory does not retain unrelated models and tracks, and prese
   saved.remember({projectRoot:'/project',roadPath:'missions/tutorial/road.bin',selectedPoint:0,roadGeometryWanted:false,captureCamera:()=>camera});
   assert.equal(saved.get('/project',{path:'models/car.4ds',type:'model'}),null);
   assert.equal(saved.get('/project',{path:'missions/tutorial/road.bin',type:'roads'}).selectedPoint,0);
+});
+
+test('collision view keeps its filtered selection, camera and geometry scoped to the project',()=>{
+  const saved=new MissionViews(),camera={position:[1,2,3],target:[0,0,0],near:.02,far:20000};
+  saved.remember({projectRoot:'/project',collisionPath:'missions/tutorial/tree.klz',selectedId:'aabbs/0',collisionSearch:'crate',collisionType:'aabbs',collisionGeometryWanted:true,gizmo:{mode:'scale'},captureCamera:()=>camera});
+  const value=saved.get('/project',{path:'MISSIONS/TUTORIAL/TREE.KLZ',type:'collision'});
+  assert.deepEqual(value,{selectedId:'aabbs/0',search:'crate',type:'aabbs',mode:'scale',geometry:true,camera});
+  assert.equal(saved.get('/other',{path:'missions/tutorial/tree.klz',type:'collision'}),null);
 });

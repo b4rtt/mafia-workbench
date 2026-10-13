@@ -11,6 +11,7 @@ export function collisionOwnership(manifest, scenePath) {
   if(!snapshot)return [];
   const objects=snapshot.collisionOwnership.objects;
   if(!Array.isArray(objects)||objects.length>65536||objects.some(o=>!o||typeof o.name!=='string'||!o.name||!['aabb','mesh'].includes(o.kind)||o.kind==='mesh'&&(![o.triangleStart,o.triangleCount,o.vertexStart,o.vertexCount].every(Number.isInteger)||o.triangleStart<0||o.vertexStart<0||o.triangleCount<=0||o.vertexCount<=0||typeof o.doubleSided!=='boolean')||!/^[0-9a-f]{64}$/.test(o.signature))||new Set(objects.map(o=>key(o.name))).size!==objects.length)throw new Error('Kolize: neplatná evidence generovaných kolizí.');
+  if(objects.some(object=>object.boxIndex!==undefined&&(!Number.isInteger(object.boxIndex)||object.boxIndex<0||object.kind!=='aabb')))throw new Error('Kolize: neplatný index generovaného boxu.');
   return objects.map(object=>({...object}));
 }
 
@@ -28,7 +29,7 @@ export function ownedCollisionRecords(parsed, ownership) {
       if(records.some(r=>r.material!==records[0].material))throw new Error('Kolize: nestejné materiály generovaného povrchu.');
       return {...owned,records,material:records[0].material};
     }
-    const matches=parsed.primitives.aabbs.records.filter(record=>hash(record.raw)===owned.signature&&key(parsed.links[record.link].name)===key(owned.name));
+    const matches=(owned.boxIndex===undefined?parsed.primitives.aabbs.records:[parsed.primitives.aabbs.records[owned.boxIndex]].filter(Boolean)).filter(record=>hash(record.raw)===owned.signature&&key(parsed.links[record.link].name)===key(owned.name));
     if(matches.length!==1)throw new Error(`Kolize ${owned.name} byla změněna mimo editor nebo je nejednoznačná. Vraťte změnu nebo obnovte odpovídající projekt.`);
     return matches[0];
   });
@@ -83,11 +84,12 @@ export async function prepareSceneCollision(project, scenePath, before, after, o
     if(definition.kind==='mesh'){surfaces.push({...modelCollisionSurface(parseFourDs(dependencies.get(modelPath),true),object,scene,geometry),material:definition.material??definition.record?.material??0,doubleSided:definition.doubleSided??definition.previous?.doubleSided??true});continue;}
     const box={...modelCollisionBox(parseFourDs(dependencies.get(modelPath),true),object,scene,geometry),sort:definition.record?.sort??0,flags:definition.record?.flags??0,material:definition.material??definition.record?.material??0},record=definition.record?.kind==='mesh'?null:definition.record;
     if(record&&key(parsed.links[record.link].name)===key(box.name)&&box.material===record.material&&box.min.every((n,i)=>Math.fround(n)===record.min[i])&&box.max.every((n,i)=>Math.fround(n)===record.max[i])){
-      removed.delete(record.index);next.push({...definition.previous,name:object.name});
+      removed.delete(record.index);next.push({...definition.previous,name:object.name,boxIndex:record.index});
     }else boxes.push(box);
   }
   const boxed=appendCollisionBoxes(bytes,boxes,[...removed]),replacement=replaceCollisionSurfaces(boxed,surfaces,{removedIndices:owned.filter(r=>r.kind==='mesh').flatMap(r=>r.records.map(t=>t.index)),removedVertexIndices,resolveFrame:geometryCollisionResolver(scene,surfaces.length?await collisionGeometry(project,scene,geometry,parsed,dependencies):geometry)}),result=replacement.bytes,checked=parseCollision(result),first=parsed.primitives.aabbs.count-removed.size;
-  boxes.forEach((box,i)=>next.push({name:box.name,kind:'aabb',signature:hash(checked.primitives.aabbs.records[first+i].raw)}));
+  for(const owner of next)if(owner.kind==='aabb')owner.boxIndex-=[...removed].filter(index=>index<owner.boxIndex).length;
+  boxes.forEach((box,i)=>next.push({name:box.name,kind:'aabb',boxIndex:first+i,signature:hash(checked.primitives.aabbs.records[first+i].raw)}));
   replacement.groups.forEach(group=>next.push({...group,kind:'mesh',signature:surfaceSignature(checked,group)}));
   return {files:[{path:klzPath,data:result,expectedHash},...[...dependencies].map(([path,data])=>({path,data,expectedHash:hash(data)}))],ownership:{path:project.asset(scenePath).path,objects:next}};
 }

@@ -37,6 +37,45 @@ test('automatic model collisions keep independent manual surfaces across regener
   await p.undo();assert.deepEqual(await p.read(klzPath),manual);assert.deepEqual(await p.read(scenePath),snapshot);assert.equal((await p.inspectMap(scenePath)).collision.warning,undefined);
 });
 
+test('manual KLZ save inspects, guards hashes, exports and undoes without changing the scene or original game data',async t=>{
+  const {p,root,scene,klz}=await setup(t),file=await p.inspect(klzPath),history=p.manifest.history.length;
+  assert.equal(file.type,'collision');assert.equal(file.records.length,6);assert.equal(file.links[0].resolved,false);assert.deepEqual(file.records.find(r=>r.array==='triangles').points,[[0,0,0],[0,0,1],[1,0,0]]);
+  const operations=[{kind:'edit',array:'aabbs',index:0,changes:{material:19}},{kind:'delete',array:'spheres',index:0}];
+  await assert.rejects(p.saveCollision(klzPath,operations,'stale'),/změnily/);assert.equal(p.manifest.history.length,history);
+  await p.saveCollision(klzPath,operations,file.sha256,file.dependencyHashes);const after=await p.read(klzPath),parsed=parseCollision(after);assert.equal(parsed.primitives.aabbs.records[0].material,19);assert.equal(parsed.primitives.spheres.count,0);assert.deepEqual(await p.read(scenePath),scene);assert.deepEqual(await p.original(p.asset(klzPath)),klz);
+  const opened=await ModProject.open(root);assert.equal((await opened.inspect(klzPath)).type,'collision');const dest=path.join(root,'manual-export');await opened.export(dest);assert.deepEqual(await fs.readFile(path.join(dest,klzPath)),after);
+  await opened.undo();assert.deepEqual(await opened.read(klzPath),klz);assert.deepEqual(await opened.read(scenePath),scene);assert.equal(opened.manifest.history.length,history);
+});
+
+test('manual geometry protects dependencies and rejects missing volume frames before publication',async t=>{
+  const {p,scene}=await setup(t);await add(p,scene);const file=await p.inspect(klzPath),before=await p.read(klzPath),history=p.manifest.history.length;
+  const op={kind:'add',array:'aabbs',changes:{link:0,min:[1,0,1],max:[2,1,2]}};
+  await assert.rejects(p.saveCollision(klzPath,[op],file.sha256,file.dependencyHashes),/existující frame/);
+  const points={kind:'add',array:'triangles',changes:{points:[[12,0,12],[12,3,12],[12,0,14]]}};
+  await assert.rejects(p.saveCollision(klzPath,[points],file.sha256,{}),/Geometrie/);assert.deepEqual(await p.read(klzPath),before);assert.equal(p.manifest.history.length,history);
+  const change=p.changeBatch,geometry=await p.read('missions/NEW/scene.4ds');p.changeBatch=async function(files,...rest){await this.change('missions/NEW/scene.4ds',Buffer.concat([geometry,Buffer.from([0])]),'Concurrent geometry');return change.call(this,files,...rest);};
+  await assert.rejects(p.saveCollision(klzPath,[points],file.sha256,file.dependencyHashes),/změnil/);assert.deepEqual(await p.read(klzPath),before);p.changeBatch=change;await p.undo();
+  const publish=p.saveManifest;p.saveManifest=async()=>{throw new Error('KLZ publication failure');};await assert.rejects(p.saveCollision(klzPath,[points],file.sha256,file.dependencyHashes),/publication/);p.saveManifest=publish;assert.deepEqual(await p.read(klzPath),before);assert.equal(p.manifest.history.length,history);
+});
+
+test('manual changes detach only affected generated surfaces, remap other owners and survive later model movement',async t=>{
+  const {p,root,scene}=await setup(t);await p.changeSceneObject(scenePath,{...operation,collision:{kind:'mesh',material:7}},hash(scene));await p.changeSceneObject(scenePath,{...operation,name:'OTHER',position:[15,0,5],collision:{kind:'mesh',material:8}},hash(await p.read(scenePath)));
+  const file=await p.inspect(klzPath),before=await p.read(klzPath),oldOwners=collisionOwnership(p.manifest,scenePath),op=[{kind:'delete',array:'triangles',index:0},{kind:'edit',array:'triangles',index:1,changes:{material:21}}];
+  await assert.rejects(p.saveCollision(klzPath,op,file.sha256,file.dependencyHashes),/odpojí/);assert.deepEqual(await p.read(klzPath),before);
+  const result=await p.saveCollision(klzPath,op,file.sha256,file.dependencyHashes,{detachGenerated:true});assert.deepEqual(result.detached,['WB_CRATE']);assert.deepEqual(collisionOwnership(p.manifest,scenePath).map(o=>o.name),['OTHER']);assert.equal(collisionOwnership(p.manifest,scenePath)[0].triangleStart,oldOwners[1].triangleStart-1);
+  const manual=await p.read(klzPath),map=await p.inspectMap(scenePath),other=map.objects.find(o=>o.name==='OTHER');assert.equal(map.collision.warning,undefined);
+  await p.saveScene(scenePath,[{id:other.fields.position,value:[18,0,5]}],map.sha256);const q=parseCollision(await p.read(klzPath)),r=parseCollision(manual);assert.deepEqual(q.primitives.triangles.records[0].raw,r.primitives.triangles.records[0].raw);assert.deepEqual(q.extraVertices.subarray(0,6*12),r.extraVertices.subarray(0,6*12));assert.equal((await p.inspectMap(scenePath)).collision.warning,undefined);
+  const reopened=await ModProject.open(root);await reopened.undo();assert.deepEqual(await reopened.read(klzPath),manual);await reopened.undo();assert.deepEqual(await reopened.read(klzPath),before);assert.deepEqual(collisionOwnership(reopened.manifest,scenePath),oldOwners);
+});
+
+test('identical manual box copies do not steal generated ownership, including after remapping and scene changes',async t=>{
+  const {p,scene}=await setup(t);await add(p,scene);let file=await p.inspect(klzPath);const original=file.records.find(r=>r.owner==='WB_CRATE'),op={kind:'add',array:'aabbs',changes:{link:original.link,min:original.min,max:original.max,material:original.material,flags:original.flags}};
+  await p.saveCollision(klzPath,[op],file.sha256,file.dependencyHashes);assert.equal((await p.inspectMap(scenePath)).collision.warning,undefined);assert.equal(collisionOwnership(p.manifest,scenePath)[0].boxIndex,1);
+  file=await p.inspect(klzPath);await p.saveCollision(klzPath,[{kind:'delete',array:'aabbs',index:0}],file.sha256,file.dependencyHashes);assert.equal(collisionOwnership(p.manifest,scenePath)[0].boxIndex,0);
+  const map=await p.inspectMap(scenePath);await p.saveScene(scenePath,[{id:map.objects[0].fields.position,value:[15,0,5]}],map.sha256);
+  const q=parseCollision(await p.read(klzPath));assert.equal(q.primitives.aabbs.count,2);assert.deepEqual(q.primitives.aabbs.records[0].min,original.min);assert.deepEqual(q.primitives.aabbs.records[1].min,[15,0,5]);assert.equal(collisionOwnership(p.manifest,scenePath)[0].boxIndex,1);assert.equal((await p.inspectMap(scenePath)).collision.warning,undefined);
+});
+
 test('pickup rename preserves other owned collisions without duplicating geometry dependencies',async t=>{
   const {p,scene}=await setup(t),table=Buffer.alloc(188*2);table.write('Crate item',188);table.write('Crate.i3d',188+36);
   await p.createFiles([{path:'tables/predmety.def',data:table}]);const withCrate=await add(p,scene),catalog=await p.pickupItems(),item=catalog.items[0],collision=await p.read(klzPath);

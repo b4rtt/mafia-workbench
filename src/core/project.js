@@ -26,6 +26,7 @@ import { inspectVehicleTable, editVehicleTable } from './vehicle-table.js';
 import { parseEffects, editEffects, changeEffects, parseEffectTypes } from './effects.js';
 import { parseBmp, editBmp } from './bmp.js';
 import { inspectModelGeometry, editModelGeometry } from './model-geometry.js';
+import { inspectProjectCollision, saveProjectCollision } from './collision-project.js';
 
 const MANIFEST = 'workbench.json';
 const key = p => relativeAssetPath(p).normalize('NFC').toLowerCase();
@@ -385,6 +386,10 @@ export class ModProject {
     if (/textdb_[a-z]{2}\.def$/i.test(name)) return { type: 'textdb', ...parseTextDb(bytes, name), path: asset.path, size: bytes.length, sha256: hash(bytes) };
     if (/scene2\.bin$/i.test(name)) return { type: 'scene', ...inspectScene(bytes), path: asset.path, size: bytes.length, sha256: hash(bytes) };
     let warning;
+    if (/^missions\/[^/]+\/tree\.klz$/i.test(name)) {
+      try { return await inspectProjectCollision(this,name); }
+      catch (error) { warning = error.message; }
+    }
     if (/^missions\/[^/]+\/effects\.bin$/i.test(name)) {
       try { return { type:'effects', ...common, ...parseEffects(bytes), context:await this.effectContext(name) }; }
       catch (error) { warning = error.message; }
@@ -441,6 +446,7 @@ export class ModProject {
     if(!/\.4ds$/i.test(name))throw new Error('Soubor není 4DS model.');
     const bytes=await this.read(name);return {sha256:hash(bytes),...inspectModelGeometry(bytes,mesh)};
   }
+  async saveCollision(name,operations,expectedHash,dependencies,options) { return saveProjectCollision(this,name,operations,expectedHash,dependencies,options); }
   async saveGeometry(name, request, expectedHash) {
     if(!/\.4ds$/i.test(name))throw new Error('Soubor není 4DS model.');
     await this.change(name,before=>{if(expectedHash!==hash(before))throw new Error('Soubor se od otevření změnil. Otevřete jej znovu.');return editModelGeometry(before,request);},'Úprava geometrie 4DS');

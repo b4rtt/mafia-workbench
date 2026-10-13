@@ -15,6 +15,8 @@ export class MissionViews {
       path=view.navigationPath??view.roadPath;type=view.navigationPath?'navigation':'roads';value={selectedPoint:view.selectedPoint,geometry:view.navigationGeometryWanted??view.roadGeometryWanted};
     } else if (view.effectsPath) {
       path=view.effectsPath;type='effects';value={selectedId:view.selectedId,geometry:view.contextGeometry?.visible};
+    } else if (view.collisionPath) {
+      path=view.collisionPath;type='collision';value={selectedId:view.selectedId,search:view.collisionSearch,type:view.collisionType,mode:view.gizmo.mode,geometry:view.collisionGeometryWanted};
     } else return;
     if (!missionParts([{path}],path).length) return;
     this.views.set(missionViewKey(view.projectRoot,path,type),{...value,camera:view.captureCamera()});

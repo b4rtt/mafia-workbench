@@ -7,7 +7,7 @@ const definitions = [
   ['road.bin', 'roads', 'Silnice'],
   ['effects.bin', 'effects', 'Efekty'],
   ['cache.bin', 'cache', 'Statické modely'],
-  ['tree.klz', 'binary', 'Kolize (soubor)']
+  ['tree.klz', 'collision', 'Kolize']
 ];
 
 // Resolve actual manifest paths, including mixed-case folders from different DTA layers.

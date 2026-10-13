@@ -1,4 +1,5 @@
-import { Matrix4, Vector3 } from 'three';
+import { Matrix4 } from 'three';
+import { collisionBounds as bounds, collisionCorners as corners, collisionTransform as transform, collisionShapeGeometry } from '../shared/collision-shapes.js';
 import { parseCollision } from './collision.js';
 import { collisionFace, collisionTriangleVertices } from './collision-surfaces.js';
 
@@ -9,20 +10,11 @@ const fields={triangles:['points','reverse','material','flags'],aabbs:['min','ma
 const finite=n=>typeof n==='number'&&Number.isFinite(Math.fround(n));
 function vector(value,length,label){if(!Array.isArray(value)||value.length!==length||value.some(n=>!finite(n)))fail(`neplatné ${label}.`);return value.map(Math.fround);}
 function byte(value,label){if(!Number.isInteger(value)||value<0||value>255)fail(`neplatné ${label}.`);return value;}
-function bounds(points){return {min:[0,1,2].map(i=>Math.min(...points.map(p=>p[i]))),max:[0,1,2].map(i=>Math.max(...points.map(p=>p[i])))};}
-function corners(min,max){return Array.from({length:8},(_,i)=>[0,1,2].map(axis=>(i&(1<<axis)?max:min)[axis]));}
-function transform(points,matrix){const m=new Matrix4().fromArray(matrix);return points.map(p=>new Vector3(...p).applyMatrix4(m).toArray());}
 
 // 0x83 is a rectangle at local Y=0, not a solid oriented box. 0x84 stores
 // only X/Z and radius, and its native line/sphere tests ignore Y entirely.
 export function collisionRecordGeometry(parsed,array,record,resolveFrame){
-  if(array==='triangles'){const points=collisionTriangleVertices(parsed,record,resolveFrame);return {...bounds(points),points,shape:'triangle'};}
-  if(array==='aabbs')return {min:record.min,max:record.max,points:corners(record.min,record.max),shape:'box'};
-  if(array==='xtobbs'){const points=transform(corners(record.extentMin,record.extentMax),record.matrix);return {...bounds(points),points,shape:'oriented-box'};}
-  if(array==='obbs'){const a=record.extentMin,b=record.extentMax,points=transform([[a[0],0,a[2]],[b[0],0,a[2]],[b[0],0,b[2]],[a[0],0,b[2]]],record.matrix);return {...bounds(points),points,shape:'rectangle'};}
-  if(array==='spheres')return {min:record.center.map(n=>n-record.radius),max:record.center.map(n=>n+record.radius),shape:'sphere'};
-  if(array==='cylinders')return {min:[record.center[0]-record.radius,-Infinity,record.center[1]-record.radius],max:[record.center[0]+record.radius,Infinity,record.center[1]+record.radius],shape:'vertical-cylinder',unboundedY:true};
-  fail('neznámé pole primitiv.');
+  return collisionShapeGeometry(array,record,array==='triangles'?collisionTriangleVertices(parsed,record,resolveFrame):undefined);
 }
 
 function primitiveRaw(parsed,array,changes,existing,allocatePoints){

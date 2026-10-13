@@ -1,6 +1,6 @@
 # Samostatný editor původních kolizí
 
-Stav 13. října 2026: implementovaný a datově ověřený základ zápisu v `src/core/collision-editor.js`. Samostatné 3D ovládání, projektové transakce ručních úprav včetně evidence generovaných kolizí a herní ověření ještě následují. Odkaz „Kolize (soubor)“ v aplikaci zatím zůstává binárním pohledem; tato etapa sama není plnohodnotným editorem.
+Stav 13. října 2026: obecný KLZ writer, projektové transakce a samostatný 3D editor jsou implementované. V okně ověřený výběr původního boxu, posun manipulátorem, materiál, duplikace/odstranění, vložení koule, uložení a undo. Herní ověření prostorových změn všech typů ještě následuje; nepodporovaná původní data se zachovávají a označují. Celý komplexní editor není dokončený.
 
 ## Doložené rozložení a význam
 
@@ -35,4 +35,14 @@ Soukromý datový audit nad místním projektem Mafia-CZ přečetl 77 mission/tr
 
 Tři původní XTOBB `bar_nosniky02` v MISE02-SALIERY, MISE03-SALIERY a MISE03-SALIERYKONEC mají nulovou řadu matice, nulový místní Y rozměr a identitní uloženou inverzi. Jejich metadata/mazání se ověřily; prostorová změna tohoto neplatného tvaru se odmítá bez publikace. Další platný XTOBB ve stejných souborech prošel prostorovým testem. MISE16-LETISTE má `scene.4ds` s dosud nepodporovaným frame type 128: metadata, objemy a mazání KLZ prošly, prostorová editace frame-backed trojúhelníku zatím nemá ověřené rozlišení geometrie.
 
-Jednotkové testy zahrnují všechny tvary, inverze a jejich roviny, rotaci trojúhelníku o 180°, sdílené světové vrcholy, odmítnutí chybných vstupů, nové/odstraněné kolize, buněčné hranice, byte-local metadata, opaque data a souběh nezávislých povrchů s generátorem. Projektový test generování ověřil následnou změnu modelu, export a přesné undo při ručně vloženém povrchu. Projektové uložení samotných ručních operací, 3D UI a herní testy této nové funkce ještě nejsou dokončené.
+Jednotkové testy zahrnují všechny tvary, inverze a jejich roviny, rotaci trojúhelníku o 180°, sdílené světové vrcholy, odmítnutí chybných vstupů, nové/odstraněné kolize, buněčné hranice, byte-local metadata, opaque data a souběh nezávislých povrchů s generátorem. Projektové testy ručních úprav ověřují následnou změnu modelu, export, přesné undo, rollback a ochranu závislostí. Herní testy této nové funkce ještě zbývají.
+
+## Projekt a 3D ovládání
+
+`collision-project.js` načítá scénu, geometrii a potřebné externí modely jako hashově chráněné závislosti. Zápis publikuje KLZ a evidenci vlastnictví jednou transakcí. U nedotčených generovaných boxů se přemapuje přesný index, který odlišuje i bajtově shodnou ruční kopii. U povrchů se ověřuje celý rozsah a podpis. Změna vlastněného záznamu vyžaduje explicitní odpojení generátoru; UI důsledek vysvětluje před uložením. Vlastnictví jiných modelů zůstává a jejich další přepočet zachová ruční kolize. Metadata a mazání nevyžadují řešení chybějící geometrie; prostorové změny se při neřešitelných potřebných závislostech odmítnou.
+
+Editor seskupuje záznamy podle framu a dlouhé seznamy načítá po 100 položkách. 3D primitiva jsou dávkovaná; koule a válce používají instance. Zvolený tvar má obrys a manipulátor. AABB dovoluje posun/měřítko; OBB/XTOBB a trojúhelníky také rotaci. Koule/válce dovolují posun a číselný poloměr. U válců nelze posouvat Y. Náhled a writer používají stejné nativní geometrické převody. Kamera, výběr, filtr, hledání, režim transformace a podklad se uchovají při přepnutí části mise. Podklad je samotná scene.4ds, bez externích aktérů. Neplatné původní tvary zůstávají v seznamu s vysvětlením.
+
+Soukromý projektový audit na TUTORIAL upravil původní trojúhelník, AABB, XTOBB, OBB a válec, přidal všech šest typů, znovu je načetl a odstranil. Export se přesně shodoval s modem a tři undo přesně obnovila každý stav i výchozí KLZ; zdrojové soubory zůstaly stejné. Inspekční audit otevřel všech 77 původních KLZ, včetně označení neplatných původních hodnot a neřešených trojúhelníků letiště. TUTORIAL má 13 010 primitiv; inspekce trvala přibližně 140 ms (místní Node, bez IPC a vykreslení).
+
+V odděleném okně ověřen materiál boxu, posun na X manipulátorem, uložení přes ⌘S, zachování kamery/výběru, deaktivace startu s draftem, duplikace/odstranění boxu a undo. Nová koule při neodpovídajícím filtru se zviditelnila; záporný poloměr nešel uložit, opravená hodnota se uložila. Testovací změny se vracejí do výchozí historie. Účinek nových tvarů přímo v enginu ještě není ověřený.

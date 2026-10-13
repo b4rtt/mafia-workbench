@@ -29,6 +29,7 @@ contextBridge.exposeInMainWorld('workbench', {
   modelGeometry: (name, mesh) => invoke('asset:model-geometry', name, mesh),
   saveGeometry: (name, request, expectedHash) => invoke('asset:geometry', name, request, expectedHash),
   saveBitmap: (name, changes, expectedHash) => invoke('asset:bitmap', name, changes, expectedHash),
+  saveCollision: (name,operations,expectedHash,dependencies,options) => invoke('asset:collision',name,operations,expectedHash,dependencies,options),
   saveEffects: (name, changes, expectedHash, dependencies) => invoke('asset:effects', name, changes, expectedHash, dependencies),
   changeEffects: (name, request, expectedHash, dependencies) => invoke('asset:effects-change', name, request, expectedHash, dependencies),
   saveAnimation: (name, changes, expectedHash) => invoke('asset:animation', name, changes, expectedHash),
