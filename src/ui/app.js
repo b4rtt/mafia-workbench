@@ -12,6 +12,7 @@ import { soundExtentSettings } from './sound-extent.js';
 import { lightPreviewSettings } from './light-preview.js';
 import { roadGraph, roadEntries, roadReference, roadConnections } from '../shared/roads.js';
 import { roadTopologyDialog } from './road-topology.js';
+import { roadSettingsDialog } from './road-settings.js';
 import { Viewport } from './viewport.js';
 import { actionMenu, initializeWorkspace, spatialWorkspace } from './workspace.js';
 import { renderBitmap } from './bitmap.js';
@@ -375,8 +376,9 @@ function renderRoads(main, file, previous=null) {
   const range=()=>{number.max=String(Math.max(0,file[section.value].length-1));};section.onchange=range;range();
   const insert=element('button','Vložit bod do úseku…'),remove=element('button','Odstranit mezilehlý bod…');insert.disabled=remove.disabled=true;
   const createCross=element('button','Nová křižovatka…'),splitCross=element('button','Vytvořit křižovatku z bodu…'),connect=element('button','Propojit křižovatky…'),disconnect=element('button','Odstranit propojení…'),deleteCross=element('button','Odstranit křižovatku…');
+  const settings=element('button','Pruhy a směry…');settings.disabled=true;
   splitCross.disabled=connect.disabled=disconnect.disabled=deleteCross.disabled=true;
-  tools.append(section,number,jump,fit,focus,background,insert,remove,actionMenu('Silniční síť',[createCross,splitCross,connect,disconnect,deleteCross]));center.append(tools,viewport);
+  tools.append(section,number,jump,fit,focus,background,insert,remove,actionMenu('Silniční síť',[settings,createCross,splitCross,connect,disconnect,deleteCross]));center.append(tools,viewport);
   let properties;
   const view=new NavigationViewport(viewport,frame=>{
     const point=graph.points[frame.navigationIndex],record=file[point.section][point.recordIndex];section.value=point.section;number.value=String(point.recordIndex);range();state.roadIndex=point.index;
@@ -386,6 +388,7 @@ function renderRoads(main, file, previous=null) {
     splitCross.disabled=isCross;
     connect.disabled=!isCross||file.crossings.length<2||!record.links.some((ref,i)=>ref===65535&&record.directions[i].target===65535);
     disconnect.disabled=!isCross||!roadConnections(file,point.recordIndex).length;
+    settings.disabled=disconnect.disabled;
     deleteCross.disabled=!isCross||record.links.some(ref=>ref!==65535)||record.directions.some(direction=>direction.target!==65535);
     const pane=inspector.querySelector(':scope>.inspector-content')??inspector;
     pane.replaceChildren(element('h3',`${point.section==='crossings'?'Křižovatka':'Bod'} ${point.recordIndex}`),element('p',`Pozice XYZ: ${record.position.join(', ')}`,'notice'));
@@ -406,6 +409,7 @@ function renderRoads(main, file, previous=null) {
     const point=graph.points[view.selectedPoint];
     roadTopologyDialog(file,action,point,{element,state,api,run,refresh,renderDetail,status});
   });
+  settings.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před změnou pruhů uložte rozepsané vlastnosti.');const point=graph.points[view.selectedPoint];if(point?.section==='crossings')roadSettingsDialog(file,point.recordIndex,{element,state,api,run,refresh,renderDetail,status});});
   fit.onclick=()=>view.fit(view.markers);focus.onclick=()=>{if(view.selectedPoint!==null)view.fit(view.proxy);};
   let geometry,geometryLoading;
   async function toggleGeometry(){

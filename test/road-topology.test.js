@@ -5,7 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 import {changeRoadTopology} from '../src/core/road-topology.js';
 import {parseRoads} from '../src/core/roads.js';
-import {roadConnections} from '../src/shared/roads.js';
+import {roadConnections,roadSettingsPair} from '../src/shared/roads.js';
 import {ModProject} from '../src/core/project.js';
 import {hash,writeSafe} from '../src/core/files.js';
 const empty=()=>{const b=Buffer.alloc(12);b.writeUInt32LE(2);return b;};
@@ -145,6 +145,47 @@ test('physical connection lookup does not offer orphan or cyclic chains and clos
   const split=changeRoadTopology(source,{action:'split-crossing',index:0});assert.ok(roadConnections(parseRoads(split.data),6).every(c=>!c.enabled));
   const broken=Buffer.from(source);broken.writeUInt16LE(65535,12+6*236+18);assert.deepEqual(roadConnections(parseRoads(broken),0),[]);assert.throws(()=>changeRoadTopology(broken,{action:'disconnect',from:0,to:1}));
   const cyclic=Buffer.from(source);cyclic.writeUInt16LE(32768,12+6*236+18);assert.deepEqual(roadConnections(parseRoads(cyclic),0),[]);
+});
+test('existing road settings patch only selected fields, retain raw metadata and do not move or rebuild nodes',()=>{
+  const source=connect(base(),0,1,{positions:[[3,0,2],[9,0,2]]}).data,s=slot(source,0,1),offset=8+28+s*52;
+  source[offset+2]=0xa7;source[offset+12]=0x9c;source[offset+22]=19;source.writeUInt32LE(0x7fc01234,offset+32);source.writeFloatLE(-0,offset+48);
+  const pair=roadSettingsPair(parseRoads(source),0,s);assert.equal(pair.forward.lanes[0].type,19);assert.ok(Number.isNaN(pair.forward.lanes[1].distance));assert.ok(Object.is(pair.forward.lanes[3].distance,-0));
+  const noOp=changeRoadTopology(source,{action:'edit-road',from:0,to:1,fromSlot:s,forward:{},reverse:{}});assert.deepEqual(noOp.data,source);
+  const result=changeRoadTopology(source,{action:'edit-road',from:0,to:1,fromSlot:s,forward:{priority:7,lanes:[{distance:-2.25},{},{},{}]},reverse:{}}),expected=Buffer.from(source);expected.writeUInt32LE(7,offset+14);expected.writeFloatLE(-2.25,offset+24);assert.deepEqual(result.data,expected);assert.deepEqual(result.mapping,Array.from({length:8},(_,i)=>i));assert.equal(result.index,0);assert.deepEqual(source,noOp.data);
+  const repaired=changeRoadTopology(source,{action:'edit-road',from:0,to:1,fromSlot:s,forward:{lanes:[{},{distance:2.5},{},{}]}}),fixed=Buffer.from(source);fixed.writeFloatLE(2.5,offset+32);assert.deepEqual(repaired.data,fixed);
+});
+test('existing road settings close both directions and reopen selected directions without deleting the physical chain',()=>{
+  const original=connect(base(),0,1,{positions:[[3,0,2],[9,0,2]]}).data;
+  const closed=changeRoadTopology(original,{action:'edit-road',from:0,to:1,forward:{enabled:false},reverse:{enabled:false}}).data,f=parseRoads(closed);
+  assert.deepEqual(f.nodes,parseRoads(original).nodes);assert.equal(roadConnections(f,0).length,1);assert.ok(roadConnections(f,0).every(link=>!link.enabled));assert.deepEqual(f.crossings[0].directions[0].lanes.map(l=>l.type),[0,0,0,0]);
+  assert.deepEqual(changeRoadTopology(closed,{action:'edit-road',from:0,to:1}).data,closed);
+  assert.throws(()=>changeRoadTopology(closed,{action:'edit-road',from:0,to:1,forward:{enabled:true}}),/aktivní pruh/);
+  const reopened=changeRoadTopology(closed,{action:'edit-road',from:0,to:1,forward:{enabled:true,lanes:[{type:2},{},{},{}]}}),after=routes(reopened.data);assert.equal(roadConnections(after,0)[0].enabled,true);assert.equal(roadConnections(after,1)[0].enabled,false);assert.deepEqual(after.nodes,f.nodes);
+  const flipped=changeRoadTopology(reopened.data,{action:'edit-road',from:0,to:1,forward:{enabled:false},reverse:{enabled:true,lanes:[{type:1,distance:-1.75},{},{},{}]}});routes(flipped.data);assert.equal(roadConnections(parseRoads(flipped.data),1)[0].enabled,true);
+  const zeroed=changeRoadTopology(original,{action:'edit-road',from:0,to:1,forward:{lanes:[{type:0},{},{},{}]}});assert.equal(roadConnections(parseRoads(zeroed.data),0)[0].enabled,false);
+});
+test('road settings reject invalid patches and preserve disabled legacy data without normalizing it',()=>{
+  const source=connect(base(),0,1).data;source.writeUInt16LE(65535,8+28);const before=Buffer.from(source);
+  assert.deepEqual(changeRoadTopology(source,{action:'edit-road',from:0,to:1}).data,source);
+  const preserved=changeRoadTopology(source,{action:'edit-road',from:0,to:1,forward:{priority:11}}).data,expected=Buffer.from(source);expected.writeUInt32LE(11,8+28+14);assert.deepEqual(preserved,expected);
+  assert.deepEqual(changeRoadTopology(source,{action:'edit-road',from:0,to:1,forward:null}).data,source);
+  for(const forward of [[],{unknown:1},{enabled:1},{priority:-1},{priority:0x100000000},{lanes:[]},{lanes:Array(4)},{lanes:[{type:256},{},{},{}]},{lanes:[{distance:NaN},{},{},{}]},{lanes:[{distance:1e50},{},{},{}]},{lanes:[{unknown:1},{},{},{}]}]){
+    assert.throws(()=>changeRoadTopology(source,{action:'edit-road',from:0,to:1,forward}));assert.deepEqual(source,before);
+  }
+  assert.throws(()=>changeRoadTopology(source,{action:'edit-road',from:0,to:1,fromSlot:4}));assert.throws(()=>changeRoadTopology(source,{action:'edit-road',from:0,to:2}));
+  const hidden=Buffer.from(source);hidden.writeUInt16LE(32768,8+2*236+20);assert.throws(()=>changeRoadTopology(hidden,{action:'edit-road',from:0,to:1}),/další/);
+});
+test('existing road settings identify a parallel chain by source slot and preserve its other route',()=>{
+  let data=empty();for(const point of [[0,0,0],[12,0,0],[0,0,0],[12,0,0]])data=create(data,point);data=connect(data,0,1,{positions:[[6,0,2]]}).data;data=connect(data,2,3,{positions:[[6,0,-2]]}).data;
+  for(const [old,cross,target]of [[2,0,1],[3,1,0]]){const source=8+old*236,destination=8+cross*236;data.copy(data,destination+28+52,source+28,source+28+52);data.writeUInt16LE(target,destination+28+52);data.writeUInt16LE(data.readUInt16LE(source+20),destination+22);data.writeUInt16LE(65535,source+20);data.writeUInt16LE(65535,source+28);}
+  const f=parseRoads(data),index=f.nodes.findIndex(n=>n.position[2]===-2),start=12+4*236+index*24;for(const delta of [16,18,20,22]){const ref=data.readUInt16LE(start+delta);data.writeUInt16LE(ref===2?0:ref===3?1:ref,start+delta);}
+  assert.throws(()=>changeRoadTopology(data,{action:'edit-road',from:0,to:1,forward:{priority:7}}),/jednoznačné/);
+  const pair=roadSettingsPair(parseRoads(data),0,1);assert.equal(pair.to,1);const result=changeRoadTopology(data,{action:'edit-road',from:0,to:1,fromSlot:1,forward:{priority:7},reverse:{priority:19}}),expected=Buffer.from(data);expected.writeUInt32LE(7,8+28+52+14);expected.writeUInt32LE(19,8+236+28+52+14);assert.deepEqual(result.data,expected);
+});
+test('existing road settings project saves guard stale data and preserve exact export, reopen and undo',async t=>{
+  const root=await fs.mkdtemp(path.join(os.tmpdir(),'mafia-road-settings-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));await writeSafe(root,'workbench.json',JSON.stringify({format:'mafia-workbench',version:1,name:'Settings',assets:[],history:[]}));const p=await ModProject.open(root),name='missions/TEST/road.bin',source=connect(base(),0,1).data;
+  await p.createFiles([{path:name,data:source},{path:'missions/TEST/tree.klz',data:Buffer.from('collision')}]);const history=p.manifest.history.length,request={action:'edit-road',from:0,to:1,forward:{priority:7,lanes:[{distance:-2.5},{},{},{}]},reverse:{enabled:false}},expected=changeRoadTopology(source,request).data;
+  await assert.rejects(p.changeRoadTopology(name,request,'stale'),/změnil/);assert.equal(p.manifest.history.length,history);await p.changeRoadTopology(name,request,hash(source));const reopened=await ModProject.open(root);await reopened.export(path.join(root,'export'));assert.deepEqual(await fs.readFile(path.join(root,'export',name)),expected);await reopened.undo();assert.deepEqual(await reopened.read(name),source);assert.equal(reopened.manifest.history.length,history);assert.equal((await reopened.read('missions/TEST/tree.klz')).toString(),'collision');
 });
 test('split crossing uses compacted indices even at the native node limit and rejects crossings beyond the limit',()=>{
   const count=32767,data=Buffer.alloc(12+6*236+count*24);base().copy(data);data.writeUInt32LE(count,8+6*236);data.writeFloatLE(count+1,8+236);

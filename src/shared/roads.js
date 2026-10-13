@@ -12,8 +12,14 @@ export function roadConnections(file,index){
       const node=file.nodes[ref&32767];if(!node||node.previous!==previous&&node.next!==previous)return [];
       const next=node.previous===previous?node.next:node.previous;previous=ref;ref=next;
     }
-    return ref!==65535&&ref!==index&&file.crossings[ref]? [{slot,target:ref,enabled:crossing.directions[slot].target===ref&&crossing.directions[slot].lanes.some(l=>l.type)}]:[];
+    return ref!==65535&&ref!==index&&file.crossings[ref]? [{slot,target:ref,nodes:[...seen],enabled:crossing.directions[slot].target===ref&&crossing.directions[slot].lanes.some(l=>l.type)}]:[];
   });
+}
+export function roadSettingsPair(file,from,slot){
+  const forward=roadConnections(file,from).find(link=>link.slot===slot);if(!forward)return null;
+  const reverse=roadConnections(file,forward.target).filter(link=>link.target===from&&link.nodes.length===forward.nodes.length&&link.nodes.every((ref,i)=>ref===forward.nodes[forward.nodes.length-1-i]));
+  if(reverse.length!==1)return null;
+  return {to:forward.target,fromSlot:slot,forward:{...file.crossings[from].directions[slot],enabled:forward.enabled},reverse:{...file.crossings[forward.target].directions[reverse[0].slot],enabled:reverse[0].enabled}};
 }
 export function roadGraph(file) {
   const total=file.crossings.length,points=[],target=value=>value&32768?total+(value&32767):value;

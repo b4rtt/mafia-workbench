@@ -28,7 +28,7 @@ export function parseRoads(source) {
     const offset=8+index*CROSSING_SIZE, directions=[];
     for (let slot=0; slot<4; slot++) {
       const at=offset+28+slot*SLOT_SIZE, lanes=[];
-      for(let lane=0;lane<4;lane++) lanes.push({type:bytes[at+20+lane*8+2]});
+      for(let lane=0;lane<4;lane++) lanes.push({type:bytes[at+20+lane*8+2],distance:bytes.readFloatLE(at+24+lane*8)});
       directions.push({target:reference(bytes.readUInt16LE(at)),priority:bytes.readUInt32LE(at+14),lanes});
     }
     crossings.push({index,position:position(offset),semaphore:bytes[offset+12],speed:speed(offset+16),links:[0,1,2,3].map(slot=>reference(bytes.readUInt16LE(offset+20+slot*2))),directions});
