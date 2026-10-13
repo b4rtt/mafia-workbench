@@ -1,6 +1,6 @@
 # Samostatný editor původních kolizí
 
-Stav 13. října 2026: obecný KLZ writer, projektové transakce a samostatný 3D editor jsou implementované. V okně ověřený výběr původního boxu, posun manipulátorem, materiál, duplikace/odstranění, vložení koule, uložení a undo. Ve hře ověřené paprskové dotazy na všech šest nových typů, přesun na nové souřadnice, odstranění a undo. Nepodporovaná původní data se zachovávají a označují. Celý komplexní editor není dokončený.
+Stav 13. října 2026: obecný KLZ writer, projektové transakce a samostatný 3D editor jsou implementované. V okně ověřený výběr původního boxu, posun manipulátorem, materiál, duplikace/odstranění, vložení koule, uložení a undo. Ve hře ověřené paprskové dotazy a reakce navigovaných chodců na všech šest nových typů, přesun, odstranění a undo. Nepodporovaná původní data se zachovávají a označují. Celý komplexní editor není dokončený.
 
 ## Doložené rozložení a význam
 
@@ -63,3 +63,21 @@ Oddělená prázdná mise v nezávislé APFS kopii používá šest vodorovných
 Každý start kontroluje hash KLZ vloženého do testovací mise; export po přidání se přesně shodoval s modem. Po testu se KLZ a skript přes undo vrátily na výchozí hashe. Zdrojový projekt i původní Game.exe zůstaly shodné a soukromá hra byla ukončena. Soukromé protokoly a snímky nepatří do veřejného repozitáře. Test prokazuje paprskové dotazy; nepokrývá všechny původní tvary, chování pohybu postav, aut ani všechny kombinace sphere/box dotazů enginu.
 
 Oprava billboardů byla porovnaná s původním parserem na 3 223 místních 4DS: letiště se nově načte, žádný dříve podporovaný soubor nepřestal fungovat a no-op writer zůstal byte-exact. Tři verze 27/58 se nadále odmítají. Celá sada 270 testů prošla.
+
+## Pohyb chodců ve hře
+
+Další oddělená prázdná mise obsahuje šest nově vytvořených lidských aktérů. Každý má vlastní dvojici propojených navigačních bodů a příkaz `enemy_move ..., walk` z Z=0 do Z=12. Cesty leží 6 m od sebe; nové tvary jsou na Z=6. Skript čte skutečné světové pozice přes `frm_getworldpos` a bitový výsledek zobrazuje energií hráče. Porovnávají se stejné scene2.bin a check.bin, mění se pouze tree.klz. Výsledky jsou odečtené z běžící GOG 1.2, nikoli z náhledu editoru.
+
+| Stav KLZ | HUD dosažení Z>9 | Výsledek v pozorovaném běhu |
+| --- | --- | --- |
+| Bez nových tvarů | 72 | Všech šest chodců prošlo do cíle. |
+| Šest nových tvarů | 58 | Trojúhelník, koule a válec dovolily dosažení cíle po změně dráhy; AABB, otočený XTOBB a OBB zastavily postup před cílem. |
+| Všechny tvary přesunuty o 4 m na X | 72 | Všech šest chodců dosáhlo cíle. |
+| Undo přesunu | 58 | Obnovil se původní vzor dosažení cíle. |
+| Undo přidání | 72 | Všech šest opět prošlo. |
+
+Samotné dosažení cíle neprokazuje průchod kolizí: navigovaný aktér může překážku obejít. Proto druhý běh se stejnými cestami a tvary používá jiný měřicí skript. Po 100 ms sleduje vybočení X o více než 0,8 m v úseku 2≤Z≤9; každý aktér přičte svůj bit pouze jednou. Bez tvarů HUD 9, po přidání 72: všech šest cest se změnilo. Po přesunu 14 (bity 1 a 4), po undo 72 a po odstranění 9. Přesunuté tvary jsou poblíž sousedních cest, proto ani dosažení všech cílů neznamená nulové vybočení. Oba testy společně potvrzují reakci navigovaných postav na všech šest typů; nezaručují trvalé zastavení AI za všech okolností.
+
+Každý start ověřil hash souborů vložených do skutečně spouštěné mise. Export obou variant se přesně shodoval s modem. Po dokončení jsou KLZ, měřicí skript i délka historie obnovené; zdrojové projekty a původní EXE mají stejné hashe a soukromá hra je ukončená. Protokoly, pomocné skripty a snímky s herními daty zůstávají v ignorovaném local/.
+
+Zbývá přímé ovládání hráče, fyzika aut/předmětů, další sphere/box dotazy, opačné strany povrchů a editace původních kolizí běžných misí. Tento test nových ručních primitiv nepokrývá všechny povrchy generované z modelů.
