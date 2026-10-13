@@ -4,6 +4,7 @@ import { inspectDoor, editDoor, createDoor } from './doors.js';
 import { sceneSectors, validateNewLight } from '../shared/lights.js';
 import { validateNewSound } from '../shared/sounds.js';
 import { inspectPhysical, editPhysical, createPhysical } from './physical.js';
+import { detectorScriptLayout, editDetectorMask, createDetector } from './detectors.js';
 const containers = new Set([0x4c53, 0x4000, 0x4010, 0x4020, 0x4040, 0x4060, 0xae20, 0xae21, 0xae50]);
 const names = new Map([[0x4c53, 'Scéna'], [0x4000, 'Objekty'], [0x4010, 'Objekt'], [0x4020, 'Rodič'], [0x4040, 'Světlo'], [0x4060, 'Zvuk'], [0xae20, 'Aktéři'], [0xae21, 'Aktér'], [0xae50, 'Skripty'], [0xae51, 'Skript']]);
 const fields = new Map([
@@ -82,9 +83,8 @@ function tree(source) {
 function actorScriptLayout(kind, data) {
   if (!data) return null;
   let lengthOffset;
-  if (kind === 5 && data.length >= 14 && data[0] === 1 && data.readUInt32LE(1) <= 1 && data[5] === 1 && data.readUInt32LE(6) === 0) {
-    lengthOffset = 10;
-  } else if (kind === 27 && data.length >= 83 && data[0] === 6 && data[73] === 1 && data[74] === 1 && data.readUInt32LE(75) === 0) {
+  if(kind===5)return detectorScriptLayout(data);
+  if (kind === 27 && data.length >= 83 && data[0] === 6 && data[73] === 1 && data[74] === 1 && data.readUInt32LE(75) === 0) {
     // C_human v6: 1 version byte, two dwords, 64 stats bytes. C_entity
     // then stores its version and C_program v1 with an empty first string.
     // The second source string is the script; preserve everything else.
@@ -113,6 +113,10 @@ export function inspectScene(source) {
         const data = node.children.find(n => n.type === 0xae24)?.payload;
         const name = node.children.find(n => n.type === 0xae23)?.payload;
         const actorKind = kind?.length >= 4 ? kind.readUInt32LE(0) : null;
+        if(name&&actorKind===5&&detectorScriptLayout(data)){
+          const nodeId=node.children.find(n=>n.type===0xae24).id;
+          entries.push({id:`${nodeId}:detector.mask`,nodeId,label:'Maska typů postav (detector_inrange)',kind:'uint',value:data.readUInt32LE(1),detectorParameter:true,actorKind,context:`${context} / ${string(name)}`.replace(/^ \/ /,''),bytes:4,min:0,max:4294967295});
+        }
         if(name&&actorKind===35)for(const field of inspectPhysical(data)){
           const nodeId=node.children.find(n=>n.type===0xae24).id;
           entries.push({...field,id:`${nodeId}:physical.${field.key}`,nodeId,physicalParameter:true,actorKind,context:`${context} / ${string(name)}`.replace(/^ \/ /,'')});
@@ -161,6 +165,7 @@ export function editScene(source, id, value) {
   const doorParameter=scene.entries.find(entry=>entry.id===id&&entry.doorParameter);
   const soundParameter=scene.entries.find(entry=>entry.id===id&&entry.soundParameter);
   const physicalParameter=scene.entries.find(entry=>entry.id===id&&entry.physicalParameter);
+  const detectorParameter=scene.entries.find(entry=>entry.id===id&&entry.detectorParameter);
   let found = false;
   function write(node) {
     let payload;
@@ -171,6 +176,9 @@ export function editScene(source, id, value) {
       if(value){const header=Buffer.alloc(6);header.writeUInt16LE(0x4066);header.writeUInt32LE(6,2);children.push(header);}
       payload=Buffer.concat(children);
     }else if (node.children) payload = Buffer.concat(node.children.map(write));
+    else if(detectorParameter&&node.id===detectorParameter.nodeId){
+      found=true;payload=editDetectorMask(node.payload,value);
+    }
     else if(physicalParameter&&node.id===physicalParameter.nodeId){
       found=true;payload=editPhysical(node.payload,physicalParameter.key,value);
     }
@@ -211,7 +219,7 @@ export function editScene(source, id, value) {
 // Existing opaque actor data, scripts, geometry overrides and sibling chunks
 // remain intact. New human actors use the verified C_human v6 layout.
 export function changeSceneObject(source, operation, geometryNames = [], geometryFrames = []) {
-  if (!operation || !['add-model', 'add-human', 'add-car', 'add-light', 'add-sound', 'attach-door', 'attach-physical', 'duplicate', 'delete'].includes(operation.kind)) throw new Error('Scene: neplatná operace s objektem.');
+  if (!operation || !['add-model', 'add-human', 'add-car', 'add-light', 'add-sound', 'add-detector', 'attach-door', 'attach-physical', 'duplicate', 'delete'].includes(operation.kind)) throw new Error('Scene: neplatná operace s objektem.');
   const scene = inspectScene(source), roots = tree(source), all = [];
   function collect(nodes) { for (const node of nodes) { all.push(node); if (node.children) collect(node.children); } }
   collect(roots);
@@ -226,7 +234,15 @@ export function changeSceneObject(source, operation, geometryNames = [], geometr
     const used = [...scene.objects.map(o => o.name), ...geometryNames, ...scene.entries.filter(e => e.label === 'Název aktéra').map(e => e.value), 'Primary sector', 'Backdrop sector'];
     if (used.some(value => key(value) === key(name))) throw new Error('Scene: název objektu již existuje ve scéně nebo geometrii.');
   }
-  if(operation.kind==='add-light'){
+  if(operation.kind==='add-detector'){
+    const {name,position}=operation,actors=all.filter(node=>node.type===0xae20);
+    if(actors.length>1||roots.length!==1)throw new Error('Scene: nejednoznačný seznam aktérů.');
+    if(!Array.isArray(position)||position.length!==3||!Array.from(position).every(n=>typeof n==='number'&&Number.isFinite(n)&&Number.isFinite(Math.fround(n))))throw new Error('Detektor: neplatná pozice.');
+    const numeric=(type,kind,value,size)=>chunk(type,encodeField(kind,value,Buffer.alloc(size)));
+    added=chunk(0x4010,Buffer.concat([numeric(0x4011,'uint',6,4),chunk(0x10,Buffer.concat([encode(name),Buffer.from([0])])),numeric(0x20,'vec3',position,12),numeric(0x2c,'vec3',position,12),numeric(0x22,'quat',[1,0,0,0],16),numeric(0x2d,'vec3',[1,1,1],12),chunk(0x4020,chunk(0x10,Buffer.from('Primary sector\0')))]));
+    actorContainer=actors[0];const type=Buffer.alloc(4);type.writeUInt32LE(5);
+    actorAdded=chunk(0xae21,Buffer.concat([chunk(0xae23,Buffer.concat([encode(name),Buffer.from([0])])),chunk(0xae22,type),chunk(0xae24,createDetector(operation.code,operation.mask))]));
+  }else if(operation.kind==='add-light'){
     const {name,position,rotation}=operation, sectors=sceneSectors(scene.objects,geometryFrames), p=validateNewLight(operation.parameters,sectors);
     if(!Array.isArray(rotation)||rotation.length!==4||rotation.some(n=>typeof n!=='number'||!Number.isFinite(n))||Math.abs(Math.hypot(...rotation)-1)>.0001)throw new Error('Scene: rotace musí být jednotkový quaternion WXYZ.');
     const numeric=(type,kind,value,size)=>chunk(type,encodeField(kind,value,Buffer.alloc(size))), text=(type,value)=>chunk(type,Buffer.concat([encode(value),Buffer.from([0])]));

@@ -160,6 +160,16 @@ LOOP se upravuje vložením/odebráním známého chunku, nikoli přepisem ostat
 
 Helper je mimo root mapy a kopíruje world matrix zdroje, včetně převrácení Z a rodičovských transformací. Při gizmu a změně vlastností se aktualizuje. Skrytí framu/rodiče nebo backdropu skryje i jeho dosah. Běžné výběry a zarámování jej ignorují; pouze výslovné „Zarámovat dosah“ používá jeho geometrii. Přepínač se obnoví s kamerou po uložení. Změna výběru uvolní předchozí geometrie/materialy. Neplatné, chybějící či duplicitní parametry se neinterpretují odhadem. Helper nic nezapisuje do projektu a neřeší směšování, sektorové tlumení ani viditelnost misí v herním enginu.
 
+## Skriptové body a detektory
+
+Primární zdroje: mEdit `Actors/Detector.h` a `CreateActor(ACTOR_DETECTOR)`, mLib `Scene2.cpp` scriptdata a lokální reverse-engineering `structs/detector.md`, `detector_load_data` a `detector_program_process`; syntaxe porovnaná s dodaným MSDR CZ. Aktér 5 má v1 byte, uint32 masku typů postav od offsetu 1 a C_program v1 od offsetu 5. S podporovaným prázdným prvním stringem je uint32 délka zdroje na 10 a kód od 14. U změny masky se přepíší pouze čtyři bajty; úprava zdroje ponechá prefix i tail. Neznámé verze/názvy programu se neinterpretují.
+
+mEdit nazývá masku „Enable spatial detector“, ale engine ji používá jako bitový průnik s human_type: 1 hráč, 4 policie, 16 gangsteři, 128 pasažér taxi. `detector_inrange` vrací počet odpovídajících aktérů v přísně menší vzdálenosti než zadaný poloměr kolem world pozice frame. Maska 0 tak vrací nulový počet, nezakazuje však program. Význam dalších bitů neodhadujeme; raw uint32 se zachová. Staré omezení parseru na hodnoty 0/1 bránilo úpravám programů s kombinovanými maskami, proto je v rámci stejné funkce odstraněné.
+
+`add-detector` vytvoří frame 6 (dummy) se jménem, XYZ, identitou rotace/měřítka a rodičem Primary sector a připojí nový aktér v pořadí AE23, AE22, AE24. Kontroluje unikátní jméno v objektech, aktérech i geometrii, konečnou float32 pozici, masku uint32 a Windows-1250 zdroj do 1 MB. Aktér a bod se publikují společně s jedním undo a kontrolou závislé geometrie. Nepřidává se statická KLZ ani externí model.
+
+Dialog nabízí vlastní program nebo jednorázovou šablonu přiblížení: dim_flt 1, smyčka detector_inrange / if / wait 100 / goto a zadaná akce následovaná end. Šablona rezervuje flt[0] a label 10/20; při konfliktních labelech se vstup odmítne. Celý výsledný zdroj je v dialogu k náhledu. Poloměr se ukládá do programu, není vydáván za samostatné binární pole detektoru. Pro použití/zásah engine dále vytváří using object a dynamické objemy DYNB či bounding volume modelu; samotný dummy je tímto editorem zatím nabízen pro radius/vlastní program, nikoli jako ověřený boxový spouštěč pro střelbu. Nový dialog a akce v runtime čekají na odemčení Macu.
+
 ## Nastavení fyzikálních předmětů
 
 Primární podklady: uložený [mEdit Physical.h](https://github.com/Richard01CZ/mEdit/blob/master/Include/Game/Actors/Physical.h), mLib `Scene2.cpp` SHOOTABLE a referenční export `structs/box_new.md`, `structs/physical_object.md`, `box_new_load_data`, `box_new_game_init` a `physical_object_init_box`. Aktér 35 odpovídá C_box_new (0x23). Všechny místní konfigurace mají verzi 2 a 31 bajtů; starší verze 0/1 zatím nejsou novým editorem interpretované.

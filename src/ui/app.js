@@ -3,6 +3,7 @@ import { groupSceneProperties } from '../shared/scene-properties.js';
 import { humanFields } from '../shared/human-parameters.js';
 import { doorFields } from '../shared/door-parameters.js';
 import { physicalFields } from '../shared/physical-parameters.js';
+import { detectorMasks, proximityDetectorScript } from '../shared/detectors.js';
 import { lightTypes, lightDefaults, sceneSectors } from '../shared/lights.js';
 import { soundTypes, soundDefaults } from '../shared/sounds.js';
 import { soundExtentSettings } from './sound-extent.js';
@@ -443,15 +444,17 @@ function renderProperties(main, file, saveAPI, onEdit = () => {}) {
     selected = entry.id; markSelection();
     form.replaceChildren();
     const label = element('label', `${entry.context} / ${entry.label}`); label.htmlFor = 'scene-value';
-    const input = element(entry.doorParameter || entry.soundParameter || entry.physicalParameter ? 'input' : 'textarea'); input.id = 'scene-value';
+    const input = element(entry.doorParameter || entry.soundParameter || entry.physicalParameter || entry.detectorParameter ? 'input' : 'textarea'); input.id = 'scene-value';
     const draft = state.texts.get(entry.id) ?? entry.value;
     const isString = ['string', 'string8'].includes(entry.kind);
     if(entry.doorParameter){input.type=entry.kind==='boolean'?'checkbox':isString?'text':'number';if(input.type==='number'){input.step='any';input.min='0';if(entry.max!==undefined)input.max=String(entry.max);}if(isString)input.maxLength=15;if(entry.kind==='boolean')input.checked=draft;}
     if(entry.soundParameter){input.type='checkbox';input.checked=draft;}
     if(entry.physicalParameter){input.type=entry.kind==='boolean'?'checkbox':'number';if(entry.kind==='boolean')input.checked=draft;else{input.step=entry.kind==='int'?'1':'any';input.min=String(entry.min);if(entry.max!==undefined)input.max=String(entry.max);}}
+    if(entry.detectorParameter){input.type='number';input.step='1';input.min='0';input.max='4294967295';}
     input.value = draft?.invalid ? draft.raw : entry.kind === 'script' ? draft.code : isString ? draft : JSON.stringify(draft);
     const name = element('input'); name.setAttribute('aria-label', 'Název skriptu'); name.value = entry.kind === 'script' ? draft.name : '';
     name.disabled = Boolean(entry.actorScript);
+    if(entry.detectorParameter)form.append(element('p','Maska vybírá typy postav pro detector_inrange: 1 hráč, 4 policie, 16 gangsteři, 128 pasažér taxi. Bity lze kombinovat; 0 nepočítá žádné postavy. Ostatní bity mají původní číselný význam a zůstávají zachované. Nejde o zapnutí či vypnutí skriptu. Změna se projeví při novém načtení mise.'));
     function value() { return (entry.doorParameter||entry.soundParameter||entry.physicalParameter)&&entry.kind==='boolean' ? input.checked : entry.kind === 'script' ? { name: name.value, code: input.value } : isString ? input.value : JSON.parse(input.value); }
     function track() {
       try { const next = value(); if (JSON.stringify(next) === JSON.stringify(entry.value)) state.texts.delete(entry.id); else state.texts.set(entry.id, next); save.disabled = !state.texts.size; save.textContent = `Uložit změny (${state.texts.size})`; onEdit(entry, next); status('Rozepsaná úprava.'); }
@@ -612,7 +615,7 @@ function renderMap(main, file, previous = null) {
   }
   const add = element('button', 'Vložit model…'), addHuman=element('button','Přidat postavu…'), addCar=element('button','Přidat auto…'), duplicate = element('button', 'Duplikovat…'), remove = element('button', 'Odstranit…'), focus = element('button', 'Zarámovat objekt'), collision=element('button','Kolize modelu…');
   duplicate.disabled = remove.disabled = focus.disabled = collision.disabled = true;
-  const addDoor=element('button','Vytvořit dveře…'),addPhysical=element('button','Vytvořit fyzikální předmět…'),addLight=element('button','Přidat světlo…'),addSound=element('button','Přidat zvuk…');addDoor.disabled=addPhysical.disabled=true;
+  const addDoor=element('button','Vytvořit dveře…'),addPhysical=element('button','Vytvořit fyzikální předmět…'),addLight=element('button','Přidat světlo…'),addSound=element('button','Přidat zvuk…'),addDetector=element('button','Přidat skriptový bod…');addDoor.disabled=addPhysical.disabled=true;
   const view = new Viewport(viewport, frame => {
     const object = frame.sceneObject; selected.textContent = object ? object.name : `${frame.name} · geometrie ve scene.4ds`;
     selectedObject = object;
@@ -706,7 +709,8 @@ function renderMap(main, file, previous = null) {
     addPhysical.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před vytvořením fyzikálního předmětu uložte rozepsané vlastnosti.');if(!selectedObject)throw new Error('Nejdřív vyberte model.');physicalActorDialog(file,selectedObject);});
     addLight.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před vložením světla uložte rozepsané vlastnosti.');lightDialog(file,selectedObject?.position);});
     addSound.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před vložením zvuku uložte rozepsané vlastnosti.');soundDialog(file,selectedObject?.position);});
-    tools.append(add, addHuman, addCar, addDoor, addPhysical, addLight, addSound, duplicate, remove,collision);
+    addDetector.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před vložením skriptového bodu uložte rozepsané vlastnosti.');detectorDialog(file,selectedObject?.position);});
+    tools.append(add, addHuman, addCar, addDoor, addPhysical, addLight, addSound, addDetector, duplicate, remove,collision);
   }
   view.loadTextures(resolveTexture);
   properties = renderProperties(inspector, file, file.cacheSource ? api.saveCache : async (...args) => { await api.saveScene(...args); return api.map(file.path); }, (entry, value) => { const field = byField.get(entry.id); if (field && ['position','rotation','scale'].includes(field.kind)) view.update(field.id, { [field.kind]: value }); updateSoundExtent(); });
@@ -801,6 +805,28 @@ function physicalActorDialog(file,object){
     state.file=await api.changeSceneObject(file.path,{kind:'attach-physical',target,parameters,collisionHash:file.collision?.sha256},file.sha256);state.selectSceneName=target;dialog.close();await refresh();renderDetail();status('Fyzikální předmět vytvořen v modu se zálohou.');
   }catch(error){message.textContent=error.message;throw error;}finally{submit.disabled=cancel.disabled=false;}});};
   dialog.addEventListener('cancel',event=>{if(state.busy)event.preventDefault();});dialog.addEventListener('close',()=>dialog.remove(),{once:true});document.body.append(dialog);dialog.showModal();inputs.get('mass').focus();
+}
+function detectorDialog(file,position=[0,0,0]){
+  const dialog=element('dialog'),form=element('form',undefined,'mission-form'),fields=element('div',undefined,'mission-fields');
+  dialog.append(element('h2','Přidat skriptový bod'),element('p','Bod má vlastní program mise. Přiblížení se počítá od jeho pozice ve 3D prostoru; šablona spustí akci jednou. Hra bod nevykresluje.'),form);
+  const field=(label,input)=>{const row=element('label',label);row.append(input);fields.append(row);return input;};
+  const number=(label,value,min,max)=>{const input=element('input');input.type='number';input.step='any';input.required=true;input.value=String(value);if(min!==undefined)input.min=String(min);if(max!==undefined)input.max=String(max);return field(label,input);};
+  const name=field('Název',element('input'));name.required=true;name.maxLength=63;name.value='WB_TRIGGER';const xyz=['X','Y','Z'].map((label,i)=>number(label,position[i]??0));
+  const mode=field('Program',element('select'));for(const [value,label]of [['proximity','Akce při přiblížení (jednou)'],['custom','Vlastní skript']]){const option=element('option',label);option.value=value;mode.append(option);}
+  const presets=field('Typy postav',element('select'));for(const preset of detectorMasks){const option=element('option',preset.label);option.value=String(preset.value);presets.append(option);}const own=element('option','Vlastní maska');own.value='custom';presets.append(own);presets.value='1';
+  const mask=number('Maska typů postav',1,0,4294967295);mask.step='1';const radius=number('Poloměr přiblížení (herní jednotky)',3,.000001);
+  const code=field('Akce / vlastní skript',element('textarea'));code.rows=10;code.value='// Sem vložte akci po přiblížení.';
+  const preview=element('textarea');preview.readOnly=true;preview.rows=9;preview.setAttribute('aria-label','Výsledný program');const message=element('p','','notice');
+  const update=()=>{radius.disabled=mode.value!=='proximity';try{preview.value=mode.value==='proximity'?proximityDetectorScript(Number(radius.value),code.value):code.value;message.textContent=mode.value==='proximity'?'Šablona rezervuje flt[0] a label 10/20. Maska 1 vybírá hráče, 4 policii, 16 gangstery, 128 pasažéra taxi; bity lze kombinovat. Maska 0 nedetekuje přiblížení.':'Skript se spustí při načtení mise. Poloměr, čekání a akce řídí přímo váš program.';}catch(error){preview.value='';message.textContent=error.message;}};
+  presets.onchange=()=>{if(presets.value!=='custom')mask.value=presets.value;update();};mask.oninput=()=>{presets.value=detectorMasks.some(p=>String(p.value)===mask.value)?mask.value:'custom';update();};mode.onchange=update;radius.oninput=code.oninput=update;
+  const actions=element('div',undefined,'tools'),cancel=element('button','Zrušit'),submit=element('button','Vytvořit skriptový bod','primary');cancel.type='button';cancel.onclick=()=>dialog.close();submit.type='submit';actions.append(cancel,submit);
+  form.append(fields,element('p','Výsledný program'),preview,message,element('p','Bod, aktér i skript se uloží do modu s jedním undo. Statické kolize se nepřidávají. Ovládání nového dialogu a spuštění akce ve hře ještě čekají na ověření.'),actions);
+  form.onsubmit=event=>{event.preventDefault();if(!form.reportValidity()||state.busy)return;run(async()=>{submit.disabled=cancel.disabled=true;try{
+    const value=Number(mask.value);if(mode.value==='proximity'&&value===0)throw new Error('Detektor: zvolte nenulovou masku typů postav.');
+    const program=mode.value==='proximity'?proximityDetectorScript(Number(radius.value),code.value):code.value;
+    state.file=await api.changeSceneObject(file.path,{kind:'add-detector',name:name.value,position:xyz.map(input=>Number(input.value)),mask:value,code:program},file.sha256);state.selectSceneName=name.value;dialog.close();await refresh();renderDetail();status('Skriptový bod vytvořen v modu se zálohou.');
+  }catch(error){message.textContent=error.message;throw error;}finally{submit.disabled=cancel.disabled=false;}});};
+  dialog.addEventListener('cancel',event=>{if(state.busy)event.preventDefault();});dialog.addEventListener('close',()=>dialog.remove(),{once:true});document.body.append(dialog);update();dialog.showModal();name.select();
 }
 function sceneObjectDialog(file, kind, object, cars = null) {
   const adding=['add-model','add-human','add-car'].includes(kind);
