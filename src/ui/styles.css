@@ -156,3 +156,20 @@ body.spatial-open .workspace>aside { position: absolute; inset: 0 auto 0 0; z-in
 .collision-properties legend { font-size: 12px; color: var(--muted); }
 .collision-properties select, .collision-index > select { width: 100%; }
 .collision-properties > label { display: grid; gap: 6px; margin-bottom: 10px; }
+
+.effect-definitions { grid-template-columns: minmax(220px, 1fr) minmax(360px, 2fr); }
+.effect-definition-list { max-height: calc(100vh - 340px); overflow: auto; }
+.effect-definition-list summary { display: flex; align-items: center; cursor: pointer; }
+.effect-definition-list summary::before { content: '▸'; flex: 0 0 16px; }
+.effect-definition-list details[open] > summary::before { content: '▾'; }
+.effect-definition-list summary button { flex: 1; min-width: 0; }
+.effect-definition-children { padding-left: 16px; }
+.effect-definition-field { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 12px; min-width: 0; }
+.effect-definition-field > input[type=checkbox] { align-self: flex-start; width: auto; }
+.effect-vector { grid-column: 1 / -1; }
+.effect-vector .numeric-fields { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.effect-definitions .item-form { max-height: calc(100vh - 340px); overflow: auto; padding-right: 6px; }
+.effect-definition-save { position: sticky; bottom: 0; background: var(--panel); border-top: 1px solid var(--line); padding: 8px 0; }
+.effect-definitions .item-form > details { margin-top: 14px; }
+.effect-definitions .item-form > details > .item-fields { margin-top: 10px; }
+@media (max-width: 900px) { .effect-definitions { grid-template-columns: minmax(180px, 1fr) minmax(260px, 2fr); } }

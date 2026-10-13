@@ -13,7 +13,7 @@ Rozcestník: [MafiaHub/awesome-mafia](https://github.com/MafiaHub/awesome-mafia/
 | check.bin | Navigační body a propojení pro pěší/vozidla; MafiaFormats, mafia-formats | CheckBIN Editor, CheckRE |
 | road.bin | Síť navigace aut; MafiaFormats, mafia-formats | Road.bin Creator, Road.bin Editor, RoadRE |
 | tree.klz | Kolize; MafiaFormats, mafia-formats, mLib | Dostupné informace je nutné porovnat s reálnými soubory |
-| effects.bin / effects.tbl | Umístění částic / definice typů; RoadTrain/mafia-formats a st0rm94/mafia-reverse-engineering-export | Effects.bin Editor; vlastní editor umístění s 3D značkami, exportem a undo |
+| effects.bin / effects.tbl | Umístění částic / definice typů; RoadTrain/mafia-formats a st0rm94/mafia-reverse-engineering-export | Vlastní editor umístění s 3D značkami a formulář typů/emitorů/fází; export a undo |
 | TextDB .def | Texty a titulky; MafiaFormats, mafia-formats | MTE, SSDM, CSVtoDEF |
 | Ostatní .def/.dat | Tabulky aut, zbraní, předmětů a menu; MafiaFormats, mEdit, mLib | M Editor, RHAM, Predmety.def Editor, Mafia Menu Editor |
 | BMP | Textury; materiály 4DS mohou odkazovat na diffuse, alpha a environment mapy | Texture Resizer, 4ds Texture Manager |
@@ -29,9 +29,29 @@ Rozcestník: [MafiaHub/awesome-mafia](https://github.com/MafiaHub/awesome-mafia/
 
 V místních datech je volitelný název framu v prvním podbloku 1001, ukončený nulou v Windows-1250. Neznámý podblok zůstává neprůhledný a nemá editovatelné pole vazby. U rozpoznané vazby se při přejmenování zachovají koncové bajty a další podbloky; odstranění vazby s neznámým doplňkem se odmítne. Vnější koncová data a cizí hlavní bloky zůstávají zachované, avšak čtečka hry cizí hlavní blok neakceptuje, proto panel výslovně hlásí neověřenou podporu takového souboru.
 
-`effects.tbl` obsahuje po sobě jdoucí kořenové bloky 100; pořadí určuje ID typu. Editor čte jen metadata: 101 počítá emitory, 103 je název, 104 model, 110 dva bajty. Podle volání `particle_effect_init` je první bajt rotace směru a druhý rotace pozice. Definice emitorů a fází se nepřepisují. V auditovaném projektu má všech 93 typů dostupný podporovaný model. Nové vazby se omezují na jednoznačné názvy z `scene.4ds` a `scene2.bin`; vnitřní děti externích modelů se do katalogu vazeb zatím nedoplňují. Stávající nevyřešenou vazbu lze zachovat při posunu efektu.
+`effects.tbl` obsahuje po sobě jdoucí kořenové bloky 100; pořadí určuje ID typu. Katalog umístění čte metadata: 101 počítá emitory, 103 je název, 104 model, 110 dva bajty. Podle volání `particle_effect_init` je první bajt rotace směru a druhý rotace pozice. V auditovaném projektu má všech 93 typů dostupný podporovaný model. Nové vazby se omezují na jednoznačné názvy z `scene.4ds` a `scene2.bin`; vnitřní děti externích modelů se do katalogu vazeb zatím nedoplňují. Stávající nevyřešenou vazbu lze zachovat při posunu efektu.
 
 Samostatný panel nabízí umístění, nikoli simulaci částic. Zobrazení navázaného efektu používá jeho uložené lokální souřadnice a vypne pozadí, aby je nevydávalo za světové. Náhled pozadí neobsahuje cache ani externí modely. Částice vykreslí herní runtime; účinek nových umístění a ovládání panelu ještě čekají na ověření.
+
+### Definice emitorů a fází v effects.tbl
+
+Samostatný formulář tabulky má strom typ → emitor (101) → fáze (102), hledání, společné drafty a uložení se zálohou/exportem/undo. Názvy jsou Windows-1250 a mohou změnit délku; přepočítají se jen délky příslušných rodičů. Model typu (104) a část modelu emitoru (105) zůstávají pouze ke čtení. Nevkládají se ani nemažou typy/emitory/fáze; zejména posun indexů typů by změnil vazby existujících misí a skriptů. Simulace částic v editoru ještě není implementovaná.
+
+Vlastní parser/writer vychází z uloženého [`particle.md`, §5a](https://github.com/st0rm94/mafia-reverse-engineering-export/blob/main/structs/particle.md) a spotřebitelů v anotovaném PC exportu: `particle_manager_load_data` (0x005a3da0), `particle_data_type_load_data` (0x005a6490), `particle_create` (0x005a1da0), `particle_begin_phase` (0x005a22d0), `particle_type_init` (0x005a6f60). Čísla níže jsou offsety **definic**, nikoli runtime struktur.
+
+| Úroveň / blok | Zapisovaná data |
+|---|---|
+| Typ / 106 | Dva původní vec3 na +0x1c/+0x28; uživatelský význam není plně ověřený |
+| Typ / 110 | Dva samostatné booleany; nekanonické bajty >1 jsou pouze ke čtení |
+| Emitor / 106 (80 bajtů) | Pozice/rozptyl, počáteční rychlost/rozptyl, základní alpha/rozptyl, doba/interval emitoru, původní číselné parametry, uint32 režim a příznaky |
+| Emitor / 107, 108 | Počáteční směr/rozptyl (+0x38/+0x44), měřítko XYZ/rozptyl (+0x58/+0x64) |
+| Emitor / 109 | Počet částic při startu (+0x7c) jako int32; `particle_effect_tick` jej používá přímo jako počet, nikoli float32 |
+| Fáze / 106 (72 bajtů) | Směr/rozptyl, rychlosti rotace, int32 délka/rozptyl v ms (+0x30/+0x34), cílová alpha/rozptyl, rotace/rozptyl a uint32 příznaky |
+| Fáze / 107, 108 | Gravitace (+0x64), cílové měřítko XYZ/rozptyl (+0x38/+0x44) |
+
+Čtení respektuje pořadí zápisů do definice: 106 nastavuje i první složku měřítka/rozptylu, zatímco 108 nastavuje všechny tři. Úprava zapisuje poslední účinnou hodnotu každé složky, i když pocházejí z různých bloků. Překryté bajty se nemění. Čtečka hry zachází s cizím ID jako s obecným blokem 106; parser proto účinné parametry takového bloku označí pouze ke čtení. Krátký/neplatný layout přejde do binárního náhledu. Neznámé suffixy, nezpřístupněné parametry (např. emitor +0x8c), NaN payloady a signed zero se zachovají přesně. Modelové vazby a chybějící serializované výchozí hodnoty se nedoplňují odhadem. Změny délky fáze vyžadují kladnou délku a rozptyl menší než délka.
+
+Audit skutečné tabulky: 93 typů, 169 emitorů, 261 fází, 7 328 rozpoznaných polí. Zápis všech hodnot beze změny je byte-for-byte shodný; 523 jednotlivých úprav a jejich návrat zachovaly ostatní bajty. V odděleném okně prošla úprava blood: počet částic 2 → 3 a fáze 250 → 350 ms v jednom uložení, drafty při přepnutí emitor/fáze, odmítnutí nulové délky, přesný export a UI undo celé tabulky/historie. Uživatelovy projekty a herní EXE zůstaly shodné. Účinek nových parametrů na částice přímo ve hře a další varianty definic ještě vyžadují ověření.
 
 ## Náhled rotací a animací
 

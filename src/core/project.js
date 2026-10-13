@@ -24,6 +24,7 @@ import { collisionOwnership, ownedCollisionRecords, prepareSceneCollision, colli
 import { parseVehicleTable, vehicleModelDefinition, validateVehicleModel } from './vehicles.js';
 import { inspectVehicleTable, editVehicleTable } from './vehicle-table.js';
 import { parseEffects, editEffects, changeEffects, parseEffectTypes } from './effects.js';
+import { parseEffectDefinitions, editEffectDefinitions } from './effect-types.js';
 import { parseBmp, editBmp } from './bmp.js';
 import { inspectModelGeometry, editModelGeometry } from './model-geometry.js';
 import { inspectProjectCollision, saveProjectCollision } from './collision-project.js';
@@ -386,6 +387,10 @@ export class ModProject {
     if (/textdb_[a-z]{2}\.def$/i.test(name)) return { type: 'textdb', ...parseTextDb(bytes, name), path: asset.path, size: bytes.length, sha256: hash(bytes) };
     if (/scene2\.bin$/i.test(name)) return { type: 'scene', ...inspectScene(bytes), path: asset.path, size: bytes.length, sha256: hash(bytes) };
     let warning;
+    if (/^tables\/effects\.tbl$/i.test(name)) {
+      try { return { type:'effect-types', ...common, ...parseEffectDefinitions(bytes) }; }
+      catch (error) { warning = error.message; }
+    }
     if (/^missions\/[^/]+\/tree\.klz$/i.test(name)) {
       try { return await inspectProjectCollision(this,name); }
       catch (error) { warning = error.message; }
@@ -510,6 +515,13 @@ export class ModProject {
     await this.changeBatch([...files.values()],'Úprava částicových efektů mise');
   }
   async saveEffects(name,changes,expectedHash,dependencies) { await this.writeEffects(name,before=>editEffects(before,changes),expectedHash,dependencies); }
+  async saveEffectDefinitions(name,changes,expectedHash) {
+    if(!/^tables\/effects\.tbl$/i.test(name))throw new Error('Soubor není tabulka efektů.');
+    await this.change(name,before=>{
+      if(hash(before)!==expectedHash)throw new Error('Soubor se od otevření změnil. Otevřete jej znovu.');
+      return editEffectDefinitions(before,changes);
+    },'Úprava definic částicových efektů');
+  }
   async changeEffects(name,request,expectedHash,dependencies) { await this.writeEffects(name,before=>changeEffects(before,request),expectedHash,dependencies,request?.action!=='delete'); }
   async saveItems(name, changes, expectedHash) {
     if (!/^tables\/predmety\.def$/i.test(name)) throw new Error('Soubor není tabulka předmětů.');

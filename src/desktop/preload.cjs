@@ -31,6 +31,7 @@ contextBridge.exposeInMainWorld('workbench', {
   saveBitmap: (name, changes, expectedHash) => invoke('asset:bitmap', name, changes, expectedHash),
   saveCollision: (name,operations,expectedHash,dependencies,options) => invoke('asset:collision',name,operations,expectedHash,dependencies,options),
   saveEffects: (name, changes, expectedHash, dependencies) => invoke('asset:effects', name, changes, expectedHash, dependencies),
+  saveEffectDefinitions: (name, changes, expectedHash) => invoke('asset:effect-definitions', name, changes, expectedHash),
   changeEffects: (name, request, expectedHash, dependencies) => invoke('asset:effects-change', name, request, expectedHash, dependencies),
   saveAnimation: (name, changes, expectedHash) => invoke('asset:animation', name, changes, expectedHash),
   saveAnimationTimeline: (name, request, expectedHash) => invoke('asset:animation-timeline', name, request, expectedHash),

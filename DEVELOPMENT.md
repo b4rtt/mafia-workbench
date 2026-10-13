@@ -34,7 +34,7 @@ Aktualizace: 13. října 2026. Vývoj pokračuje; komplexní editor není dokon�
 - BMP: kreslení, kapátko, paleta a alpha implementované a datově ověřené; nové ovládání i textura ve hře ještě vyžadují test.
 - Mise: rozbalení, kategorie, slučování cest bez rozlišení velikosti písmen a nová prázdná mise implementované. Přímý start přes izolovanou kopii bez videí/menu a inkrementální synchronizace implementované. Ověřovat další starty po úpravách a jednotlivé nové aktéry ve hře.
 - Navigace a silnice: pohyb bodů a strukturální editace mezilehlých silničních bodů implementované; doplnit nové křižovatky a odbočky, dokončit herní ověření změn.
-- Efekty: umístění, vazby a změna typu implementované; dokončit UI/runtime test a postupně doplnit definice emitorů a simulaci částic.
+- Efekty: umístění, vazby a změna typu implementované; samostatný editor parametrů typů/emitorů/fází effects.tbl s uložením/exportem/undo a UI auditem doplněný. Dále strukturální tvorba emitorů/fází s ochranou indexů, modelové vazby, simulace částic a runtime ověření účinku parametrů. Prostorový panel umístění stále vyžaduje přímý UI/runtime test.
 - Zvuk/světla: tvorba, parametry a náhled dosahů implementované; dokončit herní poslech a účinek nových typů. Náhled vybraného světla je orientační; celé osvětlení mise, sektory a akustika se nesimulují.
 - Tabulky: zbraně/předměty a fyzika aut implementované. Formulář aut a přímá navigace z vybraného aktéra do jeho definice s návratem kamery/výběru ověřené v UI; účinek parametrů na jízdu ještě změřit. Nový formulář zbraní/předmětů a další runtime účinky dokončit. Další tabulky doplňovat podle dokumentace.
 - Skripty: globální, detektorové a podporované lidské programy editovatelné; vlastní skriptové body a šablona blízkosti implementované. Dokončit herní test akce. Scripting reference MSDR uložená soukromě, index v research/documentation.json a poznatky v research/scripting.md.
@@ -61,3 +61,10 @@ WB_DOOR v jeho testovacím projektu již neupravovat ani nepřipojovat aktéra: 
 - UI ověření arrow: obě fyzikální úrovně, drafty 150/330 přes přepínání, společný zápis, byte-local změny, reopen a přesný export. Návrat zrušený přes Zůstat zachoval draft. Dvě UI undo obnovily původní tabulku, celou scénu, KLZ a historii. Uživatelovy projekty a EXE shodné.
 - Arrow00 vložené přes UI se zobrazilo v detailu mapy a hra spustila misi s hráčem za volantem. Ruční jízdu a měřitelný vliv změn fyziky nelze z tohoto startu odvozovat; tyto testy zůstávají otevřené. Vlastní herní test ukončený. Soukromý protokol vehicle-ui-result.json.
 - Kontroly: 271 testů, syntax check a build prošly. Komplexní goal zůstává aktivní.
+
+## Definice částicových efektů
+
+- Implementováno: effects.tbl se otevírá jako strom typ/emitor/fáze se společnými drafty. Číselné formuláře a XYZ, původní parametry zvlášť, readonly model/vazba, neznámá či nekonečná data pouze ke čtení. Hledání a výběr přežijí uložení/undo; formulář se posouvá samostatně s dostupným uložením.
+- Writer pracuje podle pořadí chunků a upravuje jen účinné složky. Zachovává překryté hodnoty, suffixy, neznámé parametry a signed zero; změna délky názvu opraví příslušné rodiče. Délka fáze/rozptyl a počet částic jsou int32; příznaky uint32. Katalog umístění stále používá samostatnou kompatibilní čtečku metadat.
+- Audit skutečné tabulky: 93 typů, 169 emitorů, 261 fází, 7 328 polí, přesný no-op a 523 úprav s byte-local zápisem a návratem. Ve vlastním UI prošly společné změny burst 2 → 3 / fáze 250 → 350, uchování draftu, odmítnutí nulové délky, přesný export a undo celé tabulky/historie. Původní projekty a EXE shodné; testovací změny vrácené.
+- Kontroly: 277 testů, syntax check a build prošly. Modelové vazby, přidávání/mazání definic, simulace v editoru a ověření nových parametrů ve hře zůstávají otevřené. Podrobnosti a zdroje v research/formats.md. Komplexní goal pokračuje.

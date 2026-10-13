@@ -16,6 +16,7 @@ import { actionMenu, initializeWorkspace, spatialWorkspace } from './workspace.j
 import { renderBitmap } from './bitmap.js';
 import { geometryDialog } from './model-geometry.js';
 import { EffectsViewport } from './effects.js';
+import { renderEffectDefinitions } from './effect-types.js';
 import { AnimationPreview } from './animation.js';
 import { renderAnimationTimeline } from './animation-timeline.js';
 import { toLs3dRotation } from './transforms.js';
@@ -184,6 +185,7 @@ function renderDetail() {
   badges.replay = 'REP · ČASOVÁ OSA';
   badges.vehicles = 'AUTA · FYZIKA A PŘEVODY';
   badges.effects = 'EFEKTY · UMÍSTĚNÍ ČÁSTIC';
+  badges['effect-types'] = 'EFEKTY · EMITORY A FÁZE';
   badges.collision = 'KLZ · 3D KOLIZE';
   if(file.bitmap)badges.image='BMP · EDITACE TEXTURY';
   const head = element('div', undefined, 'file-header'); head.append(element('h2', file.path), element('span', badges[file.type] ?? 'BINÁRNÍ SOUBOR', 'badge')); main.append(head);
@@ -213,6 +215,7 @@ function renderDetail() {
   else if (file.type === 'items') renderItems(main, file);
   else if (file.type === 'vehicles') renderVehicles(main, file);
   else if (file.type === 'effects') renderEffects(main, file, effectsView);
+  else if (file.type === 'effect-types') renderEffectDefinitions(main,file,{element,state,api,run,refresh,renderDetail,status});
   else if (file.type === 'collision') renderCollisions(main,file,collisionView,{element,state,api,run,refresh,renderDetail,status});
   else if (file.type === 'navigation') renderNavigation(main, file, navigationView);
   else if (file.type === 'roads') renderRoads(main, file, roadView);
