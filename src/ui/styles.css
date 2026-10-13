@@ -127,3 +127,20 @@ body.spatial-open .workspace>aside { position: absolute; inset: 0 auto 0 0; z-in
 .animation-editor .inspector-content>label { display: flex; flex-direction: column; gap: 4px; margin: 9px 0; font-size: 12px; }
 .animation-editor .inspector-content>label>input,.animation-editor .inspector-content>label>select { width: 100%; }
 .spatial-detail p.notice:empty { display: none; }
+
+/* One selected object, one inspector form, one save action. */
+.object-row { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; border: 0; background: transparent; padding: 8px 6px; }
+.object-row>span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.object-row>small { color: var(--muted); font-variant-numeric: tabular-nums; }
+.object-row.selected { background: var(--selected); color: var(--accent); }
+.spatial-detail .text-form>h3 { margin: 0 0 12px; font-size: 14px; overflow-wrap: anywhere; }
+.object-section { margin: 0 0 12px; padding: 10px; min-width: 0; border: 1px solid var(--line); border-radius: 6px; }
+.object-section>legend { color: var(--muted); font-size: 11px; padding: 0 5px; }
+.object-property { margin-bottom: 12px; min-width: 0; }
+.object-property:last-child { margin-bottom: 0; }
+.object-property>label { display: block; margin-bottom: 5px; font-size: 12px; overflow-wrap: anywhere; }
+.object-property>input,.object-property>textarea { width: 100%; }
+.object-property>input[type=checkbox] { width: auto; }
+.object-property>textarea { min-height: 160px; font-family: ui-monospace, monospace; }
+.property-help { margin: 6px 0 12px; font-size: 11px; }
+.property-help>summary { cursor: pointer; color: var(--muted); }

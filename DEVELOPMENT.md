@@ -1,19 +1,21 @@
 # Vývoj Mafia Workbench
 
-Aktualizace: 13. října 2026. Goal zůstává aktivní. Implementace, datové testy, ověření UI a ověření ve hře jsou různé úrovně dokončení; neoznačovat jednu za druhou. Podrobnosti existujících funkcí a jejich omezení jsou v README.md a research/formats.md. Původní hra se nemění, úpravy mají kontrolu verze, zálohu, export a undo. Herní data a soukromé reference nepatří do veřejného repozitáře.
+Aktualizace: 13. října 2026. Vývoj pokračuje; komplexní editor není dokončený. Implementace, datové testy, ověření UI a ověření ve hře jsou různé úrovně dokončení; neoznačovat jednu za druhou. Podrobnosti existujících funkcí a jejich omezení jsou v README.md a research/formats.md. Původní hra se nemění, úpravy mají kontrolu verze, zálohu, export a undo. Herní data a soukromé reference nepatří do veřejného repozitáře.
 
 ## Současná priorita: ovládání editoru
 
 - Implementováno: společné rozložení prostorových editorů s velkým 3D pohledem, přehledem objektů vlevo a inspektorem vpravo; nastavitelné šířky, skrytí panelů a režim Jen 3D.
 - Implementováno: seskupit tvorbu objektů, operace výběru a zobrazení do nabídek; vysvětlení přesunout do nápovědy; přehrávání pod pohled.
 - Implementováno: samostatné číselné vstupy XYZ/WXYZ/RGB, skupiny modelových objektů a zaměření objektu ze seznamu. Zachovat existující funkce, kameru a rozepsané změny.
-- Dále: zjednodušit celý inspektor na formulář vybraného objektu, zlepšit navigaci mezi soubory mise a souvisejícími editory, ověřit malé rozměry okna a práci klávesnicí. Před dokončením projít běžné pracovní postupy přímo v aplikaci.
+- Implementováno: ve 3D mapě, modelech a efektech je vlevo jeden řádek na objekt a vpravo společný formulář jeho vlastností, transformací a navázaného aktéra. Jedno uložení zahrne všechny drafty. Rozpracované neplatné číselné složky se při přepnutí výběru zachovají.
+- Dále: zlepšit navigaci mezi soubory mise a souvisejícími editory, ověřit malé rozměry okna a práci klávesnicí. Před dokončením projít běžné pracovní postupy přímo v aplikaci.
 
 ## Uzavřené změny této etapy
 
 - Cutscéna record14c / MISE14-PARNIK / dif14c: příkaz door_lock v přípravném bloku již nezahodí doslovné změny viditelnosti. Audit náhledu navázal 33/33 stop, převzal 30 počátečních změn a ověřil skryté původní postavy při seeku tam i zpět. Vizuální kontrola načtené cutscény kolem 5 sekund ukázala animované postavy bez původních kopií v T-póze; všechny záběry ani herní runtime tím nejsou ověřené.
 - Časová osa 5DS: vložení, kopie, odstranění a přesun klíčů, délka animace a tvorba/odebrání kanálů; náhled, atomické uložení a přesné undo. Audit 2 715 podporovaných animací a 6 006 případů změn klíčů/kanálů. V okně ověřené načtení 01ChuzeLajd na !TommyHIGH, přehrávání/pauza, kopie klíče a zahození draftu. Uložení přes UI a upravená animace ve hře ještě vyžadují kontrolu.
 - Nové rozložení v aplikaci: ověřená mapa, zaměření objektu, zachování hledání, změna XYZ a návrat draftu bez uložení, nabídka Přidat, režim Jen 3D a návrat panelů, model, animace a načtená cutscéna. Změna šířky inspektoru klávesnicí 300 → 280 ověřená. Malá okna a všechny specializované panely ještě vyžadují průchod.
+- Objektový inspektor: zobrazení celé postavy TommyHAT v TUTORIAL, transformací a nastavení aktéra ověřené v okně. Přepínání draftů a společné uložení novým formulářem ještě potřebují ověřit na odděleném projektu. Seznam vlastností TCK/REP/navigace/silnic se při obnově formuláře přesouvá do levého panelu; přepínání klíčů/bodů v novém rozložení ještě vyžaduje přímý test.
 - Celá sada po těchto změnách: 235 testů, syntaktické kontroly a sestavení prošly.
 
 ## Další funkce a ověřování
@@ -28,7 +30,7 @@ Aktualizace: 13. října 2026. Goal zůstává aktivní. Implementace, datové t
 - Zvuk/světla: tvorba, parametry a náhled dosahů implementované; dokončit herní poslech a účinek nových typů. 3D studio zatím nesimuluje osvětlení mise ani akustiku.
 - Tabulky: zbraně/předměty a fyzika aut implementované; ověřit jejich nové formuláře i účinky v runtime. Další tabulky doplňovat podle dokumentace.
 - Skripty: globální, detektorové a podporované lidské programy editovatelné; vlastní skriptové body a šablona blízkosti implementované. Dokončit herní test akce. Scripting reference MSDR uložená soukromě, index v research/documentation.json a poznatky v research/scripting.md.
-- Cutscény: REP/CHG, modely, kosterní animace, dialogy a zvuky implementované. Dále pohybové TCK, morfování, křivky enginu, prostorový zvuk a hudba řízená skripty. Viditelnost vycházet z doložených příkazů; neskrývat postavy podle podobnosti modelů. Ověřené dřívější opravy: recordi02, record02b a record20d; další cutscény kontrolovat samostatně.
+- Cutscény: REP/CHG, modely, kosterní animace, dialogy a zvuky implementované. Samostatný TCK náhled zatím zobrazuje jen dráhu a bod; doplnit volbu postavy a doložené propojení s animací. Dále pohybové TCK, morfování, křivky enginu, prostorový zvuk a hudba řízená skripty. Viditelnost vycházet z doložených příkazů; neskrývat postavy podle podobnosti modelů. Ověřené dřívější opravy: recordi02, record02b a record20d; další cutscény kontrolovat samostatně.
 - Renderování: převod rotací/UV, normály, skinning, alpha masky, barevný klíč a skryté pomocné plochy implementované. Nové případy chyb kontrolovat proti skutečným datům a referencím; test jedné scény nepokrývá celou hru.
 - Uchovávat všech 16 zdrojových repozitářů a jejich formátové poznatky: research/repositories.json, research/formats.md a research/provenance.md. Průběžně commitovat a pushovat smysluplné změny.
 

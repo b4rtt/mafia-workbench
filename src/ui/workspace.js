@@ -56,6 +56,10 @@ export function spatialWorkspace(main,file,view) {
     // The object picker remains available even for uneditable geometry.
     const picker=center.querySelector(':scope>select');if(picker){const label=make('label','Vybrat ve 3D');label.append(picker);outline.insertBefore(label,index);}
     layout.classList.add('has-outline');
+    // Timeline editors rebuild their property index when switching a key/channel.
+    // Keep the outline attached to the current form rather than the old key's callbacks.
+    const observer=new MutationObserver(()=>{const replacement=pane.querySelector('.text-index');if(replacement){outline.querySelector('.text-index')?.remove();outline.append(replacement);}});
+    observer.observe(pane,{childList:true,subtree:true});resizeObservers.push(observer);
     outline.addEventListener('click',()=>tab(false));
   }
   layout.insertBefore(resizePanel(layout,inspector,'right','inspector'),inspector);
