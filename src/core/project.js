@@ -361,7 +361,8 @@ export class ModProject {
       request={...operation,mask:1,code:missionDialogueScript({...dialogue,lines})};
     }
     if(operation?.kind==='add-detector' && operation.task){
-      const task=operation.task,code=missionTaskScript(task),textPath=relativeAssetPath(task.textDb);
+      const task=operation.task,textPath=relativeAssetPath(task.textDb);
+      missionTaskScript(task);
       if(!/^tables\/textdb_[a-z]{2}\.def$/i.test(textPath))throw new Error('Úkol: vyberte jazykový TextDB.');
       const asset=this.asset(textPath),bytes=await this.read(asset.path);
       if(hash(bytes)!==task.textHash)throw new Error('Úkol: texty se od otevření změnily. Otevřete dialog znovu.');
@@ -370,8 +371,13 @@ export class ModProject {
       if(task.checkpointId!=null && !texts.slice(0,-1).some(entry=>entry.id===task.checkpointId && entry.text.trim()))throw new Error('Úkol: checkpoint potřebuje existující neprázdný název v jazykové tabulce. Vytvořte text s ID 5000–5599.');
       const targets=[...inspectScene(before).objects,...geometry.meshes].filter(object=>key(object.name)===key(task.targetName));
       if(targets.length!==1 || key(task.targetName)===key('Tommy'))throw new Error('Úkol: vyberte jednoznačný cílový objekt odlišný od hráče.');
+      let failure=task.failure??null;
+      if(failure){
+        if(!texts.slice(0,-1).some(entry=>entry.id===failure.textId&&entry.text.trim()))throw new Error('Úkol: neúspěch potřebuje existující neprázdný text.');
+        if(failure.humanName!=null){const human=dialogueSpeakers({...inspectScene(before),geometry}).find(actor=>key(actor.name)===key(failure.humanName));if(!human)throw new Error('Úkol: hlídaná postava musí být jednoznačný lidský aktér této mise.');failure={...failure,humanName:human.name};}
+      }
       dependencies.push({path:asset.path,data:bytes,expectedHash:task.textHash});
-      request={...operation,mask:1,code};
+      request={...operation,mask:1,code:missionTaskScript({...task,failure})};
     }
     if(operation?.kind==='add-sound'){
       const soundPath=relativeAssetPath(operation.sound);
