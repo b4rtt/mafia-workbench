@@ -26,3 +26,6 @@
 .geometry-fields fieldset { border: 1px solid var(--line); border-radius: 5px; }
 .geometry-fields input { width: 100%; margin-bottom: 6px; }
 .geometry-fields input[aria-invalid=true] { border-color: #d74838; }
+.geometry-topology { border-top: 1px solid var(--line); margin-top: 10px; padding-top: 10px; }
+.geometry-topology input { width: 82px; }
+.geometry-topology input[aria-invalid=true] { border-color: #d74838; }

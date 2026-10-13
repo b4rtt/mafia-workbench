@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {inspectModelGeometry,editModelGeometry} from '../src/core/model-geometry.js';
 import {parseFourDs} from '../src/core/fourds.js';
-import {geometryNormals,geometryPreview} from '../src/shared/geometry-draft.js';
+import {geometryNormals,geometryPreview,geometryTopology,topologyPreview,removeTopologyVertex,validateTopology} from '../src/shared/geometry-draft.js';
 import {ModProject} from '../src/core/project.js';
 import {hash,writeSafe} from '../src/core/files.js';
 const u16=n=>{const b=Buffer.alloc(2);b.writeUInt16LE(n);return b;};
@@ -49,4 +49,53 @@ test('geometry saves several LODs atomically, checks hashes, exports, reopens an
  const root=await fs.mkdtemp(path.join(os.tmpdir(),'mafia-geometry-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));const source=fixture(),asset={path:'models/test.4ds',original:'originals/a1/models/test.4ds',archive:'a1.dta',sha256:hash(source),size:source.length,variants:[{}]};await writeSafe(root,asset.original,source);await writeSafe(root,'workbench.json',JSON.stringify({format:'mafia-workbench',version:1,name:'Geometry',assets:[asset],history:[]}));
  let p=await ModProject.open(root);const context=await p.modelGeometry(asset.path,2),req=request([{lod:0,vertices:[{index:0,uv:[.1,.2]}],recomputeNormals:false},{lod:1,vertices:[{index:2,position:[0,2,0]}],recomputeNormals:true}],2);await assert.rejects(p.saveGeometry(asset.path,req,'0'.repeat(64)),/změnil/);await p.saveGeometry(asset.path,req,context.sha256);assert.equal(p.manifest.history.length,1);assert.deepEqual(await p.read(asset.path),editModelGeometry(source,req));await assert.rejects(p.saveGeometry(asset.path,req,context.sha256),/změnil/);
  p=await ModProject.open(root);await p.export(path.join(root,'export'));assert.deepEqual(await fs.readFile(path.join(root,'export',asset.path)),await p.read(asset.path));await p.undo();assert.deepEqual(await p.read(asset.path),source);assert.deepEqual(await fs.readFile(path.join(root,asset.original)),source);
+});
+
+const topologyLevel=(lod,topology,vertices=[])=>({lod,topology,vertices,recomputeNormals:false});
+test('topology identity copies raw vertex rows, face order, distances and opaque tails byte for byte',()=>{
+ const source=fixture(),lods=inspectModelGeometry(source,1).mesh.lods;source.writeUInt32LE(0x7fc12345,lods[0].vertexOffset+12);source.writeFloatLE(Infinity,lods[0].vertexOffset+24);
+ const context=inspectModelGeometry(source,2),levels=context.mesh.lods.map((lod,i)=>topologyLevel(i,geometryTopology(lod)));
+ assert.deepEqual(editModelGeometry(source,request(levels,2)),source);
+ const topology=geometryTopology(context.mesh.lods[0]);topology.vertices.push({source:0});topology.faces[0].indices=[3,1,2];
+ const result=editModelGeometry(source,request([topologyLevel(0,topology)])),parsed=parseFourDs(result,'all'),lod=parsed.meshes[0].lods[0];
+ assert.deepEqual(result.subarray(lod.vertexOffset+3*32,lod.vertexOffset+4*32),source.subarray(context.mesh.lods[0].vertexOffset,context.mesh.lods[0].vertexOffset+32));
+ assert.deepEqual(lod.faces[0].indices,[3,1,2]);assert.equal(parsed.meshes[1].instance,1);assert.equal(parsed.meshes[0].lods[1].distance,40);assert.equal(result.at(-1),0x73);
+ assert.deepEqual(topologyPreview(context.mesh.lods[0],topology).normals,lod.normals);
+});
+test('several resized LODs write post-topology indices independent of request order and can restore exact originals',()=>{
+ const source=fixture(),context=inspectModelGeometry(source,1),levels=context.mesh.lods.map((lod,i)=>{const topology=geometryTopology(lod);topology.vertices.push({position:[2,i,0],normal:[0,0,1],uv:[.2,.3]});topology.faces.push({material:0,indices:[1,3,2]});return topologyLevel(i,topology,[{index:3,uv:[.75,.5]}]);});
+ const result=editModelGeometry(source,request(levels)),reversed=editModelGeometry(source,request([...levels].reverse()));assert.deepEqual(result,reversed);
+ const actual=parseFourDs(result,'all');for(const mesh of actual.meshes.slice(0,1))for(const lod of mesh.lods){assert.equal(lod.vertices,4);assert.equal(lod.faces.length,2);assert.deepEqual(lod.uv.slice(6,8),[.75,.5]);}
+ const restores=actual.meshes[0].lods.map((lod,i)=>{const topology=geometryTopology(lod);topology.vertices.pop();topology.faces.pop();return topologyLevel(i,topology);});assert.deepEqual(editModelGeometry(result,request(restores)),source);
+});
+test('removing a vertex drops incident triangles, preserves group order and remaps surviving edits and face references',()=>{
+ const topology={vertices:[{source:0},{source:1},{source:2},{source:3},{source:4}],faces:[{material:2,indices:[0,1,2,0,2,4]},{material:1,indices:[1,3,4]},{material:2,indices:[]}]},before=structuredClone(topology),changes=[{index:1,uv:[1,2]},{index:4,position:[4,5,6]}],result=removeTopologyVertex(topology,1,changes);
+ assert.deepEqual(topology,before);assert.deepEqual(result.topology.faces,[{material:2,indices:[0,1,3]},{material:1,indices:[]},{material:2,indices:[]}]);assert.deepEqual(result.topology.vertices,[{source:0},{source:2},{source:3},{source:4}]);assert.deepEqual(result.changes,[{index:3,position:[4,5,6]}]);assert.throws(()=>removeTopologyVertex(topology,5));
+ const source=fixture(),lod=inspectModelGeometry(source,1).mesh.lods[0],removed=removeTopologyVertex(geometryTopology(lod),1);const actual=parseFourDs(editModelGeometry(source,request([topologyLevel(0,removed.topology)])),'all').meshes[0].lods[0];assert.equal(actual.vertices,2);assert.deepEqual(actual.faces,[{material:0,indices:[]}]);assert.deepEqual(actual.positions,[0,0,-0,0,1,0]);
+});
+test('removing an invalid-normal vertex restores the same remaining native normals in preview and serialization',()=>{
+ const source=fixture(),start=inspectModelGeometry(source,1).mesh.lods[0].vertexOffset;source.writeFloatLE(NaN,start+12);const lod=inspectModelGeometry(source,1).mesh.lods[0],removed=removeTopologyVertex(geometryTopology(lod),0).topology;
+ const preview=topologyPreview(lod,removed),actual=parseFourDs(editModelGeometry(source,request([topologyLevel(0,removed)])),'all').meshes[0].lods[0];assert.equal(preview.invalidNormals,false);assert.deepEqual(preview.normals,[0,0,1,0,0,1]);assert.deepEqual(preview.normals,actual.normals);
+});
+test('attribute edits on resized raw geometry preview the serialized fallback without writing fallback zeros to untouched rows',()=>{
+ const source=fixture(),start=inspectModelGeometry(source,1).mesh.lods[0].vertexOffset;source.writeFloatLE(NaN,start+12);source.writeFloatLE(Infinity,start+24);const lod=inspectModelGeometry(source,1).mesh.lods[0],topology=geometryTopology(lod);topology.vertices.push({source:0});
+ const changes=[{index:3,normal:[1,0,0],uv:[0,0]}],result=editModelGeometry(new Uint8Array(source),request([topologyLevel(0,topology,changes)])),actual=parseFourDs(result,'all').meshes[0].lods[0],preview=geometryPreview(topologyPreview(lod,topology),changes);assert.deepEqual(preview.normals,actual.normals);assert.deepEqual(preview.uv,actual.uv);assert.equal(result.readFloatLE(actual.vertexOffset+3*32+12),1);assert.deepEqual(result.subarray(actual.vertexOffset,actual.vertexOffset+32),source.subarray(start,start+32));
+ const repaired=geometryPreview(topologyPreview(lod,topology),[...changes,{index:0,normal:[0,0,1]}]);assert.equal(repaired.invalidNormals,false);assert.deepEqual(repaired.normals.slice(-3),[1,0,0]);
+});
+test('face material changes and winding preserve native material blocks and other LODs',()=>{
+ const original=fixture(),material=Buffer.concat([u32(0),floats([.1,.2,.3,.4,.5,.6,.7,.8,.9,1]),text('')]),source=Buffer.concat([original.subarray(0,14),u16(1),material,original.subarray(16)]),context=inspectModelGeometry(source,1),topology=geometryTopology(context.mesh.lods[0]);topology.faces[0]={material:1,indices:[0,2,1]};
+ const result=editModelGeometry(source,request([topologyLevel(0,topology)])),parsed=parseFourDs(result,'all');assert.deepEqual(parsed.meshes[0].lods[0].faces,[{material:1,indices:[0,2,1]}]);assert.deepEqual(result.subarray(14,16+material.length),source.subarray(14,16+material.length));assert.deepEqual(parsed.meshes[0].lods[1],context.mesh.lods[1]);
+ const empty={vertices:[],faces:[]},cleared=editModelGeometry(source,request([topologyLevel(0,empty)]));assert.equal(parseFourDs(cleared,'all').meshes[0].lods[0].vertices,0);
+});
+test('topology enforces native limits, complete new rows, source indices and safe material/face references',()=>{
+ const source=fixture(),lod=inspectModelGeometry(source,1).mesh.lods[0],topology=geometryTopology(lod);
+ const invalid=[{...topology,vertices:new Array(65536).fill({source:0})},{...topology,faces:new Array(256).fill({material:0,indices:[]})},{...topology,vertices:[{source:3}]},{...topology,vertices:[{source:0,uv:[0,0]}]},{...topology,vertices:[{position:[0,0,0],normal:[0,1,0]}]},{...topology,vertices:[{position:[0,0,Infinity],normal:[0,1,0],uv:[0,0]}]},{...topology,faces:[{material:1,indices:[0,1,2]}]},{...topology,faces:[{material:0,indices:[0,1,3]}]},{...topology,faces:[{material:0,indices:[0,1]}]},{...topology,faces:[{material:0,indices:new Array(65536*3).fill(0)}]}];
+ for(const value of invalid)assert.throws(()=>editModelGeometry(source,request([topologyLevel(0,value)])));
+ const limit={vertices:new Array(65535).fill({source:0}),faces:new Array(255).fill({material:0,indices:[]})};assert.doesNotThrow(()=>validateTopology(lod,limit,0));limit.faces[0]={material:0,indices:new Array(65535*3).fill(65534)};assert.doesNotThrow(()=>validateTopology(lod,limit,0));
+ const maximum=parseFourDs(editModelGeometry(source,request([topologyLevel(0,limit)])),'all').meshes[0].lods[0];assert.equal(maximum.vertices,65535);assert.equal(maximum.faces.length,255);assert.equal(maximum.faces[0].indices.length,65535*3);assert.equal(maximum.faces[0].indices.at(-1),65534);
+ for(const visual of [2,5])assert.throws(()=>editModelGeometry(fixture(visual),request([topologyLevel(0,topology)])),/topologie/);
+});
+test('topology resizing saves, reopens and exports both LODs in one operation and undo restores exact data',async t=>{
+ const root=await fs.mkdtemp(path.join(os.tmpdir(),'mafia-topology-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));const bytes=fixture(),asset={path:'models/topology.4ds',original:'originals/a1/models/topology.4ds',sha256:hash(bytes),size:bytes.length,archive:'a1.dta',variants:[{}]};await writeSafe(root,asset.original,bytes);await writeSafe(root,'workbench.json',JSON.stringify({format:'mafia-workbench',version:1,name:'Topology',assets:[asset],history:[]}));
+ let p=await ModProject.open(root);const context=await p.modelGeometry(asset.path,2),req=request(context.mesh.lods.map((lod,i)=>{const topology=geometryTopology(lod);topology.vertices.push({source:2});topology.faces[0].indices.push(0,1,3);return topologyLevel(i,topology,[{index:3,uv:[.2,.9]}]);}),2);await assert.rejects(p.saveGeometry(asset.path,req,'0'.repeat(64)),/změnil/);await p.saveGeometry(asset.path,req,context.sha256);assert.equal(p.manifest.history.length,1);await assert.rejects(p.saveGeometry(asset.path,req,context.sha256),/změnil/);p=await ModProject.open(root);await p.export(path.join(root,'export'));assert.deepEqual(await fs.readFile(path.join(root,'export',asset.path)),editModelGeometry(bytes,req));await p.undo();assert.deepEqual(await p.read(asset.path),bytes);assert.deepEqual(await fs.readFile(path.join(root,asset.original)),bytes);
 });

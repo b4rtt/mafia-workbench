@@ -1,5 +1,5 @@
 import {parseFourDs} from './fourds.js';
-import {geometryPreview} from '../shared/geometry-draft.js';
+import {geometryPreview,topologyPreview,validateTopology} from '../shared/geometry-draft.js';
 
 function resolve(parsed,id){
   if(!Number.isInteger(id)||!parsed.meshes[id-1])throw new Error('4DS: neplatný objekt geometrie.');
@@ -13,11 +13,37 @@ export function inspectModelGeometry(source,id){
   return {mesh,instances,materials:parsed.materials,editShape:[0,1].includes(mesh.visual)};
 }
 export function editModelGeometry(source,request){
+  source=Buffer.from(source);
   const context=inspectModelGeometry(source,request?.mesh);
   if(!Array.isArray(request.levels)||request.levels.length>context.mesh.lods.length)throw new Error('4DS: neplatný seznam LOD.');
-  const result=Buffer.from(source),seen=new Set();
-  for(const level of request.levels){if(!level||seen.has(level.lod))throw new Error('4DS: neplatný nebo opakovaný LOD.');seen.add(level.lod);editLevel(result,context,level);}
+  let result=Buffer.from(source);const seen=new Set();
+  for(const level of request.levels){if(!level||!Number.isInteger(level.lod)||!context.mesh.lods[level.lod]||seen.has(level.lod))throw new Error('4DS: neplatný nebo opakovaný LOD.');seen.add(level.lod);}
+  // Resize from the end so earlier original offsets stay valid. Opaque frame,
+  // material, instance and other LOD bytes are never regenerated.
+  for(const level of [...request.levels].sort((a,b)=>b.lod-a.lod)){
+    let local=context;const lod=context.mesh.lods[level.lod];
+    if(Object.hasOwn(level,'topology')){
+      if(!context.editShape)throw new Error('4DS: změna topologie skinovaných/morfovaných modelů zatím není podporovaná.');
+      validateTopology(lod,level.topology,context.materials.length);
+      const replacement=serializeTopology(source,lod,level.topology);
+      result=Buffer.concat([result.subarray(0,lod.vertexOffset-2),replacement,result.subarray(lod.endOffset)]);
+      const lods=[...context.mesh.lods];lods[level.lod]={...topologyPreview(lod,level.topology),vertexOffset:lod.vertexOffset};local={...context,mesh:{...context.mesh,lods}};
+    }
+    editLevel(result,local,level);
+  }
   parseFourDs(result,'all');return result;
+}
+function serializeTopology(source,lod,topology){
+  const size=2+topology.vertices.length*32+1+topology.faces.reduce((size,face)=>size+4+face.indices.length*2,0),bytes=Buffer.alloc(size);let at=0;
+  bytes.writeUInt16LE(topology.vertices.length,at);at+=2;
+  for(const vertex of topology.vertices){
+    if(Object.hasOwn(vertex,'source'))source.copy(bytes,at,lod.vertexOffset+vertex.source*32,lod.vertexOffset+(vertex.source+1)*32);
+    else [...vertex.position,...vertex.normal,...vertex.uv].forEach((value,i)=>bytes.writeFloatLE(value,at+i*4));
+    at+=32;
+  }
+  bytes.writeUInt8(topology.faces.length,at++);
+  for(const face of topology.faces){bytes.writeUInt16LE(face.indices.length/3,at);at+=2;for(const index of face.indices){bytes.writeUInt16LE(index,at);at+=2;}bytes.writeUInt16LE(face.material,at);at+=2;}
+  return bytes;
 }
 function editLevel(result,{mesh,editShape},request){
   const lod=mesh.lods[request.lod];
@@ -32,7 +58,7 @@ function editLevel(result,{mesh,editShape},request){
   }
   const preview=geometryPreview(lod,request.vertices,request.recomputeNormals);
   for(const change of request.vertices)for(const [key,array,count,offset]of [['position','positions',3,0],['normal','normals',3,12],['uv','uv',2,24]])if(change[key])for(let component=0;component<count;component++){
-    const value=preview[array][change.index*count+component],at=lod.vertexOffset+change.index*32+offset+component*4;
+    const value=Math.fround(change[key][component]),at=lod.vertexOffset+change.index*32+offset+component*4;
     // Skip identical f32 values, including signed zero. Preview fallbacks must
     // never silently serialize unused NaN/Inf fields unless explicitly edited.
     if(!Object.is(value,result.readFloatLE(at)))result.writeFloatLE(value,at);

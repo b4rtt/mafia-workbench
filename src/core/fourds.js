@@ -35,6 +35,7 @@ function object(reader, geometry) {
     // Some shipped meshes have uninitialised, unused UVs/normals. Retain source bytes;
     // only the preview substitutes UV zeroes and recomputes invalid normals.
     const invalidNormals = normals.some(v => !Number.isFinite(v)), invalidUV = uv.some(v => !Number.isFinite(v));
+    const raw = geometry === 'all' ? { ...(invalidNormals ? { rawNormals:[...normals] } : {}), ...(invalidUV ? { rawUV:[...uv] } : {}) } : {};
     if (invalidNormals) normals.fill(0);
     if (invalidUV) uv.forEach((v, i) => { if (!Number.isFinite(v)) uv[i] = 0; });
     const groups = reader.u8(), faces = [];
@@ -46,7 +47,7 @@ function object(reader, geometry) {
         faces.push({ material, indices });
       }
     }
-    lods.push({ distance, vertices, positions, normals, uv, faces, invalidNormals, invalidUV, ...(geometry === 'all' ? { vertexOffset:start } : {}) });
+    lods.push({ distance, vertices, positions, normals, uv, faces, invalidNormals, invalidUV, ...(geometry === 'all' ? { vertexOffset:start, endOffset:reader.pos, ...raw } : {}) });
   }
   return { instance, lods };
 }
