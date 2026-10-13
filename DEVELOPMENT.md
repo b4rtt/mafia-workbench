@@ -128,3 +128,12 @@ Navázat příkladem od založení mise přes vlastní zadání/titulky, interak
 ## Navazující goal po dokončení vlastní mise
 
 Uživatel požaduje oddělený AI plugin pro generování propracovaného živého města z vybrané skutečné oblasti a mapových/výškových podkladů. Požadavky, preference Codex/Claude, oddělení od editoru a konkrétní zadání dalšího goalu jsou uložené v [research/city-generator-plugin.md](research/city-generator-plugin.md). Implementaci zahájit až po schopnosti vytvořit kompletní hratelnou misi; současný goal editoru zůstává aktivní.
+
+
+## Šablona úkolu: interakce a návazný cíl
+
+- Implementováno: ve formuláři skriptového bodu nový program s jazykovou tabulkou, čtyřmi TextDB ID a náhledem textů, výběrem cílového frame, poloměrem a explicitní volbou návratu do menu. Nepotřebná pole masky/vlastního kódu se v tomto režimu skryjí; dlouhý formulář má dostupné potvrzení po posunu. Výsledný program je vidět před uložením.
+- Projekt kontroluje ID, aktuální tabulku a jednoznačný cíl, generuje vlastní program a chrání závislosti transakce. Jeden krok historie; export/reopen/undo, zachování ostatních skriptů, odmítnutí neplatných vstupů a souběžné změny pokrývají testy.
+- UI: vytvoření s vlastním názvem/XYZ, čtyřmi texty a cílem, přesný export, nový bod v inspektoru a UI undo obnovující scénu/historii. Texty a kontrolní NPC/skript byly následně vrácené; původní text/model/scéna/KLZ a chráněné projekty/EXE shodné.
+- Hra: první zadání → návazný cíl → dokončení, potvrzené skutečnými českými titulky. Použití bylo vyvolané `enemy_use_detector` a příjezd hráče skriptovaným přesunem. Nejde o ověření ruční interakce, chůze, volitelného návratu do menu, restartu či save/load. Hra ukončená.
+- Kontroly: 307 testů, check a build. Další blok: ruční průchod a zachování stavu, vlastní dabing/import hlasu; kompletní mise a ostatní backlog zůstávají aktivní. Budoucí AI generátor města má oddělenou specifikaci a začne až po splnění předpokladu vlastní mise.

@@ -43,3 +43,16 @@ Při rozšiřování editoru skriptů používat příručku jako referenci pro 
 | Ostatní formáty | Přehled v [formats.md](formats.md) a úplný místní katalog odkazů |
 
 Odkazované MSDR PDF se zde eviduje jako položka rozcestníku; shoda vzdáleného souboru s uživatelovou kopií nebyla ověřena. Stažená kopie pochází přímo od uživatele. Archivované odkazy a popisy nástrojů slouží pro další průzkum; instalace nástroje, kompatibilita a licence se ověřují až při jeho skutečném použití.
+
+
+## Lineární úkol z interaktivního bodu
+
+`src/shared/mission-task.js` sestavuje program aktéra typu detector. Opírá se o uloženou MSDR (příkazy `detector_waitforuse`, `mission_objectives`, `mission_objectivesremove`, `frm_getworldpos`, `vect_sub_vect`, `vect_magnitude` a `endofmission`) a [rozbor detektoru v enginu](https://github.com/st0rm94/mafia-reverse-engineering-export/blob/main/structs/detector.md). Konkrétní lokální kopie a revize jsou v evidenci referenčních repozitářů.
+
+První zadání a titulek se nastaví po krátkém čekání; `detector_waitforuse` blokuje program do použití bodu. Potom se odstraní jen první zadání a přidá návazné. Smyčka porovnává světovou pozici cílového frame a hráče Tommy v intervalu 100 ms. Uvnitř poloměru se odstraní návazné zadání a zobrazí dokončení. Výchozí program poté skončí, svět mise běží dál. Explicitní návrat do menu používá typ 1; nejde o obecný přechod do další mise kampaně. Šablona neprovádí globální mazání zadání ani nové autosave.
+
+Projekt před zápisem znovu sestaví program a kontroluje existenci všech ID ve zvolené jazykové tabulce, její hash a jednoznačný cílový frame ve scéně/geometrii. Textová tabulka a geometrie jsou závislosti transakce: jejich souběžná změna zabrání zveřejnění nové scény. Vlastní program ostatních aktérů a jejich neznámá data se nemění.
+
+Ověření 13. října 2026: v odděleném Electronu vytvořen bod se čtyřmi novými českými texty a cílem u modelu bedny. Přesný program, maska 1, pozice, export a UI undo byly ověřené. V izolované Wine hře se zobrazily všechny tři fáze. Kontrolní NPC použil `enemy_use_detector`, hráč byl později přesunut skriptem do cíle; ruční Action Button a běžná chůze v tomto testu nebyly ověřené. Herní kontrolní změny a čtyři texty byly vrácené, historie a text/scéna/model/KLZ mají původní bajty. Hra byla ukončená.
+
+Zbývá ověřit ruční interakci, volitelný návrat do menu a stav při restartu/načtení save. Šablona není hotový generátor kompletní mise ani větveného questu; návazná práce zahrnuje vlastní hlas a jeho vazbu, podmínky/failure a spolehlivý postup celou misí.

@@ -11,6 +11,7 @@ import { editAnimationTimeline } from './animation-timeline.js';
 import { inspectCache, editCache } from './cache.js';
 import { parseItems, editItems } from './items.js';
 import { pickupParameters } from '../shared/pickups.js';
+import { missionTaskScript } from '../shared/mission-task.js';
 import { parseNavigation, prepareNavigationEdits, changeNavigationConnection, changeNavigationPoint } from './navigation.js';
 import { remapSegments } from './segments.js';
 import { parseRoads, prepareRoadEdits, changeRoadPoint } from './roads.js';
@@ -316,6 +317,18 @@ export class ModProject {
       dependencies.push({path:geometryPath,data:geometryBytes,expectedHash:hash(geometryBytes)},{path:tablePath,data:tableBytes,expectedHash:hash(tableBytes)},{path:modelPath,data:modelBytes,expectedHash:hash(modelBytes)});
     }
     if(['add-light','add-sound','add-detector'].includes(operation?.kind))dependencies.push({path:geometryPath,data:geometryBytes,expectedHash:hash(geometryBytes)});
+    if(operation?.kind==='add-detector' && operation.task){
+      const task=operation.task,code=missionTaskScript(task),textPath=relativeAssetPath(task.textDb);
+      if(!/^tables\/textdb_[a-z]{2}\.def$/i.test(textPath))throw new Error('Úkol: vyberte jazykový TextDB.');
+      const asset=this.asset(textPath),bytes=await this.read(asset.path);
+      if(hash(bytes)!==task.textHash)throw new Error('Úkol: texty se od otevření změnily. Otevřete dialog znovu.');
+      const ids=new Set(parseTextDb(bytes,asset.path).entries.map(entry=>entry.id));
+      if([task.objectiveId,task.interactionId,task.nextObjectiveId,task.completeId].some(id=>!ids.has(id)))throw new Error('Úkol: některé ID v jazykové tabulce neexistuje. Nejprve vytvořte vlastní texty.');
+      const targets=[...inspectScene(before).objects,...geometry.meshes].filter(object=>key(object.name)===key(task.targetName));
+      if(targets.length!==1 || key(task.targetName)===key('Tommy'))throw new Error('Úkol: vyberte jednoznačný cílový objekt odlišný od hráče.');
+      dependencies.push({path:asset.path,data:bytes,expectedHash:task.textHash});
+      request={...operation,mask:1,code};
+    }
     if(operation?.kind==='add-sound'){
       const soundPath=relativeAssetPath(operation.sound);
       if(!/^sounds\/.+\.wav$/i.test(soundPath))throw new Error('Vyberte WAV ze složky sounds.');

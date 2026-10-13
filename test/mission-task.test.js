@@ -1,0 +1,32 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import os from 'node:os';
+import {missionTaskScript} from '../src/shared/mission-task.js';
+import {ModProject} from '../src/core/project.js';
+import {hash,writeSafe} from '../src/core/files.js';
+import {changeSceneObject,inspectScene} from '../src/core/scene.js';
+const task={objectiveId:10,interactionId:20,nextObjectiveId:30,completeId:40,targetName:'DESTINATION',targetRadius:2.5,exitToMenu:false};
+const chunk=(type,payload)=>{const header=Buffer.alloc(6);header.writeUInt16LE(type);header.writeUInt32LE(payload.length+6,2);return Buffer.concat([header,payload]);};
+
+test('mission task waits for interaction before polling the target, removes only its own objectives and has explicit menu exit',()=>{
+  const code=missionTaskScript(task),use=code.indexOf('detector_waitforuse 20'),poll=code.indexOf('frm_getworldpos 0, 0');
+  assert(use>code.indexOf('mission_objectives 10')&&poll>use);assert(code.includes('mission_objectivesremove 10\nmission_objectives 30'));assert(code.includes('if flt[6] < 2.5, 20, -1\nwait 100\ngoto 10'));assert(code.includes('mission_objectivesremove 30\nsubtitle_add 40'));assert(!code.includes('mission_objectivesclear')&&!code.includes('endofmission'));
+  assert(missionTaskScript({...task,exitToMenu:true}).includes('endofmission 1, 40\nend'));
+  for(const entry of [{objectiveId:-1},{interactionId:NaN},{completeId:4294967296},{targetName:'A"\nend'},{targetName:''},{targetRadius:0},{targetRadius:1e100},{targetRadius:1e-100},{exitToMenu:'false'}])assert.throws(()=>missionTaskScript({...task,...entry}),/Úkol/);
+});
+
+test('task transaction verifies text IDs and dependencies, preserves other scripts, exports and undoes exact scene',async t=>{
+  const root=await fs.mkdtemp(path.join(os.tmpdir(),'mafia-task-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));await writeSafe(root,'workbench.json',JSON.stringify({format:'mafia-workbench',version:1,name:'Task test',assets:[],history:[]}));
+  const p=await ModProject.open(root),name='missions/Test/scene2.bin',geometryPath='missions/Test/scene.4ds',textPath='tables/textdb_cz.def',geometry=Buffer.alloc(19);geometry.write('4DS\0');geometry.writeUInt16LE(29,4);geometry[18]=1;
+  const empty=chunk(0x4c53,Buffer.concat([chunk(0x4000,Buffer.alloc(0)),chunk(0xbabe,Buffer.from('unknown'))])),scene=changeSceneObject(empty,{kind:'add-detector',name:'DESTINATION',position:[8,0,0],mask:0,code:'wait 987\nend'});
+  const text=Buffer.alloc(49);text.writeUInt32LE(5,0);for(const [i,id]of [10,20,30,40,99999999].entries()){text.writeUInt32LE(id,8+i*8);text.writeUInt32LE(48,12+i*8);}
+  await p.createFiles([{path:name,data:scene},{path:geometryPath,data:geometry},{path:textPath,data:text}]);const original=JSON.stringify(p.manifest),history=p.manifest.history.length,request={kind:'add-detector',name:'QUEST',position:[0,0,0],mask:128,code:'untrusted replacement',task:{...task,textDb:textPath,textHash:hash(text)}};
+  await assert.rejects(()=>p.changeSceneObject(name,{...request,task:{...request.task,textHash:'stale'}},hash(scene)),/změnily/);
+  await assert.rejects(()=>p.changeSceneObject(name,{...request,task:{...request.task,completeId:41}},hash(scene)),/neexistuje/);
+  await assert.rejects(()=>p.changeSceneObject(name,{...request,task:{...request.task,targetName:'MISSING'}},hash(scene)),/jednoznačný/);assert.equal(p.manifest.history.length,history);
+  await p.changeSceneObject(name,request,hash(scene));const after=await p.read(name),parsed=inspectScene(after);assert.equal(parsed.actorScripts.find(s=>s.name==='QUEST').code,missionTaskScript(task));assert.equal(parsed.actorScripts.find(s=>s.name==='DESTINATION').code,'wait 987\nend');assert.equal(parsed.entries.filter(e=>e.detectorParameter).at(-1).value,1);assert.deepEqual(await p.read(textPath),text);assert.deepEqual(await p.read(geometryPath),geometry);
+  const reopened=await ModProject.open(root);await reopened.export(path.join(root,'export'));assert.deepEqual(await fs.readFile(path.join(root,'export',name)),after);await reopened.undo();assert.deepEqual(await reopened.read(name),scene);assert.deepEqual(reopened.manifest.history,JSON.parse(original).history);assert.equal(reopened.manifest.version,2);assert.deepEqual(await reopened.read(textPath),text);assert.deepEqual(await reopened.read(geometryPath),geometry);
+  const batch=reopened.changeBatch;reopened.changeBatch=async function(files,...args){await this.change(textPath,Buffer.concat([text,Buffer.from([123])]),'Concurrent text');return batch.call(this,files,...args);};await assert.rejects(()=>reopened.changeSceneObject(name,request,hash(scene)),/změnil/);assert.deepEqual(await reopened.read(name),scene);reopened.changeBatch=batch;await reopened.undo();assert.deepEqual(await reopened.read(textPath),text);
+});
