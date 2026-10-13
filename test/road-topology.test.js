@@ -75,3 +75,50 @@ test('topology project transactions preserve stale guards, other assets, exact e
   for(const request of [{action:'connect',from:0,to:1},{action:'connect',from:0,to:2},{action:'disconnect',from:0,to:1},{action:'delete-crossing',index:1}]){const before=await p.read(name),expected=changeRoadTopology(before,request);await assert.rejects(p.changeRoadTopology(name,request,'stale'),/změnil/);const selection=await p.changeRoadTopology(name,request,hash(before));assert.deepEqual(selection,{index:expected.index,mapping:expected.mapping});versions.push(expected.data);assert.deepEqual(await p.read(name),expected.data);}
   const reopened=await ModProject.open(root),destination=path.join(root,'export');await reopened.export(destination);assert.deepEqual(await fs.readFile(path.join(destination,name)),versions.at(-1));for(let i=versions.length-2;i>=0;i--){await reopened.undo();assert.deepEqual(await reopened.read(name),versions[i]);}assert.equal(reopened.manifest.history.length,baseline);assert.equal((await reopened.read('missions/TEST/tree.klz')).toString(),'unchanged');
 });
+test('splitting a road retains directional lanes, priorities and opaque bytes on both halves and leaves unrelated routes intact',()=>{
+  let original=connect(base(),0,1,{positions:[[2,1,2],[7,2,3],[10,3,1]],speed:2.5,forwardPriority:7,reversePriority:19}).data;
+  original=connect(original,2,5).data;
+  for(const [cross,target]of [[0,1],[1,0]]){const at=8+cross*236+28+slot(original,cross,target)*52;original[at+2]=0x93;original[at+12]=0x72;original.writeUInt32LE(0x7fc01234,at+32);original.writeFloatLE(-0,at+48);}
+  const before=Buffer.from(original),file=parseRoads(original),index=file.nodes.findIndex(n=>n.position[0]===7),forward=bytesSlot(original,0,slot(original,0,1)),reverse=bytesSlot(original,1,slot(original,1,0));
+  const result=changeRoadTopology(original,{action:'split-crossing',index,speed:5.5,semaphore:1}),after=routes(result.data);
+  assert.deepEqual(original,before);assert.equal(result.index,6);assert.equal(result.mapping[6+index],6);assert.equal(after.crossings.length,7);assert.equal(after.nodes.length,file.nodes.length-1);assert.deepEqual(after.crossings[6].position,[7,2,3]);assert.equal(after.crossings[6].speed,5.5);assert.equal(after.crossings[6].semaphore,1);
+  for(const [cross,target,template]of [[0,6,forward],[6,1,forward],[1,6,reverse],[6,0,reverse]]){const actual=bytesSlot(result.data,cross,slot(result.data,cross,target));assert.deepEqual(actual.subarray(2,4),template.subarray(2,4));assert.deepEqual(actual.subarray(12),template.subarray(12));}
+  for(const [cross,target]of [[2,5],[5,2]])assert.deepEqual(bytesSlot(result.data,cross,slot(result.data,cross,target)),bytesSlot(original,cross,slot(original,cross,target)));
+  assert.equal(after.crossings[6].links.filter(ref=>ref!==65535).length,2);
+  const branch=connect(result.data,6,3,{positions:[[-1,2,4]]});routes(branch.data);assert.equal(parseRoads(branch.data).crossings[6].links.filter(ref=>ref!==65535).length,3);
+  routes(changeRoadTopology(branch.data,{action:'disconnect',from:6,to:3}).data);
+});
+test('first, last and sole road nodes become crossings with missing midpoint nodes, including reversed record orientation',()=>{
+  for(const positions of [[[2,0,0],[6,0,0],[10,0,0]],[[6,0,0]]])for(const x of new Set([positions[0][0],positions.at(-1)[0]])){
+    const original=connect(base(),0,1,{positions,speed:2}).data,start=12+6*236;
+    for(let i=0;i<positions.length;i++){const at=start+i*24,prev=original.readUInt16LE(at+16),next=original.readUInt16LE(at+18);original.writeUInt16LE(next,at+16);original.writeUInt16LE(prev,at+18);original.writeUInt16LE(1,at+20);original.writeUInt16LE(0,at+22);}
+    const index=parseRoads(original).nodes.findIndex(n=>n.position[0]===x),result=changeRoadTopology(original,{action:'split-crossing',index}),file=routes(result.data);
+    assert.equal(file.nodes.length,positions.length===1?2:positions.length);assert.deepEqual(file.crossings[6].position,[x,0,0]);assert.equal(result.mapping[6+index],6);
+    const generated=[...(x===positions[0][0]?[x/2]:[]),...(x===positions.at(-1)[0]?[(x+12)/2]:[])];for(const value of generated)assert.ok(file.nodes.some(n=>n.position[0]===value&&n.speed===2));
+  }
+});
+test('split resolves the selected chain when two different roads have the same endpoint crossings',()=>{
+  let data=empty();for(const point of [[0,0,0],[12,0,0],[0,0,0],[12,0,0]])data=create(data,point);data=connect(data,0,1,{positions:[[6,0,2]]}).data;data=connect(data,2,3,{positions:[[6,0,-2]]}).data;
+  for(const [old,cross,target]of [[2,0,1],[3,1,0]]){const source=8+old*236,destination=8+cross*236;data.copy(data,destination+28+52,source+28,source+28+52);data.writeUInt16LE(target,destination+28+52);data.writeUInt16LE(data.readUInt16LE(source+20),destination+22);data.writeUInt16LE(65535,source+20);data.writeUInt16LE(65535,source+28);}
+  const file=parseRoads(data),index=file.nodes.findIndex(n=>n.position[2]===-2),start=12+4*236+index*24;for(const offset of [16,18,20,22]){const ref=data.readUInt16LE(start+offset);data.writeUInt16LE(ref===2?0:ref===3?1:ref,start+offset);}
+  const keep=bytesSlot(data,0,0),result=changeRoadTopology(data,{action:'split-crossing',index}),after=routes(result.data);assert.deepEqual(bytesSlot(result.data,0,slot(result.data,0,1)).subarray(0,8),keep.subarray(0,8));assert.equal(after.crossings[4].links.filter(ref=>ref!==65535).length,2);assert.equal(after.nodes.length,3);
+});
+test('split crossing rejects orphan, shared, ambiguous or collapsed roads and invalid settings without mutating the source',()=>{
+  const source=connect(base(),0,1).data,start=12+6*236;
+  for(const request of [{index:-1},{index:1},{index:0,speed:-1},{index:0,semaphore:2}])assert.throws(()=>changeRoadTopology(source,{action:'split-crossing',...request}));
+  for(const modify of [data=>data.writeUInt16LE(5,start+20),data=>{data.writeUInt16LE(32768,8+22);data.writeUInt16LE(1,8+28+52);},data=>data.writeUInt16LE(32768,8+2*236+20),data=>data.writeUInt16LE(65535,8+236+28),data=>data.writeFloatLE(0,start)]){
+    const data=Buffer.from(source);modify(data);const before=Buffer.from(data);assert.throws(()=>changeRoadTopology(data,{action:'split-crossing',index:0}));assert.deepEqual(data,before);
+  }
+});
+test('split crossing uses compacted indices even at the native node limit and rejects crossings beyond the limit',()=>{
+  const count=32767,data=Buffer.alloc(12+6*236+count*24);base().copy(data);data.writeUInt32LE(count,8+6*236);data.writeFloatLE(count+1,8+236);
+  for(const [cross,near,target]of [[0,32768,1],[1,32768|(count-1),0]]){data.writeUInt16LE(near,8+cross*236+20);data.writeUInt16LE(target,8+cross*236+28);data[8+cross*236+28+22]=2;}
+  for(let i=0;i<count;i++){const at=12+6*236+i*24;data.writeFloatLE(i+1,at);data.writeFloatLE(1.2,at+12);data.writeUInt16LE(i?32768|(i-1):0,at+16);data.writeUInt16LE(i+1<count?32768|(i+1):1,at+18);data.writeUInt16LE(0,at+20);data.writeUInt16LE(1,at+22);}
+  const result=changeRoadTopology(data,{action:'split-crossing',index:0});assert.equal(parseRoads(result.data).nodes.length,count);routes(result.data);
+  const maximum=Buffer.alloc(12+32768*236);maximum.writeUInt32LE(2);maximum.writeUInt32LE(32768,4);const cross=create(empty(),[0,0,0]).subarray(8,244);for(let i=0;i<32768;i++)cross.copy(maximum,8+i*236);assert.throws(()=>changeRoadTopology(maximum,{action:'split-crossing',index:0}),/maximální počet křižovatek/);
+});
+test('split crossing project transaction has stale protection, byte-exact export and undo while preserving scene and collision assets',async t=>{
+  const root=await fs.mkdtemp(path.join(os.tmpdir(),'mafia-road-split-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));await writeSafe(root,'workbench.json',JSON.stringify({format:'mafia-workbench',version:1,name:'Split',assets:[],history:[]}));const p=await ModProject.open(root),name='missions/TEST/road.bin',source=connect(base(),0,1).data;
+  await p.createFiles([{path:name,data:source},{path:'missions/TEST/scene2.bin',data:Buffer.from('scene')},{path:'missions/TEST/tree.klz',data:Buffer.from('collision')}]);const baseline=p.manifest.history.length,request={action:'split-crossing',index:0},expected=changeRoadTopology(source,request);
+  await assert.rejects(p.changeRoadTopology(name,request,'stale'),/změnil/);assert.equal(p.manifest.history.length,baseline);await p.changeRoadTopology(name,request,hash(source));const reopened=await ModProject.open(root),destination=path.join(root,'export');await reopened.export(destination);assert.deepEqual(await fs.readFile(path.join(destination,name)),expected.data);await reopened.undo();assert.deepEqual(await reopened.read(name),source);assert.equal(reopened.manifest.history.length,baseline);for(const [asset,value]of [['scene2.bin','scene'],['tree.klz','collision']])assert.equal((await reopened.read(`missions/TEST/${asset}`)).toString(),value);
+});

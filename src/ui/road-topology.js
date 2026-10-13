@@ -1,6 +1,6 @@
 export function roadTopologyDialog(file,action,point,{element,state,api,run,refresh,renderDetail,status}) {
   const format=position=>position.map(n=>Number(n.toPrecision(7))).join(', ');
-  const titles={'create-crossing':'Nová křižovatka',connect:'Propojit křižovatky',disconnect:'Odstranit silniční propojení','delete-crossing':'Odstranit volnou křižovatku'};
+  const titles={'create-crossing':'Nová křižovatka','split-crossing':'Vytvořit křižovatku z bodu',connect:'Propojit křižovatky',disconnect:'Odstranit silniční propojení','delete-crossing':'Odstranit volnou křižovatku'};
   const dialog=element('dialog',undefined,'road-topology-dialog'),form=element('form',undefined,'mission-form'),fields=element('div',undefined,'mission-fields');dialog.append(element('h2',titles[action]),form);
   const field=(label,input,parent=fields)=>{const row=element('label',label);input.setAttribute('aria-label',label);row.append(input);parent.append(row);return input;};
   const numeric=(label,value,{min,step='any',parent=fields}={})=>{const input=element('input');input.type='number';input.step=step;input.value=String(value);input.required=true;if(min!==undefined)input.min=String(min);return field(label,input,parent);};
@@ -9,6 +9,10 @@ export function roadTopologyDialog(file,action,point,{element,state,api,run,refr
     form.append(element('p','Volná křižovatka má až čtyři výjezdy. Po vložení ji vyberte a propojte s jinou křižovatkou. Tento krok vytváří navigaci aut; model vozovky ani kolize nepřidává.','notice'));
     const origin=point?.position??[0,0,0];positions=['X','Y','Z'].map((axis,i)=>numeric(`Pozice ${axis}`,origin[i]+(i===0&&point?5:0)));
     velocity=numeric('Rychlost (herní jednotky)',1.2,{min:0});semaphore=element('input');semaphore.type='checkbox';field('Semafor — příznak pro kontrolu policie',semaphore);
+  }else if(action==='split-crossing'){
+    const source=file.nodes[point.recordIndex];
+    form.append(element('p',`Bod ${point.recordIndex}: ${format(source.position)}. Nová křižovatka nahradí tento bod ve stejné poloze. Obě části cesty zachovají původní pruhy a priority; zbývající dva výjezdy jsou volné pro odbočky. Pokud některé části chybí silniční bod, doplní se uprostřed úseku. Vozovka ani kolize se nemění.`,'notice'));
+    velocity=numeric('Rychlost křižovatky (herní jednotky)',Math.max(0,source.speed),{min:0});semaphore=element('input');semaphore.type='checkbox';field('Semafor — příznak pro kontrolu policie',semaphore);
   }else if(action==='connect'||action==='disconnect'){
     const from=point.recordIndex,source=file.crossings[from];form.append(element('p',`Z křižovatky ${from}: ${format(source.position)}`));
     target=field('Cílová křižovatka',element('select'));
@@ -37,6 +41,7 @@ export function roadTopologyDialog(file,action,point,{element,state,api,run,refr
     try{
       let request={action};
       if(action==='create-crossing')request={...request,position:positions.map(input=>Number(input.value)),speed:Number(velocity.value),semaphore:Number(semaphore.checked)};
+      else if(action==='split-crossing')request={...request,index:point.recordIndex,speed:Number(velocity.value),semaphore:Number(semaphore.checked)};
       else if(action==='delete-crossing')request.index=point.recordIndex;
       else {
         request.from=point.recordIndex;request.to=Number(target.value);

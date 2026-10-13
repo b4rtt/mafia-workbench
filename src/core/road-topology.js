@@ -83,6 +83,50 @@ export function changeRoadTopology(source,request){
     rows.crossings.splice(index,1);const data=serialize(rows.crossings,rows.nodes);rewriteRefs(data,parseRoadsForRemap(data),ref=>ref!==NONE&&!(ref&32768)&&ref>index?ref-1:ref);parseRoads(data);
     return {data,index:Math.min(index,Math.max(0,total-2)),mapping:identity.map(i=>i===index?null:i>index?i-1:i)};
   }
+  if(action==='split-crossing'){
+    if(total>=32768)fail('síť už má maximální počet křižovatek.');
+    const index=request.index;if(!Number.isInteger(index)||index<0||index>=count)fail('silniční bod je mimo síť.');
+    const selected=file.nodes[index],from=crossIndex(file,selected.previousCrossing),to=crossIndex(file,selected.nextCrossing);
+    if(from===to)fail('bod potřebuje dvě různé koncové křižovatky.');validateRoutes(file);
+    const slots=c=>file.crossings[c].directions.flatMap((d,i)=>d.target===(c===from?to:from)&&file.crossings[c].links[i]!==NONE&&trace(file,c,i).includes(32768|index)?[i]:[]),left=slots(from),right=slots(to);
+    if(left.length!==1||right.length!==1)fail('cesta nemá jednoznačné vzájemné směry.');
+    const path=trace(file,from,left[0]),back=trace(file,to,right[0]),chain=path.slice(0,-1),cut=chain.indexOf(32768|index);
+    if(cut<0||path.at(-1)!==to||back.at(-1)!==from||chain.some(ref=>!(ref&32768))||back.length!==path.length||back.slice(0,-1).some((ref,i)=>ref!==chain[chain.length-1-i]))fail('bod neleží na shodné vzájemné cestě.');
+    const owned=new Set(chain.map(ref=>ref&32767));
+    for(const n of file.nodes){
+      if(owned.has(n.index)){if(![from,to].includes(n.previousCrossing)||![from,to].includes(n.nextCrossing)||n.previousCrossing===n.nextCrossing)fail('bod má jiné vlastníky cesty.');}
+      else if([n.previous,n.next,n.previousCrossing,n.nextCrossing].some(ref=>ref!==NONE&&(ref&32768)&&owned.has(ref&32767)))fail('cestu používá jiný silniční bod.');
+    }
+    for(const c of file.crossings)for(let slot=0;slot<4;slot++)if(!(c.index===from&&slot===left[0]||c.index===to&&slot===right[0])&&[c.links[slot],c.directions[slot].target].some(ref=>ref!==NONE&&(ref&32768)&&owned.has(ref&32767)))fail('cestu používá další výjezd.');
+    const velocity=speed(request.speed??selected.speed),semaphore=request.semaphore??0;
+    if(!Number.isInteger(semaphore)||semaphore<0||semaphore>1)fail('příznak semaforu musí být 0 nebo 1.');
+    const added=Number(cut===0)+Number(cut===chain.length-1);
+    if(count-1+added>32767)fail('síť už má maximální počet silničních bodů.');
+    const forward=Buffer.from(rows.crossings[from].subarray(28+left[0]*SLOT,28+(left[0]+1)*SLOT)),reverse=Buffer.from(rows.crossings[to].subarray(28+right[0]*SLOT,28+(right[0]+1)*SLOT));
+    // Ownership orientation can differ between records. Replace just the old
+    // endpoint on each half, retaining the original previous/next ordering.
+    for(let i=0;i<chain.length;i++)if(i!==cut){const bytes=rows.nodes[chain[i]&32767],replace=i<cut?to:from;for(const offset of [20,22])if(bytes.readUInt16LE(offset)===replace)bytes.writeUInt16LE(total,offset);}
+    rows.crossings.push(crossing(selected.position,velocity,semaphore));
+    const nodeMap=Array.from({length:count},(_,i)=>i===index?null:i>index?i-1:i);rows.nodes.splice(index,1);
+    const remap=ref=>ref===NONE||!(ref&32768)?ref:(ref&32767)===index?total:32768|nodeMap[ref&32767];
+    let data=serialize(rows.crossings,rows.nodes);rewriteRefs(data,parseRoadsForRemap(data),remap);
+    const halves=[chain.slice(0,cut).map(remap),chain.slice(cut+1).map(remap)],next=records(data,parseRoads(data));
+    // The native loader enters a route through a node. At an end/sole point,
+    // supply the missing half's midpoint before publishing the new graph.
+    function midpoint(a,b){
+      const endpoint=file.crossings[a===total?b:a].position;
+      const position=xyz(endpoint.map((n,i)=>(n+selected.position[i])/2));
+      if(position[0]===endpoint[0]&&position[2]===endpoint[2]||position[0]===selected.position[0]&&position[2]===selected.position[2])fail('mezi křižovatkami není místo pro odlišný bod v XZ.');
+      const bytes=Buffer.alloc(NODE);position.forEach((n,i)=>bytes.writeFloatLE(n,i*4));bytes.writeFloatLE(velocity,12);bytes.writeUInt16LE(a,16);bytes.writeUInt16LE(b,18);bytes.writeUInt16LE(a,20);bytes.writeUInt16LE(b,22);const ref=32768|next.nodes.length;next.nodes.push(bytes);return ref;
+    }
+    if(!halves[0].length)halves[0].push(midpoint(from,total));
+    if(!halves[1].length)halves[1].push(midpoint(total,to));
+    const endpoints=[[from,left[0],total,halves[0][0],forward],[to,right[0],total,halves[1].at(-1),reverse],[total,0,from,halves[0].at(-1),reverse],[total,1,to,halves[1][0],forward]];
+    for(const [cross,slot,target,near,template]of endpoints){const bytes=next.crossings[cross];bytes.writeUInt16LE(near,20+slot*2);template.copy(bytes,28+slot*SLOT);bytes.writeUInt16LE(target,28+slot*SLOT);}
+    data=serialize(next.crossings,next.nodes);
+    const compiled=compileRoadTopology(data,[from,to,total],halves.flat().map(ref=>ref&32767));validateRoutes(parseRoads(compiled.data));
+    return {data:compiled.data,index:total,mapping:identity.map(i=>i<total?i:i===total+index?total:compiled.mapping[total+1+nodeMap[i-total]])};
+  }
   if(!['connect','disconnect'].includes(action))fail('neplatná změna silniční sítě.');
   const from=crossIndex(file,request.from),to=crossIndex(file,request.to);if(from===to)fail('vyberte dvě různé křižovatky.');validateRoutes(file);
   if(action==='connect'){
