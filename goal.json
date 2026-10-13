@@ -12,11 +12,14 @@
     "Přehledné kategorie a náhledy BMP, 4DS, animací, hudby a zvuků.",
     "3D pohled a editor map včetně manipulace objekty.",
     "Tlačítko Spustit level s izolovanou testovací kopií nebo přesměrováním dat; původní herní soubory neměnit. Pro rychlý test přeskočit úvodní videa, výběr profilu a hlavní menu a načíst rovnou vybraný level.",
-    "Průvodce novou prázdnou misí s volitelným základním nastavením; referencí je Empty_Mission.zip z awesome-mafia."
+    "Průvodce novou prázdnou misí s volitelným základním nastavením; referencí je Empty_Mission.zip z awesome-mafia.",
+    "Zásadně zlepšit UI/UX celého editoru: dominantní 3D pohled mise, samostatný přehled objektů a inspektor, nastavitelné/skrytelné panely, přehledné nabídky a snadné číselné ovládání. Zachovat kameru i rozepsané změny.",
+    "Průběžně rozvíjet další editory, tvorbu všech doložených druhů objektů a generování kolizí; evidovat rozpracované úkoly a zvlášť datové, vizuální a herní ověření."
   ],
   "validation": [
     "Ověřit extrakci na lokálních DTA archivech.",
     "Ověřit zpětné čtení a zápis podporovaných formátů a zachování neznámých dat.",
     "Ověřit UI editoru a reálné načtení upravených dat ve hře."
-  ]
+  ],
+  "progressFile": "DEVELOPMENT.md"
 }

@@ -10,6 +10,7 @@ import { soundTypes, soundDefaults } from '../shared/sounds.js';
 import { soundExtentSettings } from './sound-extent.js';
 import { roadGraph, roadEntries, roadReference } from '../shared/roads.js';
 import { Viewport } from './viewport.js';
+import { actionMenu, initializeWorkspace, spatialWorkspace } from './workspace.js';
 import { renderBitmap } from './bitmap.js';
 import { geometryDialog } from './model-geometry.js';
 import { EffectsViewport } from './effects.js';
@@ -21,6 +22,7 @@ import { TrackViewport } from './track.js';
 import { CutsceneViewport, CutsceneAudio, activeCutsceneAudio } from './cutscene.js';
 import { Group } from 'three';
 const api = window.workbench;
+const shell = initializeWorkspace();
 const $ = id => document.getElementById(id);
 const state = { project: null, file: null, category: 'levels', texts: new Map(), textIndex: 0, busy: false, viewport: null };
 function element(tag, text, className) { const node = document.createElement(tag); if (text !== undefined) node.textContent = text; if (className) node.className = className; return node; }
@@ -61,7 +63,7 @@ function renderCategories() {
     const button = element('button'); button.append(element('span', label), element('small', counts.get(id).toLocaleString('cs')));
     button.setAttribute('role', 'tab'); button.setAttribute('aria-selected', String(id === state.category));
     button.classList.toggle('selected', id === state.category);
-    button.onclick = () => { state.category = id; $('filter').value = ''; renderCategories(); renderFiles(); };
+    button.onclick = () => { shell.browse(); state.category = id; $('filter').value = ''; renderCategories(); renderFiles(); };
     return button;
   }));
   $('categories').scrollLeft = scroll;
@@ -104,7 +106,7 @@ function renderDetail() {
   const animationView=file.type==='animation'&&previous?.animationPath===file.path&&previous.projectRoot===state.project.root?{camera:previous.captureCamera(),model:previous.animationModel,...previous.animationState()}:null;
   state.viewport?.dispose(); state.viewport = null;
   for (const audio of $('detail').querySelectorAll('audio')) { audio.pause(); audio.removeAttribute('src'); audio.load(); }
-  const main = $('detail'); main.replaceChildren();
+  const main = $('detail'); main.replaceChildren(); main.classList.remove('spatial-detail','view-focus');
   const badges = { roads: 'ROAD · SILNIČNÍ SÍŤ', difference: 'CHG · OBJEKTY A SKRIPTY', track: 'TCK · POHYBOVÁ STOPA', navigation: 'CHECK · NAVIGACE', items: 'PŘEDMĚTY · ZBRANĚ', textdb: 'TEXTDB · EDITACE', scene: 'SCÉNA · EDITACE', cache: 'CACHE · STATICKÉ MODELY', map: 'MAPA · 3D EDITACE', model: '4DS · 3D EDITACE', animation: '5DS · ANIMACE', image: 'OBRÁZEK · NÁHLED', audio: 'ZVUK · PŘEHRÁVAČ' };
   badges.replay = 'REP · ČASOVÁ OSA';
   badges.vehicles = 'AUTA · FYZIKA A PŘEVODY';
@@ -156,6 +158,7 @@ function renderDetail() {
     }
     main.append(element('pre', rows, 'binary'));
   }
+  shell.spatial(spatialWorkspace(main,file,()=>state.viewport));
 }
 function renderReplay(main, file) {
   main.append(element('p', `${file.tracks.length} objektových stop · ${file.cameras.length} klíčů kamery · ${file.focus.length} klíčů cíle · ${file.duration} ms. Modrá: kamera, zelená: její cíl. Po načtení mise a CHG lze přehrávat dostupné modely, 5DS animace, zvukové události a dialogy. Přímočaré skriptové události z CHG přepínají viditelnost objektů. Kamera a pohyb mezi klíči jsou lineární; ostatní skripty, herní světla, morfování a pohybové TCK náhled nesimuluje.`, 'notice'));
@@ -204,7 +207,7 @@ function renderReplay(main, file) {
       view.audio=new CutsceneAudio();await view.audio.load(context.audio,name=>api.media(name));if(view.disposed)return;
       film.disabled=sound.disabled=false;film.checked=true;view.cameraMode(true);play.textContent='Přehrát cutscénu';show(view.time);
       contextInfo.textContent=`${result.actors}/${result.tracks} navázaných stop · ${result.animations} animací · ${view.audio.buffers.size} zvuků. ${result.warnings.length} upozornění na data a vazby · ${view.audio.errors.length} nedekódovaných zvuků. Zvuk je bez prostorového útlumu a opakování; hudba spouštěná skriptem se nepřehrává.`;
-      const details=element('details'),summary=element('summary','Podrobnosti náhledu');details.append(summary,element('pre',[...result.warnings,...view.audio.errors.map(p=>'Nelze dekódovat zvuk: '+p)].join('\n')||'Všechny načítané zdroje jsou dostupné.'));center.append(details);status('Náhled cutscény připraven.');
+      const details=element('details'),summary=element('summary','Podrobnosti náhledu');details.append(summary,element('pre',[...result.warnings,...view.audio.errors.map(p=>'Nelze dekódovat zvuk: '+p)].join('\n')||'Všechny načítané zdroje jsou dostupné.'));(inspector.querySelector('.workspace-help')??center).append(details);status('Náhled cutscény připraven.');
     }catch(error){contextInfo.textContent=error.message+' Pro nový výběr zavřete náhled tlačítkem „Pouze dráhy“.';throw error;}
   });
   api.replayMissions(file.path).then(matches=>{if(view.disposed||chosen)return;if(matches.length===1){mission.value=matches[0].path;if(matches[0].differences.length===1)difference.value=matches[0].differences[0];contextInfo.textContent='Mise nalezená podle doslovného odkazu na REP ve skriptu. CHG lze změnit před načtením.';}else if(matches.length>1)contextInfo.textContent=`REP se objevuje v ${matches.length} misích; vyberte odpovídající scénu.`;}).catch(error=>{if(!view.disposed)contextInfo.textContent=error.message;});
@@ -527,11 +530,13 @@ function renderTexts(main, file) {
   search.oninput = fill; fill(); indexPanel.append(search, list); workspace.append(indexPanel, form); main.append(workspace);
   if (file.entries.length) edit(file.entries[state.textIndex] ?? file.entries[0]);
 }
-function renderProperties(main, file, saveAPI, onEdit = () => {}, onPick = () => {}) {
+function renderProperties(main, file, saveAPI, onEdit = () => {}, onPick = () => {}, initialSelection = true) {
   const workspace = element('div', undefined, 'text-workspace'), indexPanel = element('div', undefined, 'text-index'), form = element('div', undefined, 'text-form');
   const search = element('input'); search.type = 'search'; search.placeholder = 'Objekt, vlastnost nebo skript…'; search.setAttribute('aria-label', 'Hledat ve scéně');
   const list = element('div', undefined, 'text-list');
-  const groups = ['scene','map','effects'].includes(file.type) && !file.cacheSource ? groupSceneProperties(file) : null;
+  const groups = ['scene','map','effects'].includes(file.type) && !file.cacheSource ? groupSceneProperties(file) : file.type==='model' ? (()=>{
+    const byObject=new Map();for(const entry of file.entries){const [type,index]=entry.id.split('/'),id=type+'/'+index;if(!byObject.has(id))byObject.set(id,{id,name:type==='meshes'?file.meshes[Number(index)]?.name??entry.context:type==='materials'?'Materiál '+(Number(index)+1):entry.context,context:entry.context,entries:[]});byObject.get(id).entries.push({entry,label:entry.label});}return [...byObject.values()];
+  })() : null;
   const expanded = new Set(), rows = new Map(), groupRows = new Map();
   let selected = null, limit = 100;
   function markSelection() {
@@ -541,10 +546,12 @@ function renderProperties(main, file, saveAPI, onEdit = () => {}, onPick = () =>
   function edit(entry) {
     selected = entry.id; markSelection();
     form.replaceChildren();
-    const label = element('label', `${entry.context} / ${entry.label}`); label.htmlFor = 'scene-value';
-    const input = element(entry.doorParameter || entry.soundParameter || entry.physicalParameter || entry.detectorParameter ? 'input' : 'textarea'); input.id = 'scene-value';
-    const draft = state.texts.get(entry.id) ?? entry.value;
+    const label = element('label', main.classList.contains('model-inspector') ? `${entry.context.split(' / ').at(-1)} · ${entry.label}` : `${entry.context} / ${entry.label}`); label.title=`${entry.context} / ${entry.label}`; label.htmlFor = 'scene-value';
     const isString = ['string', 'string8'].includes(entry.kind);
+    const input = element(isString || entry.doorParameter || entry.soundParameter || entry.physicalParameter || entry.detectorParameter ? 'input' : 'textarea'); input.id = 'scene-value';
+    const draft = state.texts.get(entry.id) ?? entry.value;
+    let numberInputs=null;
+    if(isString)input.type='text';
     if(entry.doorParameter){input.type=entry.kind==='boolean'?'checkbox':isString?'text':'number';if(input.type==='number'){input.step='any';input.min='0';if(entry.max!==undefined)input.max=String(entry.max);}if(isString)input.maxLength=15;if(entry.kind==='boolean')input.checked=draft;}
     if(entry.soundParameter){input.type='checkbox';input.checked=draft;}
     if(entry.physicalParameter){input.type=entry.kind==='boolean'?'checkbox':'number';if(entry.kind==='boolean')input.checked=draft;else{input.step=entry.kind==='int'?'1':'any';input.min=String(entry.min);if(entry.max!==undefined)input.max=String(entry.max);}}
@@ -553,10 +560,12 @@ function renderProperties(main, file, saveAPI, onEdit = () => {}, onPick = () =>
     const name = element('input'); name.setAttribute('aria-label', 'Název skriptu'); name.value = entry.kind === 'script' ? draft.name : '';
     name.disabled = Boolean(entry.actorScript);
     if(entry.detectorParameter)form.append(element('p','Maska vybírá typy postav pro detector_inrange: 1 hráč, 4 policie, 16 gangsteři, 128 pasažér taxi. Bity lze kombinovat; 0 nepočítá žádné postavy. Ostatní bity mají původní číselný význam a zůstávají zachované. Nejde o zapnutí či vypnutí skriptu. Změna se projeví při novém načtení mise.'));
-    function value() { return (entry.doorParameter||entry.soundParameter||entry.physicalParameter)&&entry.kind==='boolean' ? input.checked : entry.kind === 'script' ? { name: name.value, code: input.value } : isString ? input.value : JSON.parse(input.value); }
+    function value() {
+      if(numberInputs){const values=numberInputs.map(node=>{const value=Number(node.value);if(node.value.trim()===''||!Number.isFinite(value))throw Error('Neplatné číslo');return value;});return Array.isArray(entry.value)?values:values[0];}
+      return (entry.doorParameter||entry.soundParameter||entry.physicalParameter)&&entry.kind==='boolean' ? input.checked : entry.kind === 'script' ? { name: name.value, code: input.value } : isString ? input.value : JSON.parse(input.value); }
     function track() {
-      try { const next = value(); if (JSON.stringify(next) === JSON.stringify(entry.value)) state.texts.delete(entry.id); else state.texts.set(entry.id, next); save.disabled = !state.texts.size; save.textContent = `Uložit změny (${state.texts.size})`; onEdit(entry, next); status('Rozepsaná úprava.'); }
-      catch { state.texts.set(entry.id, { invalid: true, raw: input.value }); save.disabled = false; status('Číselné hodnoty zapisujte jako číslo nebo pole, např. [1, 2, 3].', true); }
+      try { const next = value(); for(const node of numberInputs??[])node.removeAttribute('aria-invalid'); if (JSON.stringify(next) === JSON.stringify(entry.value)) state.texts.delete(entry.id); else state.texts.set(entry.id, next); save.disabled = !state.texts.size; save.textContent = `Uložit změny (${state.texts.size})`; onEdit(entry, next); status('Rozepsaná úprava.'); }
+      catch { state.texts.set(entry.id, { invalid: true, raw: numberInputs?numberInputs.map(node=>node.value).join(', '):input.value }); for(const node of numberInputs??[])node.setAttribute('aria-invalid',String(node.value.trim()===''||!Number.isFinite(Number(node.value)))); save.disabled = false; save.textContent=`Uložit změny (${state.texts.size})`; status(numberInputs?'Vyplňte každou složku platným číslem.':'Číselné hodnoty zapisujte jako číslo nebo pole, např. [1, 2, 3].', true); }
     }
     input.oninput = track; name.oninput = track;
     const save = element('button', `Uložit změny (${state.texts.size})`, 'primary'); save.disabled = !state.texts.size;
@@ -567,7 +576,13 @@ function renderProperties(main, file, saveAPI, onEdit = () => {}, onPick = () =>
       if(state.file.type==='roads'&&state.file.roadMapping)state.roadIndex=state.file.roadMapping[state.roadIndex??0]??0;
       state.texts.clear(); await refresh(); renderDetail(); status('Změny uložené do modu se zálohou.');
     });
-    form.append(label); if (entry.kind === 'script') form.append(name); form.append(input, element('p', entry.physicalParameter ? 'Typ box/kolo nevypíná kolize. Poloměr a tlumení se používají pouze pro kolo. Nárazový zvuk je sloupec 0–13 v tabulce materiálů; −1 znamená ticho. Parametr zásahu je původní číselná hodnota, její úplný význam ještě není ověřený. Verze, doplňkový parametr kola a další data zůstávají zachované. Změna se projeví po novém načtení mise.' : entry.soundParameter ? 'Opakování se projeví při novém načtení mise. Bez opakování se nahrávka přehraje jednou.' : entry.label==='Dosah zvuku' && entry.kind==='vec4' ? 'Pořadí: [vnitřní poloměr, vnější poloměr, vnitřní útlum, vnější útlum]. Poloměry jsou v herních jednotkách; útlumy zpravidla v rozsahu 0–1.' : entry.doorParameter ? 'Nastavení dveří se projeví při novém načtení mise. Úhel je ve stupních, rychlosti ve stupních za sekundu. Otevírání na obě strany volí směr podle postavy, která dveře použije. Název zvuku může být prázdný nebo mít nejvýše 15 bajtů. Závěs, ostatní příznaky a další data zůstanou zachované.' : entry.humanParameter ? `${entry.kind==='byte'?'Celé číslo 0–255.':entry.humanMaximum?'Základní/maximální hodnota vlastnosti. Skripty human_getproperty a human_setproperty pracují s procenty tohoto maxima; např. plné zdraví se ve hře ukáže jako 100 i při jiném maximu.':'Uložený doplňkový parametr chování.'} Ostatní parametry, horní bajty příznaků a skript zůstanou zachované. Změna se projeví při novém načtení mise.` : entry.kind === 'script' ? entry.actorScript ? 'Zdroj skriptového aktéra. Hlavička a další nerozpoznaná data zůstanou zachovaná. Název je svázaný s aktérem; zde se upravuje pouze kód. Změny se projeví při novém načtení mise.' : 'Zdroj skriptu mise. První bajt a další nerozpoznaná data zůstanou zachovaná.' : `Typ: ${entry.kind}. Souřadnice: X, Y, Z; rotace: W, X, Y, Z. Ostatní vlastnosti zůstanou zachované.`), save);
+    let control=input;
+    if(!draft?.invalid&&['vec2','vec3','vec4','quat','float','uint','int','byte','u8','u16'].includes(entry.kind)){
+      control=element('div',undefined,'numeric-fields');numberInputs=[];const values=Array.isArray(draft)?draft:[draft],labels=entry.kind==='quat'||/WXYZ/.test(entry.label)?['W','X','Y','Z']:/RGB$/.test(entry.label)?['R','G','B']:entry.label==='Dosah zvuku'?['Vnitřní poloměr','Vnější poloměr','Vnitřní útlum','Vnější útlum']:values.length===1?['Hodnota']:['X','Y','Z','W'];
+      for(const [i,value] of values.entries()){const field=element('label',labels[i]),number=element('input');number.type='number';number.step=['uint','int','byte','u8','u16'].includes(entry.kind)?'1':'any';number.value=Object.is(value,-0)?'-0':String(value);number.setAttribute('aria-label',entry.label+' · '+labels[i]);if(entry.min!==undefined)number.min=String(entry.min);if(entry.max!==undefined)number.max=String(entry.max);number.oninput=track;numberInputs.push(number);field.append(number);control.append(field);}
+      label.removeAttribute('for');
+    }
+    form.append(label); if (entry.kind === 'script') form.append(name); form.append(control, element('p', entry.physicalParameter ? 'Typ box/kolo nevypíná kolize. Poloměr a tlumení se používají pouze pro kolo. Nárazový zvuk je sloupec 0–13 v tabulce materiálů; −1 znamená ticho. Parametr zásahu je původní číselná hodnota, její úplný význam ještě není ověřený. Verze, doplňkový parametr kola a další data zůstávají zachované. Změna se projeví po novém načtení mise.' : entry.soundParameter ? 'Opakování se projeví při novém načtení mise. Bez opakování se nahrávka přehraje jednou.' : entry.label==='Dosah zvuku' && entry.kind==='vec4' ? 'Pořadí: [vnitřní poloměr, vnější poloměr, vnitřní útlum, vnější útlum]. Poloměry jsou v herních jednotkách; útlumy zpravidla v rozsahu 0–1.' : entry.doorParameter ? 'Nastavení dveří se projeví při novém načtení mise. Úhel je ve stupních, rychlosti ve stupních za sekundu. Otevírání na obě strany volí směr podle postavy, která dveře použije. Název zvuku může být prázdný nebo mít nejvýše 15 bajtů. Závěs, ostatní příznaky a další data zůstanou zachované.' : entry.humanParameter ? `${entry.kind==='byte'?'Celé číslo 0–255.':entry.humanMaximum?'Základní/maximální hodnota vlastnosti. Skripty human_getproperty a human_setproperty pracují s procenty tohoto maxima; např. plné zdraví se ve hře ukáže jako 100 i při jiném maximu.':'Uložený doplňkový parametr chování.'} Ostatní parametry, horní bajty příznaků a skript zůstanou zachované. Změna se projeví při novém načtení mise.` : entry.kind === 'script' ? entry.actorScript ? 'Zdroj skriptového aktéra. Hlavička a další nerozpoznaná data zůstanou zachovaná. Název je svázaný s aktérem; zde se upravuje pouze kód. Změny se projeví při novém načtení mise.' : 'Zdroj skriptu mise. První bajt a další nerozpoznaná data zůstanou zachovaná.' : `Typ: ${entry.kind}. Souřadnice: X, Y, Z; rotace: W, X, Y, Z. Ostatní vlastnosti zůstanou zachované.`), save);
   }
   function fill() {
     const query = search.value.toLowerCase(), fragment = document.createDocumentFragment();
@@ -579,7 +594,7 @@ function renderProperties(main, file, saveAPI, onEdit = () => {}, onPick = () =>
         summary.append(element('span',group.name),element('span',String(group.entries.length),'property-count'));summary.title=group.context;
         details.open=Boolean(query)||expanded.has(group.id);details.append(summary);groupRows.set(group.id,details);
         let populated=false;
-        summary.onclick=()=>{if(!details.open)onPick(group.entries[0].entry);};
+        summary.onclick=()=>{if(!details.open){const entry=group.entries.find(item=>/^Pozice(?: XYZ)?$/.test(item.entry.label))?.entry??group.entries[0].entry;edit(entry);onPick(entry);}};
         function populate(){if(populated)return;populated=true;const children=element('div');for(const {entry,label} of group.entries){const button=element('button',label);button.title=`${entry.context} / ${entry.label}`;button.onclick=()=>{edit(entry);onPick(entry);};rows.set(entry.id,button);children.append(button);}details.append(children);markSelection();}
         details.ontoggle=()=>{if(details.open){expanded.add(group.id);populate();}else expanded.delete(group.id);};
         if(details.open)populate();fragment.append(details);
@@ -595,11 +610,12 @@ function renderProperties(main, file, saveAPI, onEdit = () => {}, onPick = () =>
   }
   function select(id){
     const entry=file.entries.find(e=>e.id===id);if(!entry)return;
-    if(groups){const index=groups.findIndex(group=>group.entries.some(item=>item.entry.id===id));expanded.add(groups[index].id);limit=Math.max(limit,index+1);if(search.value)search.value='';fill();}
+    if(groups){const index=groups.findIndex(group=>group.entries.some(item=>item.entry.id===id));expanded.add(groups[index].id);limit=Math.max(limit,index+1);if(search.value&&!`${groups[index].name} ${entry.context} ${entry.label}`.toLowerCase().includes(search.value.toLowerCase()))search.value='';fill();}
     edit(entry);rows.get(id)?.scrollIntoView({block:'nearest'});
   }
   search.oninput = () => {limit=100;fill();}; fill(); indexPanel.append(search, list); workspace.append(indexPanel, form); main.append(element('p', `${groups?`${groups.length.toLocaleString('cs')} objektů · `:''}${file.entries.length.toLocaleString('cs')} rozpoznaných vlastností. Nerozpoznaná data se zachovají beze změny.`, 'notice'), workspace);
-  if (file.entries.length) select((file.entries.find(e => e.kind === 'script') ?? file.entries[0]).id);
+  if (file.entries.length && initialSelection) select((file.entries.find(e => e.kind === 'script') ?? file.entries[0]).id);
+  else form.append(element('p','Vyberte objekt v seznamu nebo přímo ve 3D pohledu.'));
   return { select, changed: () => { const entry = file.entries.find(e => e.id === state.selectedProperty); if (entry) edit(entry); } };
 }
 function renderEffects(main,file,previous=null){
@@ -699,7 +715,7 @@ function renderModel(main, file, previous = null) {
   let properties;
   const view = new Viewport(viewport, frame => { view.selectedId = frame.id; selected.textContent = `Objekt ${frame.sourceId}: ${frame.name}`; objects.value = String(frame.sourceId); properties?.select(`meshes/${frame.sourceId - 1}/position`); }, (frame, values, mode) => {
     const field = { translate: 'position', rotate: 'rotation', scale: 'scale' }[mode], id = `meshes/${frame.sourceId - 1}/${field}`;
-    state.texts.set(id, values[field]); state.selectedProperty = id; properties?.select(id); status('3D úprava je rozepsaná; uložte změny pod pohledem.');
+    state.texts.set(id, values[field]); state.selectedProperty = id; properties?.select(id); status('3D úprava je rozepsaná; uložte změny v inspektoru.');
   });
   state.viewport = view;
   view.modelPath = file.path; view.projectRoot = state.project.root; view.focusOnSelect = true;
@@ -908,12 +924,13 @@ function renderMap(main, file, previous = null) {
   }
   addObjects().catch(error => status(error.message, true));
   for (const [mode, label] of [['translate', 'Posun'], ['rotate', 'Rotace'], ['scale', 'Měřítko']]) { const button = element('button', label); button.onclick = () => view.gizmo.setMode(mode); tools.append(button); }
+  const displayActions=[];
   const fit = element('button', 'Zarámovat mapu'); fit.onclick = () => { cameraMoved = true; view.fit(); };
   const sky = element('button', 'Obloha'); let showSky = Boolean(previous?.backdrop); sky.setAttribute('aria-pressed', String(showSky)); sky.onclick = () => { showSky = !showSky; view.showBackdrop(showSky); sky.setAttribute('aria-pressed', String(showSky)); updateSoundExtent(); };
-  tools.append(fit, sky); objects.onchange = () => view.select(objects.value);
+  tools.append(fit); displayActions.push(sky); objects.onchange = () => view.select(objects.value);
   if(file.collision){
     const show=element('button',`Generované kolize (${file.collision.boxes.length+(file.collision.surfaces?.length??0)})`);let visible=Boolean(previous?.collisions);show.setAttribute('aria-pressed',String(visible));
-    view.showCollisionBoxes(file.collision.boxes,visible,file.collision.surfaces??[]);show.onclick=()=>{visible=!visible;view.showCollisionBoxes(file.collision.boxes,visible,file.collision.surfaces??[]);show.setAttribute('aria-pressed',String(visible));};tools.append(show);
+    view.showCollisionBoxes(file.collision.boxes,visible,file.collision.surfaces??[]);show.onclick=()=>{visible=!visible;view.showCollisionBoxes(file.collision.boxes,visible,file.collision.surfaces??[]);show.setAttribute('aria-pressed',String(visible));};displayActions.push(show);
     if(file.collision.warning)center.append(element('p',file.collision.warning,'notice'));
   }
   focus.onclick = () => { const object = view.frames.get(selectedId); if (object) { cameraMoved = true; view.fit(object); } };
@@ -921,7 +938,7 @@ function renderMap(main, file, previous = null) {
   if(!file.cacheSource){
     soundExtent.onclick=()=>{soundExtentVisible=!soundExtentVisible;soundExtent.setAttribute('aria-pressed',String(soundExtentVisible));updateSoundExtent();};
     focusSound.onclick=()=>{if(view.soundOverlay?.visible){cameraMoved=true;view.fit(view.soundOverlay);}};
-    tools.append(soundExtent,focusSound);
+    displayActions.push(soundExtent,focusSound);
   }
   if (!file.cacheSource) {
     for (const [button, kind] of [[add, 'add-model'], [addHuman,'add-human'], [addCar,'add-car'], [duplicate, 'duplicate'], [remove, 'delete'],[collision,'collision']]) button.onclick = () => run(async () => {
@@ -936,13 +953,14 @@ function renderMap(main, file, previous = null) {
     addSound.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před vložením zvuku uložte rozepsané vlastnosti.');soundDialog(file,selectedObject?.position);});
     addDetector.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před vložením skriptového bodu uložte rozepsané vlastnosti.');detectorDialog(file,selectedObject?.position);});
     for(const [button,configure] of [[addPickup,false],[configurePickup,true]])button.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před vložením nebo nastavením předmětu uložte rozepsané vlastnosti.');const catalog=await api.pickupItems();if(!catalog.items.length)throw new Error('Tabulka neobsahuje předměty s dostupným podporovaným modelem.');pickupDialog(file,catalog,configure?selectedObject:null,selectedObject?.position);});
-    tools.append(add, addHuman, addCar, addPickup, configurePickup, addDoor, addPhysical, addLight, addSound, addDetector, duplicate, remove,collision);
+    tools.append(actionMenu('Přidat',[add,addHuman,addCar,addPickup,addLight,addSound,addDetector]),actionMenu('Objekt',[duplicate,remove,collision,configurePickup,addDoor,addPhysical]));
   }
+  tools.append(actionMenu('Zobrazení',displayActions));
   view.loadTextures(resolveTexture);
   properties = renderProperties(inspector, file, file.cacheSource ? api.saveCache : async (...args) => { await api.saveScene(...args); return api.map(file.path); }, (entry, value) => { const field = byField.get(entry.id); if (field && ['position','rotation','scale'].includes(field.kind)) view.update(field.id, { [field.kind]: value }); updateSoundExtent(); }, entry => {
     const field=byField.get(entry.id);
     if(field&&selectedId!==field.id){view.select(field.id);properties.select(entry.id);}
-  });
+  }, false);
   center.append(element('p', file.cacheSource ? 'Statické modely vybrané části cache.bin. Transformace se ukládají do samostatného modu; oranžové body označují chybějící modely.' : 'Geometrie scene.4ds a objekty scene2.bin. Modré body označují objekty bez modelu; oranžové body chybějící model. Generované kolize se přepočítají při uložení transformace a vracejí se společně s objektem.', 'notice'));
 }
 function pickupDialog(file,catalog,object=null,position=[0,0,0]){
@@ -1153,14 +1171,14 @@ for (const [id, action] of [['open', api.open], ['create', api.create]]) $(id).o
   status(id === 'create' ? 'Vyberte hru a umístění nového projektu…' : 'Vyberte projekt…');
   const project = await action(); if (!project) { status('Zrušeno'); return; }
   state.viewport?.dispose(); state.viewport = null;
-  state.texts.clear(); state.file = null; $('detail').replaceChildren(element('h2', 'Projekt je připravený'), element('p', 'Vyberte soubor vlevo. České texty najdete filtrem Texty.'));
+  state.texts.clear(); state.file = null; shell.spatial(false); $('detail').classList.remove('spatial-detail','view-focus'); $('detail').replaceChildren(element('h2', 'Projekt je připravený'), element('p', 'Vyberte soubor vlevo. České texty najdete filtrem Texty.'));
   await refresh(project); status('Projekt otevřený; původní hra zůstala zachovaná.');
 });
 $('undo').onclick = () => run(async () => {
   if (!await discard()) return;
   const project = await api.undo(); state.texts.clear(); await refresh(project);
   if (state.file && project.assets.some(a => a.path === state.file.path)) await openFile(state.file.path);
-  else if (state.file) { state.viewport?.dispose(); state.viewport = null; state.file = null; $('detail').replaceChildren(element('h2', 'Vytvoření mise vráceno'), element('p', 'Vyberte soubor vlevo.')); }
+  else if (state.file) { state.viewport?.dispose(); state.viewport = null; state.file = null; shell.spatial(false); $('detail').classList.remove('spatial-detail','view-focus'); $('detail').replaceChildren(element('h2', 'Vytvoření mise vráceno'), element('p', 'Vyberte soubor vlevo.')); }
   status('Poslední uložená změna vrácena.');
 });
 $('new-mission').onclick = () => run(async () => {
