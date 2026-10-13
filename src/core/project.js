@@ -24,6 +24,7 @@ import { parseVehicleTable, vehicleModelDefinition, validateVehicleModel } from 
 import { inspectVehicleTable, editVehicleTable } from './vehicle-table.js';
 import { parseEffects, editEffects, changeEffects, parseEffectTypes } from './effects.js';
 import { parseBmp, editBmp } from './bmp.js';
+import { inspectModelGeometry, editModelGeometry } from './model-geometry.js';
 
 const MANIFEST = 'workbench.json';
 const key = p => relativeAssetPath(p).normalize('NFC').toLowerCase();
@@ -434,6 +435,14 @@ export class ModProject {
     if (/\.(png|jpe?g)$/i.test(name)) return { type: 'image', ...common };
     if (/\.(wav|ogg|mp3)$/i.test(name)) return { type: 'audio', ...common };
     return { type: 'binary', ...common, warning, hex: bytes.subarray(0, 4096).toString('hex'), signature: bytes.subarray(0, 16).toString('ascii').replace(/[^\x20-\x7e]/g, '.') };
+  }
+  async modelGeometry(name, mesh) {
+    if(!/\.4ds$/i.test(name))throw new Error('Soubor není 4DS model.');
+    const bytes=await this.read(name);return {sha256:hash(bytes),...inspectModelGeometry(bytes,mesh)};
+  }
+  async saveGeometry(name, request, expectedHash) {
+    if(!/\.4ds$/i.test(name))throw new Error('Soubor není 4DS model.');
+    await this.change(name,before=>{if(expectedHash!==hash(before))throw new Error('Soubor se od otevření změnil. Otevřete jej znovu.');return editModelGeometry(before,request);},'Úprava geometrie 4DS');
   }
   async saveBitmap(name, changes, expectedHash) {
     if(!/\.bmp$/i.test(name))throw new Error('Soubor není BMP textura.');

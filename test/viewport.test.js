@@ -61,6 +61,15 @@ test('right and middle clicks, orbit drags and mismatched pointers do not select
   view.beginPick(left);view.finishPick(left);assert.equal(picked,1);assert.ok(view.camera.position.distanceTo(view.controls.target)<1);
   view.finishPick(left);assert.equal(picked,1);assert.ok(view.frames.has(id));
 });
+test('vertex editor picks the native vertex index from point overlays without selecting the whole part or moving its camera',()=>{
+  const view=viewport();view.camera.position.set(0,0,10);view.camera.lookAt(0,0,0);view.camera.updateMatrixWorld();view.raycaster=new THREE.Raycaster();view.raycaster.params.Points.threshold=.05;
+  view.renderer={domElement:{getBoundingClientRect:()=>({left:0,top:0,width:100,height:100})}};view.gizmo={};
+  const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.Float32BufferAttribute([2,0,-1,0,0,-1],3));const points=new THREE.Points(geometry);points.userData.vertexEditor=true;view.root.add(points);
+  const part=new THREE.Mesh(new THREE.PlaneGeometry(4,4),new THREE.MeshBasicMaterial({side:THREE.DoubleSide}));part.userData.frame={id:'part'};view.root.add(part);view.root.updateMatrixWorld(true);
+  let index=-1;view.onVertexSelect=value=>{index=value;};view.select=()=>assert.fail('part selection must not run');const before=view.captureCamera(),event={button:0,clientX:50,clientY:50,pointerId:1};view.beginPick(event);view.finishPick(event);assert.equal(index,1);assert.deepEqual(view.captureCamera(),before);
+  points.visible=false;view.beginPick(event);view.finishPick(event);assert.equal(index,1);
+  view.onVertexSelect=null;view.select=()=>{index=99;};view.beginPick(event);view.finishPick(event);assert.equal(index,99);
+});
 test('a restored detail remains stable with real OrbitControls and wheel zoom reaches its small distance limit', () => {
   const canvas=new EventTarget(),document=new EventTarget();
   Object.assign(canvas,{style:{},ownerDocument:document,getRootNode:()=>document,getBoundingClientRect:()=>({left:0,top:0,width:100,height:100})});

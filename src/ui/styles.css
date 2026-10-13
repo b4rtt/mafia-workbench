@@ -20,3 +20,9 @@
 .bitmap-palette { display: grid; grid-template-columns: repeat(32, 18px); gap: 2px; overflow-x: auto; padding: 12px 0; }
 .bitmap-palette button { width: 18px; height: 18px; min-width: 0; padding: 0; border-radius: 2px; border: 1px solid #777; }
 .bitmap-palette button[aria-pressed="true"] { outline: 2px solid var(--accent); outline-offset: 1px; z-index: 1; }
+.geometry-dialog { width: min(1100px, calc(100vw - 40px)); max-width: 1100px; max-height: calc(100vh - 40px); overflow: auto; }
+.geometry-dialog .viewport { height: 390px; min-height: 240px; }
+.geometry-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.geometry-fields fieldset { border: 1px solid var(--line); border-radius: 5px; }
+.geometry-fields input { width: 100%; margin-bottom: 6px; }
+.geometry-fields input[aria-invalid=true] { border-color: #d74838; }

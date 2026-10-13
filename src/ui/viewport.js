@@ -73,7 +73,10 @@ export class Viewport {
     if (event.button !== 0 || this.gizmo.dragging || this.gizmo.axis || !start || event.pointerId !== start[2] || Math.hypot(event.clientX - start[0], event.clientY - start[1]) > 4) return;
     const rect = this.renderer.domElement.getBoundingClientRect();
     this.raycaster.setFromCamera(new THREE.Vector2((event.clientX - rect.left) / rect.width * 2 - 1, 1 - (event.clientY - rect.top) / rect.height * 2), this.camera);
-    const hit = this.raycaster.intersectObjects(this.root.children, true).find(hit => { for (let o = hit.object; o; o = o.parent) if (!o.visible) return false; return true; });
+    const hits = this.raycaster.intersectObjects(this.root.children, true).filter(hit => { for (let o = hit.object; o; o = o.parent) if (!o.visible) return false; return true; });
+    const vertex = hits.find(hit => hit.object.userData.vertexEditor);
+    if(this.onVertexSelect){if(vertex)this.onVertexSelect(vertex.index);return;}
+    const hit = hits[0];
     if (!hit) return;
     if (hit.object.userData.navigation && hit.instanceId !== undefined) { this.select(String(hit.instanceId)); return; }
     let object = hit.object; while (object && !object.userData.frame) object = object.parent;

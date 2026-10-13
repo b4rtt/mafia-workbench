@@ -27,9 +27,10 @@ function object(reader, geometry) {
   for (let lod = 0; lod < count; lod++) {
     const distance = reader.number('readFloatLE', 4), vertices = reader.u16(), start = reader.pos;
     reader.skip(vertices * 32);
-    const positions = geometry && lod === 0 ? Array.from({ length: vertices * 3 }, (_, i) => reader.bytes.readFloatLE(start + Math.floor(i / 3) * 32 + i % 3 * 4)) : [];
-    const normals = geometry && lod === 0 ? Array.from({ length: vertices * 3 }, (_, i) => reader.bytes.readFloatLE(start + Math.floor(i / 3) * 32 + 12 + i % 3 * 4)) : [];
-    const uv = geometry && lod === 0 ? Array.from({ length: vertices * 2 }, (_, i) => reader.bytes.readFloatLE(start + Math.floor(i / 2) * 32 + 24 + i % 2 * 4)) : [];
+    const read = geometry && (geometry === 'all' || lod === 0);
+    const positions = read ? Array.from({ length: vertices * 3 }, (_, i) => reader.bytes.readFloatLE(start + Math.floor(i / 3) * 32 + i % 3 * 4)) : [];
+    const normals = read ? Array.from({ length: vertices * 3 }, (_, i) => reader.bytes.readFloatLE(start + Math.floor(i / 3) * 32 + 12 + i % 3 * 4)) : [];
+    const uv = read ? Array.from({ length: vertices * 2 }, (_, i) => reader.bytes.readFloatLE(start + Math.floor(i / 2) * 32 + 24 + i % 2 * 4)) : [];
     if (positions.some(v => !Number.isFinite(v))) throw new Error('4DS: vrcholy obsahují neplatná čísla.');
     // Some shipped meshes have uninitialised, unused UVs/normals. Retain source bytes;
     // only the preview substitutes UV zeroes and recomputes invalid normals.
@@ -39,13 +40,13 @@ function object(reader, geometry) {
     const groups = reader.u8(), faces = [];
     for (let group = 0; group < groups; group++) {
       const count = reader.u16(), begin = reader.pos; reader.skip(count * 6); const material = reader.u16();
-      if (geometry && lod === 0) {
+      if (read) {
         const indices = Array.from({ length: count * 3 }, (_, i) => reader.bytes.readUInt16LE(begin + i * 2));
         if (indices.some(index => index >= vertices)) throw new Error('4DS: trojúhelník odkazuje mimo vrcholy.');
         faces.push({ material, indices });
       }
     }
-    lods.push({ distance, vertices, positions, normals, uv, faces, invalidNormals, invalidUV });
+    lods.push({ distance, vertices, positions, normals, uv, faces, invalidNormals, invalidUV, ...(geometry === 'all' ? { vertexOffset:start } : {}) });
   }
   return { instance, lods };
 }
