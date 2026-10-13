@@ -18,7 +18,7 @@ import { AnimationPreview } from './animation.js';
 import { renderAnimationTimeline } from './animation-timeline.js';
 import { toLs3dRotation } from './transforms.js';
 import { NavigationViewport } from './navigation.js';
-import { TrackViewport } from './track.js';
+import { TrackViewport, companionAnimation } from './track.js';
 import { CutsceneViewport, CutsceneAudio, activeCutsceneAudio } from './cutscene.js';
 import { Group } from 'three';
 const api = window.workbench;
@@ -104,6 +104,7 @@ function renderDetail() {
   const roadView = file.type === 'roads' && previous?.roadPath === file.path && previous.projectRoot === state.project.root
     ? {camera:previous.captureCamera(),geometry:previous.roadGeometryWanted} : null;
   const animationView=file.type==='animation'&&previous?.animationPath===file.path&&previous.projectRoot===state.project.root?{camera:previous.captureCamera(),model:previous.animationModel,...previous.animationState()}:null;
+  const trackView=file.type==='track'&&previous?.trackPath===file.path&&previous.projectRoot===state.project.root?{camera:previous.captureCamera(),model:previous.trackModel,animation:previous.trackAnimation,time:previous.time,search:previous.trackSearch()}:null;
   state.viewport?.dispose(); state.viewport = null;
   for (const audio of $('detail').querySelectorAll('audio')) { audio.pause(); audio.removeAttribute('src'); audio.load(); }
   const main = $('detail'); main.replaceChildren(); main.classList.remove('spatial-detail','view-focus');
@@ -139,7 +140,7 @@ function renderDetail() {
   else if (file.type === 'effects') renderEffects(main, file, effectsView);
   else if (file.type === 'navigation') renderNavigation(main, file);
   else if (file.type === 'roads') renderRoads(main, file, roadView);
-  else if (file.type === 'track') renderTrack(main, file);
+  else if (file.type === 'track') renderTrack(main, file, trackView);
   else if (file.type === 'difference') renderDifference(main, file);
   else if (file.type === 'replay') renderReplay(main, file);
   else if (file.type === 'scene') renderProperties(main, file, api.saveScene);
@@ -221,34 +222,64 @@ function renderDifference(main, file) {
   main.append(summary,element('p',`${file.opaqueBytes.toLocaleString('cs')} nerozpoznaných bajtů se při uložení zachová přesně. Jména a vazby se zobrazují pro orientaci; rotace se upravuje v původním pořadí W, X, Y, Z.`, 'muted'));
   renderProperties(main,file,api.saveDifference);
 }
-function renderTrack(main, file) {
-  main.append(element('p', `TCK verze 4 · ${file.positions.length.toLocaleString('cs')} polohových klíčů · ${file.secondary.length.toLocaleString('cs')} doplňkových vektorů · ${file.duration} ms · krok ${file.step} ms. Náhled lineárně interpoluje dráhu; kostru postavy ani celou cutscénu nepřehrává.`, 'notice'));
+function renderTrack(main, file, previousView=null) {
+  main.append(element('p', `TCK verze 4 · ${file.positions.length.toLocaleString('cs')} polohových klíčů · ${file.secondary.length.toLocaleString('cs')} směrových vektorů · ${file.duration} ms · krok ${file.step} ms. Náhled spojuje dráhu, směr a odpovídající animaci 5DS. Umístění v misi a přechody mezi animacemi se zde nepřehrávají.`, 'notice'));
   if (file.tailBytes) main.append(element('p', `${file.tailBytes.toLocaleString('cs')} koncových bajtů není rozpoznaných. Při editaci se zachovají přesně.`, 'notice'));
   main.append(element('p', `Hlavička, vektor A (raw): ${JSON.stringify(file.headerVectors[0])} · vektor B (raw): ${JSON.stringify(file.headerVectors[1])}. Časování, počty a hlavička zůstávají zachované.`, 'muted'));
   const layout = element('div', undefined, 'model-workspace'), center = element('section', undefined, 'model-center'), inspector = element('section', undefined, 'model-inspector'); layout.append(center,inspector); main.append(layout);
-  const tools = element('div', undefined, 'tools'), play = element('button','Přehrát dráhu'), fit = element('button','Zarámovat dráhu'), seek = element('input'), clock = element('output'), viewport = element('div',undefined,'viewport');
+  const animationPath=companionAnimation(state.project.assets,file.path);
+  const modelTools=element('div',undefined,'tools'),search=element('input'),models=element('select'),load=element('button','Načíst postavu'),close=element('button','Pouze dráha'),caption=element('p',undefined,'notice');
+  search.type='search';search.placeholder='Hledat model…';search.value=previousView?.search??'Tommy';search.setAttribute('aria-label','Hledat postavu pro TCK');models.setAttribute('aria-label','Model postavy pro TCK');
+  modelTools.append(search,models,load,close);
+  const tools = element('div', undefined, 'tools'), play = element('button','Přehrát dráhu'), fit = element('button','Zarámovat dráhu'), focus=element('button','Přiblížit postavu'), seek = element('input'), clock = element('output'), viewport = element('div',undefined,'viewport');
   seek.type = 'range'; seek.min = '0'; seek.max = String(file.duration); seek.step = '1'; seek.value = '0'; seek.setAttribute('aria-label','Čas náhledu dráhy v ms'); play.disabled = !file.duration;
-  tools.append(play,fit); center.append(tools,seek,clock,viewport);
-  const view = new TrackViewport(viewport); state.viewport = view; view.loadTrack(file);
+  tools.append(play,fit,focus); center.append(modelTools,caption,tools,seek,clock,viewport);
+  let view;
+  function newView(model=null,animation=null,camera=null,time=0) {
+    view?.dispose(); view=new TrackViewport(viewport);state.viewport=view;view.loadTrack(file);
+    view.trackPath=file.path;view.projectRoot=state.project.root;view.trackModel=model;view.trackAnimation=animation;view.trackSearch=()=>search.value;
+    for(const [id,value] of state.texts){const match=/^(positions|secondary)\/(\d+)$/.exec(id);if(match){if(match[1]==='positions')view.updateKey(Number(match[2]),value);else view.updateDirection(Number(match[2]),value);}}
+    if(model&&animation){
+      const pose=view.loadActor(model,animation);
+      caption.textContent=`${animation.path} · ${pose.matches.length}/${animation.nodes.length} propojených uzlů · ${model.path}.`+(pose.unmatched.length?` Nenavázané uzly: ${pose.unmatched.slice(0,8).join(', ')}.`:'')+(view.skinWarnings.length?` Nepodporované váhy: ${view.skinWarnings.join(', ')}.`:'')+(animation.frames*40!==file.duration?' Délky TCK a 5DS se liší; kosterní animace se přehrává v původním čase a na konci se zastaví.':'')+(model.meshes.some(m=>[3,5].includes(m.visual))?' Morfování není podporované.':'')+(!file.secondary.length?' TCK nemá směrové vektory; postava zůstává natočená podél +Z.':'');
+    }else caption.textContent=animationPath?`Animace: ${animationPath}. Vyberte model se shodnými názvy kosterních uzlů.`:'Odpovídající 5DS se stejným názvem nebyla jednoznačně nalezena v projektu; zobrazuje se pouze dráha.';
+    close.disabled=focus.disabled=!model;view.seek(time);if(camera)view.restoreCamera(camera);else if(model)view.fit(view.actor);view.onFrame=tick;
+  }
   let playing = false, previous;
   function pause() { playing = false; previous = undefined; play.textContent = 'Přehrát dráhu'; }
   function show(time) { view.seek(time); seek.value = String(time); clock.textContent = `${Math.round(time)} / ${file.duration} ms`; }
   play.onclick = () => { if (playing) pause(); else { if (Number(seek.value)>=file.duration) show(0); playing = true; previous = undefined; play.textContent = 'Pozastavit dráhu'; } };
-  seek.oninput = () => { pause(); show(Number(seek.value)); }; fit.onclick = () => view.fit(view.path);
-  view.onFrame = time => {
+  seek.oninput = () => { pause(); show(Number(seek.value)); }; fit.onclick = () => view.fit(view.path);focus.onclick=()=>{if(view.actor)view.fit(view.actor);};
+  function tick(time) {
     if (!playing) return;
     const next = Math.min(file.duration,view.time+(previous === undefined ? 0 : time-previous)); previous = time; show(next); if (next>=file.duration) pause();
-  };
+  }
+  function fillModels(){const matches=state.project.assets.filter(a=>/\.4ds$/i.test(a.path)&&a.path.toLowerCase().includes(search.value.toLowerCase()));models.replaceChildren(...matches.slice(0,200).map(asset=>{const option=element('option',asset.path);option.value=asset.path;return option;}));load.disabled=!matches.length||!animationPath;if(matches.length>200)status('Zobrazeno prvních 200 modelů; zpřesněte hledání.');}
+  search.oninput=fillModels;fillModels();
+  load.onclick=()=>run(async()=>{
+    pause();const current=view,chosen=models.value;
+    const results=await Promise.allSettled([api.inspect(chosen),api.inspect(animationPath)]);
+    if(state.file!==file||current.disposed)return;
+    for(const result of results)if(result.status==='rejected')throw result.reason;
+    const [model,animation]=results.map(result=>result.value);
+    if(model.type!=='model')throw new Error(model.warning??'Model není podporovaný.');
+    if(animation.type!=='animation')throw new Error(animation.warning??'Odpovídající animace není podporovaná.');
+    newView(model,animation,current.actor?current.captureCamera():null,current.time);show(view.time);
+    const loaded=view;await loaded.loadTextures(async texture=>{const name=texture.replaceAll('\\','/').toLowerCase(),asset=state.project.assets.find(a=>a.path.toLowerCase()===`maps/${name}`||a.path.toLowerCase()===name);return asset?api.media(asset.path):null;});
+    if(!loaded.disposed)status(`TCK + ${animation.path}: ${loaded.actorPreview.pose.matches.length}/${animation.nodes.length} propojených uzlů. Podrobnosti jsou v Nápovědě.`);
+  });
+  close.onclick=()=>{pause();const camera=view.captureCamera(),time=view.time;newView(null,null,camera,time);show(time);};
   const keyTools = element('div',undefined,'tools'), number = element('input'), select = element('button','Vybrat klíč'), fields = element('div');
   number.type = 'number'; number.min = '0'; number.max = String(file.positions.length-1); number.step = '1'; number.value = String(Math.min(state.trackIndex??0,file.positions.length-1)); number.setAttribute('aria-label','Číslo klíče TCK'); keyTools.append(number,select); inspector.append(keyTools,fields);
   function editKey(index) {
     pause(); state.trackIndex = index; number.value = String(index); show(index*file.step); fields.replaceChildren();
     const entries = [{id:`positions/${index}`,context:`Klíč ${index} · ${index*file.step} ms`,label:'Poloha XYZ',kind:'vec3',value:file.positions[index]}];
-    if (file.secondary.length) entries.push({id:`secondary/${index}`,context:`Klíč ${index} · ${index*file.step} ms`,label:'Doplňkový vektor (raw)',kind:'vec3',value:file.secondary[index]});
-    renderProperties(fields,{...file,entries},api.saveTrack,(entry,value)=>{pause(); if (entry.id.startsWith('positions/')) view.updateKey(index,value);});
+    if (file.secondary.length) entries.push({id:`secondary/${index}`,context:`Klíč ${index} · ${index*file.step} ms`,label:'Směr XYZ',kind:'vec3',value:file.secondary[index]});
+    renderProperties(fields,{...file,entries},api.saveTrack,(entry,value)=>{pause(); if (entry.id.startsWith('positions/')) view.updateKey(index,value);else view.updateDirection(index,value);});
   }
   select.onclick = () => { const index = Number(number.value); if (number.value!==''&&Number.isInteger(index)&&index>=0&&index<file.positions.length) editKey(index); else status('Číslo klíče je mimo rozsah.',true); };
-  editKey(Number(number.value));
+  newView(previousView?.model,previousView?.animation,previousView?.camera,previousView?.time??0);editKey(Number(number.value));show(previousView?.time??view.time);
+  if(previousView?.model){models.value=previousView.model.path;const restored=view;restored.loadTextures(async texture=>{const name=texture.replaceAll('\\','/').toLowerCase(),asset=state.project.assets.find(a=>a.path.toLowerCase()===`maps/${name}`||a.path.toLowerCase()===name);return asset?api.media(asset.path):null;}).catch(error=>{if(!restored.disposed)status(error.message,true);});}
 }
 function renderRoads(main, file, previous=null) {
   const graph=roadGraph(file);
