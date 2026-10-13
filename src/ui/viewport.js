@@ -82,10 +82,11 @@ export class Viewport {
             base.addGroup(indices.length, face.indices.length, materials.length); for (const index of face.indices) indices.push(index);
             const source = model.materials[face.material - 1];
             const alpha = materialTransparency(source);
-            const material = new THREE.MeshStandardMaterial({ color: source ? new THREE.Color(...source.diffuse) : 0xb0bc9e, roughness: .85, side: THREE.DoubleSide, opacity: source?.opacity ?? 1, transparent: alpha.transparent, alphaTest: alpha.alphaTest, depthWrite: alpha.depthWrite, blending: alpha.blending });
+            const material = new THREE.MeshStandardMaterial({ color: source ? new THREE.Color(...source.diffuse) : 0xb0bc9e, emissive:source?new THREE.Color(...(source.emission??[0,0,0])):0, roughness: .85, side: THREE.DoubleSide, opacity: source?.opacity ?? 1, transparent: alpha.transparent, alphaTest: alpha.alphaTest, depthWrite: alpha.depthWrite, blending: alpha.blending });
             material.userData.alpha = alpha;
             material.userData.texture = source?.texture;
             material.userData.textureColored = Boolean(source?.flags & 0x08000000);
+            material.userData.source=source;material.userData.materialIndex=face.material-1;material.userData.modelKey=key;
             materials.push(material); this.materials.add(material);
           }
           base.setIndex(indices); if (!lod.normals.some(n => n !== 0)) base.computeVertexNormals();
@@ -111,7 +112,7 @@ export class Viewport {
     }
     return frames;
   }
-  async loadTextures(resolveUrl) {
+  async loadTextures(resolveUrl, selection = null) {
     const loader = new THREE.TextureLoader(), cache = new Map(), variants = new Map(), warnings = new Set();
     const load = name => {
       const key = name.toLowerCase();
@@ -122,10 +123,12 @@ export class Viewport {
       })());
       return cache.get(key);
     };
-    await Promise.all([...this.materials].map(async material => {
+    const materials = [...this.materials].filter(material => !selection || material.userData.materialIndex === selection.index && material.userData.modelKey === (selection.modelKey ?? ''));
+    await Promise.all(materials.map(async material => {
       const name = material.userData.texture; if (!name) return;
+      const revision=material.userData.revision??0,valid=()=>!this.disposed&&(material.userData.revision??0)===revision;
       try {
-        const loaded=await load(name);if(!loaded)return;let texture=loaded.texture;
+        const loaded=await load(name);if(!valid())return;if(!loaded){warnings.add('Chybí textura: '+name);return;}let texture=loaded.texture;
         const alpha=material.userData.alpha??{};
         if(alpha.colorKey||alpha.inTexture){
           const key=name.toLowerCase()+'#'+Number(alpha.colorKey)+Number(alpha.inTexture);
@@ -136,30 +139,46 @@ export class Viewport {
             if(this.disposed)return null;
             const masked=textureWithMask(loaded.texture,metadata,alpha);this.textures.add(masked);return masked;
           })());
-          texture=await variants.get(key);if(!texture)return;
+          texture=await variants.get(key);if(!texture||!valid())return;
         }
-        if(this.disposed)return;
+        if(!valid())return;
+        const wrap=material.userData.source?.flags&0x30000;
+        if(wrap){const key=name.toLowerCase()+'#wrap'+wrap+Number(alpha.colorKey)+Number(alpha.inTexture);if(!variants.has(key)){const copy=texture.clone();this.textures.add(copy);variants.set(key,copy);}texture=variants.get(key);}
         this.applyTexture(material, texture);
         if(alpha.alphaTexture){
-          const mask=await load(alpha.alphaTexture);if(!mask){warnings.add('Chybí alpha textura: '+alpha.alphaTexture);return;}
-          if(this.disposed)return;
-          const key=alpha.alphaTexture.toLowerCase()+'#alpha';
+          const mask=await load(alpha.alphaTexture);if(!valid())return;if(!mask){warnings.add('Chybí alpha textura: '+alpha.alphaTexture);return;}
+          const key=alpha.alphaTexture.toLowerCase()+'#alpha'+wrap;
           if(!variants.has(key)){
-            const texture=mask.texture.clone();texture.colorSpace=THREE.NoColorSpace;texture.wrapS=texture.wrapT=THREE.RepeatWrapping;texture.needsUpdate=true;
+            const texture=mask.texture.clone();texture.colorSpace=THREE.NoColorSpace;texture.wrapS=wrap&0x10000?THREE.ClampToEdgeWrapping:THREE.RepeatWrapping;texture.wrapT=wrap&0x20000?THREE.ClampToEdgeWrapping:THREE.RepeatWrapping;texture.needsUpdate=true;
             this.textures.add(texture);variants.set(key,texture);
           }
           material.alphaMap=variants.get(key);material.needsUpdate=true;
         }
-      } catch { warnings.add('Nelze načíst texturu nebo masku: '+name); }
+      } catch { if(valid())warnings.add('Nelze načíst texturu nebo masku: '+name); }
     }));
     this.textureWarnings=[...warnings];return this.textureWarnings;
   }
   applyTexture(material, texture) {
-    texture.colorSpace = THREE.SRGBColorSpace; texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+    texture.colorSpace = THREE.SRGBColorSpace;const flags=material.userData.source?.flags??0;
+    texture.wrapS=flags&0x10000?THREE.ClampToEdgeWrapping:THREE.RepeatWrapping;texture.wrapT=flags&0x20000?THREE.ClampToEdgeWrapping:THREE.RepeatWrapping;
     // LS3D diffuse RGB tints a diffuse texture only with MTL_DIFFUSE_COLORED.
     // Otherwise authoring colours (e.g. blue face/legs) must not stain the image.
     if (!material.userData.textureColored) material.color.set(0xffffff);
     this.textures.add(texture); material.map = texture; material.needsUpdate = true;
+  }
+  updateMaterial(index,source,modelKey=''){
+    let reload=false;
+    for(const material of this.materials){
+      if(material.userData.materialIndex!==index||material.userData.modelKey!==modelKey)continue;
+      const before=material.userData.source,changed=before?.texture!==source.texture||before?.alphaTexture!==source.alphaTexture||((before?.flags??0)^source.flags)&0xe1038000;
+      const alpha=materialTransparency(source);material.userData.source={...source};material.userData.alpha=alpha;material.userData.texture=source.texture;material.userData.textureColored=Boolean(source.flags&0x08000000);
+      material.color.setRGB(...source.diffuse);material.emissive.setRGB(...source.emission);material.opacity=source.opacity;
+      Object.assign(material,{transparent:alpha.transparent,alphaTest:alpha.alphaTest,depthWrite:alpha.depthWrite,blending:alpha.blending});
+      if(changed){material.userData.revision=(material.userData.revision??0)+1;material.map=material.alphaMap=null;reload=true;}
+      else if(material.map&&!material.userData.textureColored)material.color.set(0xffffff);
+      material.needsUpdate=true;
+    }
+    return reload;
   }
   fit(object = this.root) {
     object.updateWorldMatrix(true, true); const box = new THREE.Box3();

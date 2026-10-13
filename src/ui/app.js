@@ -4,6 +4,7 @@ import { humanFields } from '../shared/human-parameters.js';
 import { doorFields } from '../shared/door-parameters.js';
 import { physicalFields } from '../shared/physical-parameters.js';
 import { detectorMasks, proximityDetectorScript } from '../shared/detectors.js';
+import { materialFlags, materialAlphaModes, materialAlphaMode, withMaterialAlphaMode, materialDraft } from '../shared/material-settings.js';
 import { lightTypes, lightDefaults, sceneSectors } from '../shared/lights.js';
 import { soundTypes, soundDefaults } from '../shared/sounds.js';
 import { soundExtentSettings } from './sound-extent.js';
@@ -572,17 +573,50 @@ function renderModel(main, file, previous = null) {
   if (previous) { view.restoreCamera(previous.camera); view.gizmo.setMode(previous.mode); }
   for (const [mode, label] of [['translate', 'Posun'], ['rotate', 'Rotace'], ['scale', 'Měřítko']]) { const button = element('button', label); button.onclick = () => view.gizmo.setMode(mode); tools.append(button); }
   const fit = element('button', 'Zarámovat vše'); fit.onclick = () => view.fit();
+  const materials=element('button','Materiály…');materials.disabled=!file.materials.length;materials.onclick=()=>run(()=>materialDialog(file,view));tools.append(materials);
   const wire = element('button', 'Drátěný pohled'); view.modelWireframe = Boolean(previous?.wireframe); wire.setAttribute('aria-pressed', String(view.modelWireframe)); wire.onclick = () => { view.modelWireframe = !view.modelWireframe; view.wireframe(view.modelWireframe); wire.setAttribute('aria-pressed', String(view.modelWireframe)); }; tools.append(fit, wire);
   objects.onchange = () => view.select(String(objects.value));
   try { view.addModel(file); if (!previous) view.fit(); view.wireframe(view.modelWireframe); }
   catch (error) { status(error.message, true); }
-  view.loadTextures(async texture => {
-    const path = texture.replaceAll('\\', '/').toLowerCase(), match = state.project.assets.find(a => a.path.toLowerCase() === `maps/${path}` || a.path.toLowerCase() === path);
-    return match ? api.media(match.path) : null;
-  });
+  const resolveTexture=async texture=>{const path=texture.replaceAll('\\','/').toLowerCase(),match=state.project.assets.find(asset=>asset.path.toLowerCase()===`maps/${path}`||asset.path.toLowerCase()===path);return match?api.media(match.path):null;};view.resolveTexture=resolveTexture;view.loadTextures(resolveTexture);
   center.append(element('p', `${file.meshes.length} objektů · ${file.materials.length} materiálů · LOD 0. Animaci přehrajete v kategorii Animace 5DS po výběru tohoto modelu. Morfování zatím není podporované.`, 'notice'));
-  properties = renderProperties(inspector, file, api.saveModel, (entry, value) => { const match = /^meshes\/(\d+)\/(position|rotation|scale|culling)$/.exec(entry.id); if (match) view.update(String(Number(match[1]) + 1), { [match[2]]: value }); });
+  properties = renderProperties(inspector, file, api.saveModel, (entry, value) => { const match = /^meshes\/(\d+)\/(position|rotation|scale|culling)$/.exec(entry.id); if (match) view.update(String(Number(match[1]) + 1), { [match[2]]: value });const material=/^materials\/(\d+)\//.exec(entry.id);if(material){const index=Number(material[1]);if(view.updateMaterial(index,materialDraft(file.materials[index],index,state.texts)))view.loadTextures(resolveTexture,{index});} });
   if (previous?.selectedId) view.select(previous.selectedId, true, false);
+}
+function materialDialog(file,view){
+  const dialog=element('dialog',undefined,'material-dialog'),form=element('form',undefined,'mission-form'),fields=element('div',undefined,'mission-fields'),initial=new Map(state.texts),edited=new Set(),loads=new Map();let saved=false,index=0,base,modeTouched=false;
+  dialog.append(element('h2','Materiály modelu'),element('p','Změny se průběžně zobrazují ve 3D. Uložení zahrne také ostatní rozepsané vlastnosti modelu. Zrušení vrátí jen změny tohoto dialogu.'),form);
+  function field(label,input){const row=element('label',label);input.setAttribute('aria-label',label);row.append(input);fields.append(row);return input;}
+  const select=field('Materiál',element('select'));for(let i=0;i<file.materials.length;i++){const option=element('option',`${i+1} · ${file.materials[i].texture||'bez textury'}`);option.value=String(i);select.append(option);}
+  const list=element('datalist');list.id='material-texture-list';for(const asset of state.project.assets.filter(asset=>/^maps\/.+\.bmp$/i.test(asset.path))){const option=element('option');option.value=asset.path.slice(5);list.append(option);}
+  function texture(label){const input=field(label,element('input'));input.setAttribute('list',list.id);input.maxLength=255;return input;}
+  const diffuseTexture=texture('Diffuse textura'),alphaTexture=texture('Alpha maska'),environmentTexture=texture('Textura odrazu');
+  const mode=field('Režim průhlednosti',element('select'));for(const [value,label] of materialAlphaModes){const option=element('option',label);option.value=value;mode.append(option);}
+  function number(label){const input=field(label,element('input'));input.type='number';input.step='any';input.required=true;return input;}
+  const opacity=number('Krytí (0–1)'),reflection=number('Síla odrazu');
+  const colors=new Map();for(const [key,label] of [['ambient','Okolní barva'],['diffuse','Barva povrchu'],['emission','Vyzařovaná barva']]){const section=element('fieldset',undefined,'material-color'),picker=element('input'),values=[];section.append(element('legend',label));picker.type='color';picker.setAttribute('aria-label',label);section.append(picker);for(const component of ['R','G','B']){const row=element('label',component),input=element('input');input.type='number';input.step='any';input.required=true;input.setAttribute('aria-label',`${label} ${component}`);row.append(input);section.append(row);values.push(input);}fields.append(section);colors.set(key,{picker,values});}
+  const checks=new Map();for(const [key,label] of [['colored','Barvou tónovat texturu'],['doubleSided','Oboustranný povrch ve hře'],['noTileU','Opakovat texturu vodorovně'],['noTileV','Opakovat texturu svisle'],['environment','Použít texturu odrazu']]){const input=field(label,element('input'));input.type='checkbox';checks.set(key,input);}
+  const info=element('p','','notice'),message=element('p','','notice'),actions=element('div',undefined,'tools'),cancel=element('button','Zrušit'),save=element('button','Uložit změny','primary');cancel.type='button';save.type='submit';actions.append(cancel,save);
+  form.append(fields,list,info,element('p','Náhled je oboustranný a používá osvětlení editoru. Vlastní okolní barva a mapy odrazu se ukládají pro hru; náhled je zatím nereprodukuje.','notice'),message,actions);
+  const numericText=value=>Object.is(value,-0)?'-0':String(value);
+  function colorHex(values){return '#'+values.map(value=>Math.round(Math.max(0,Math.min(1,value))*255).toString(16).padStart(2,'0')).join('');}
+  function controls(){alphaTexture.disabled=mode.value!=='mask';environmentTexture.disabled=reflection.disabled=!checks.get('environment').checked;}
+  function show(){index=Number(select.value);base=materialDraft(file.materials[index],index,state.texts);modeTouched=false;diffuseTexture.value=base.texture;alphaTexture.value=base.alphaTexture??'';environmentTexture.value=base.environmentTexture??'';mode.value=materialAlphaMode(base.flags);opacity.value=numericText(base.opacity);opacity.removeAttribute('min');opacity.removeAttribute('max');if(file.materials[index].opacity>=0&&file.materials[index].opacity<=1){opacity.min='0';opacity.max='1';}reflection.value=numericText(base.reflection??1);for(const [key,color] of colors){color.values.forEach((input,i)=>{input.value=numericText(base[key][i]);});color.picker.value=colorHex(base[key]);}for(const [key,input] of checks)input.checked=key.startsWith('noTile')?!Boolean(base.flags&materialFlags[key]):Boolean(base.flags&materialFlags[key]);controls();const meshes=file.meshes.filter(mesh=>mesh.lods?.some(lod=>lod.faces.some(face=>face.material===index+1)));info.textContent=`Materiál ${index+1} · použitý v ${meshes.length} geometriích prvního LOD${base.flags&0x6000000?' · animace textury zůstane zachovaná':''}.`;message.textContent='';}
+  function read(){const numbers=[opacity,...(!reflection.disabled?[reflection]:[]),...[...colors.values()].flatMap(color=>color.values)];if(numbers.some(input=>input.value===''||!input.checkValidity()||!Number.isFinite(Number(input.value))||!Number.isFinite(Math.fround(Number(input.value)))))throw new Error('Vyplňte platné číselné hodnoty; krytí musí být 0–1.');const value={flags:modeTouched?withMaterialAlphaMode(base.flags,mode.value):base.flags,texture:diffuseTexture.value,opacity:Number(opacity.value)};for(const [key,color] of colors)value[key]=color.values.map(input=>Number(input.value));for(const [key,input] of checks){const enabled=key.startsWith('noTile')?!input.checked:input.checked;value.flags=(enabled?value.flags|materialFlags[key]:value.flags&~materialFlags[key])>>>0;}if(value.texture!==base.texture)value.flags=(value.texture?value.flags|materialFlags.diffuse:value.flags&~materialFlags.diffuse)>>>0;if(!alphaTexture.disabled)value.alphaTexture=alphaTexture.value;if(!environmentTexture.disabled){value.environmentTexture=environmentTexture.value;value.reflection=Number(reflection.value);}return value;}
+  function reload(i){
+    clearTimeout(loads.get(i));loads.set(i,setTimeout(async()=>{
+      loads.delete(i);if(view.disposed)return;
+      const material=[...view.materials].find(m=>m.userData.materialIndex===i&&m.userData.modelKey===''),revision=material?.userData.revision;
+      const warnings=await view.loadTextures(view.resolveTexture,{index:i});
+      if(dialog.open&&index===i&&material?.userData.revision===revision)message.textContent=warnings.length?warnings.join(' · '):'Rozepsaná změna materiálu.';
+    },250));
+  }
+  function track(){controls();try{const value=read(),prefix=`materials/${index}/`;for(const id of [...state.texts.keys()])if(id.startsWith(prefix))state.texts.delete(id);state.texts.set(prefix+'settings',value);edited.add(index);if(view.updateMaterial(index,value))reload(index);message.textContent='Rozepsaná změna materiálu.';status('Materiál je rozepsaný; změny uložte v dialogu.');}catch(error){message.textContent=error.message;}}
+  function valid(){try{read();return form.reportValidity();}catch(error){message.textContent=error.message;return false;}}
+  select.onchange=()=>{if(!valid()){select.value=String(index);return;}show();};mode.onchange=()=>{modeTouched=true;track();};for(const input of [diffuseTexture,alphaTexture,environmentTexture,opacity,reflection,...checks.values()])input.oninput=track;
+  for(const color of colors.values()){for(const input of color.values)input.oninput=()=>{color.picker.value=colorHex(color.values.map(input=>Number(input.value)));track();};color.picker.oninput=()=>{const n=parseInt(color.picker.value.slice(1),16);color.values.forEach((input,i)=>{input.value=String(((n>>(16-8*i))&255)/255);});track();};}
+  cancel.onclick=()=>dialog.close();form.onsubmit=event=>{event.preventDefault();if(state.busy||!valid())return;run(async()=>{save.disabled=cancel.disabled=true;fields.inert=true;try{if([...state.texts.values()].some(value=>value?.invalid))throw new Error('Opravte neplatné rozepsané vlastnosti modelu.');state.file=await api.saveModel(file.path,[...state.texts].map(([id,value])=>({id,value})),file.sha256);saved=true;state.texts.clear();dialog.close();await refresh();renderDetail();status('Materiály a vlastnosti modelu uložené do modu se zálohou.');}catch(error){message.textContent=error.message;throw error;}finally{save.disabled=cancel.disabled=false;fields.inert=false;}});};
+  dialog.addEventListener('cancel',event=>{if(state.busy)event.preventDefault();});dialog.addEventListener('close',()=>{for(const timer of loads.values())clearTimeout(timer);if(!saved){state.texts=initial;for(const i of edited)if(view.updateMaterial(i,materialDraft(file.materials[i],i,initial)))view.loadTextures(view.resolveTexture,{index:i});status(initial.size?'Původní rozepsané vlastnosti zůstaly zachované.':'Změny tohoto dialogu jsou zahozené.');}dialog.remove();},{once:true});document.body.append(dialog);show();dialog.showModal();
 }
 function renderAnimation(main, file) {
   const layout = element('div', undefined, 'model-workspace'), center = element('section', undefined, 'model-center'), inspector = element('section', undefined, 'model-inspector');

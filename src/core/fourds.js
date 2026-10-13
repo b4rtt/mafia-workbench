@@ -1,4 +1,5 @@
 import iconv from 'iconv-lite';
+import { editableMaterialFlags } from '../shared/material-settings.js';
 class Reader {
   constructor(source) { this.bytes = Buffer.from(source); this.pos = 0; this.entries = []; this.context = ''; }
   skip(n) { if (!Number.isSafeInteger(n) || n < 0 || this.pos + n > this.bytes.length) throw new Error(`4DS: data jsou mimo soubor (${this.pos}, ${n}).`); this.pos += n; }
@@ -88,14 +89,16 @@ export function parseFourDs(source, geometry = false) {
   reader.skip(8);
   const materialCount = reader.u16(), materials = [];
   for (let i = 0; i < materialCount; i++) {
+    const start=reader.pos;
     reader.context = `Materiál ${i + 1}`; const base = `materials/${i}`, flags = reader.u32();
     const ambient = reader.field(`${base}/ambient`, 'Ambient RGB', 'float', 3), diffuse = reader.field(`${base}/diffuse`, 'Diffuse RGB', 'float', 3), emission = reader.field(`${base}/emission`, 'Emission RGB', 'float', 3), opacity = reader.field(`${base}/opacity`, 'Opacity', 'float');
-    if (flags & 0x80000) { reader.field(`${base}/reflection`, 'Síla odrazu', 'float'); reader.field(`${base}/environmentTexture`, 'Textura odrazu', 'string8'); }
+    let reflection,environmentTexture;
+    if (flags & 0x80000) { reflection=reader.field(`${base}/reflection`, 'Síla odrazu', 'float'); environmentTexture=reader.field(`${base}/environmentTexture`, 'Textura odrazu', 'string8'); }
     const texture = reader.field(`${base}/texture`, 'Diffuse textura', 'string8');
     let alphaTexture;
     if (texture && (flags & 0x40000000) && !(flags & 0x1000000)) alphaTexture = reader.field(`${base}/alphaTexture`, 'Alpha textura', 'string8');
-    if (flags & 0x4000000) reader.skip(18);
-    materials.push({ flags, ambient, diffuse, emission, opacity, texture, alphaTexture });
+    const animationOffset=reader.pos;if (flags & 0x4000000) reader.skip(18);
+    materials.push({ flags, ambient, diffuse, emission, opacity, texture, alphaTexture, reflection, environmentTexture, layout:{start,length:reader.pos-start,animationOffset,animationLength:reader.pos-animationOffset} });
   }
   const meshCount = reader.u16(), meshes = [];
   for (let i = 0; i < meshCount; i++) {
@@ -141,8 +144,14 @@ export function parseFourDs(source, geometry = false) {
 export function editFourDs(source, changes) {
   const original = Buffer.from(source), parsed = parseFourDs(original);
   if (!Array.isArray(changes) || changes.length > 1024) throw new Error('4DS: neplatné úpravy.');
-  const replacements = [], seen = new Set();
+  const replacements = [], seen = new Set(),materialChanges=new Map();
   for (const { id, value } of changes) {
+    const material=/^materials\/(\d+)\/(.+)$/.exec(id);
+    if(material){
+      const index=Number(material[1]),field=material[2];
+      if(!parsed.materials[index]||id!==`materials/${index}/${field}`||seen.has(id)||field!=='settings'&&!parsed.entries.some(entry=>entry.id===id))throw new Error('4DS: neplatná vlastnost materiálu.');
+      seen.add(id);if(!materialChanges.has(index))materialChanges.set(index,[]);materialChanges.get(index).push({field,value});continue;
+    }
     const entry = parsed.entries.find(e => e.id === id);
     if (!entry || seen.has(id)) throw new Error('4DS: neplatná vlastnost.'); seen.add(id);
     if (JSON.stringify(value) === JSON.stringify(entry.value)) continue;
@@ -167,9 +176,50 @@ export function editFourDs(source, changes) {
     }
     replacements.push({ ...entry, payload });
   }
+  for(const [index,updates] of materialChanges){
+    for(const {field,value} of updates){
+      const fields=field==='settings'?value:{[field]:value};
+      if(!fields||typeof fields!=='object'||Array.isArray(fields)||Object.keys(fields).some(key=>!['flags','ambient','diffuse','emission','opacity','texture','alphaTexture','reflection','environmentTexture'].includes(key)))throw new Error('4DS: neplatné nastavení materiálu.');
+      for(const key of ['texture','alphaTexture','environmentTexture'])if(Object.hasOwn(fields,key)&&typeof fields[key]!=='string')throw new Error('4DS: neplatný název textury.');
+      if(Object.hasOwn(fields,'reflection')&&(typeof fields.reflection!=='number'||!Number.isFinite(fields.reflection)||!Number.isFinite(Math.fround(fields.reflection))))throw new Error('4DS: neplatná síla odrazu.');
+    }
+    const material=parsed.materials[index],settings={...material,...updates.find(update=>update.field==='settings')?.value};
+    for(const {field,value} of updates)if(field!=='settings')settings[field]=value;
+    const payload=writeMaterial(original,material,settings,parsed.entries.filter(entry=>entry.id.startsWith(`materials/${index}/`)));
+    if(!payload.equals(original.subarray(material.layout.start,material.layout.start+material.layout.length)))replacements.push({offset:material.layout.start,length:material.layout.length,payload});
+  }
   replacements.sort((a, b) => b.offset - a.offset);
   let result = original;
   for (const replacement of replacements) result = Buffer.concat([result.subarray(0, replacement.offset), replacement.payload, result.subarray(replacement.offset + replacement.length)]);
   parseFourDs(result);
   return result;
+}
+
+function writeMaterial(source,original,value,entries){
+  const flags=value.flags;
+  if(!Number.isInteger(flags)||flags<0||flags>4294967295||((flags^original.flags)&~editableMaterialFlags)!==0)throw new Error('4DS: lze měnit pouze podporované příznaky materiálu; ostatní bity musí zůstat zachované.');
+  const equal=(a,b)=>Array.isArray(a)&&Array.isArray(b)?a.length===b.length&&a.every((n,i)=>Object.is(n,b[i])):Object.is(a,b);
+  const stored=field=>entries.find(entry=>entry.id.endsWith('/'+field));
+  function number(field,count=1){
+    const current=value[field],numbers=count===1?[current]:current;
+    if(!Array.isArray(numbers)||numbers.length!==count||!Array.from(numbers).every(n=>typeof n==='number'&&Number.isFinite(n)&&Number.isFinite(Math.fround(n))))throw new Error('4DS: neplatná číselná hodnota materiálu.');
+    if(field==='opacity'&&!equal(current,original[field])&&(current<0||current>1))throw new Error('4DS: krytí materiálu musí být 0–1.');
+    const entry=stored(field);if(entry&&equal(current,original[field]))return source.subarray(entry.offset,entry.offset+entry.length);
+    const bytes=Buffer.alloc(count*4);numbers.forEach((n,i)=>bytes.writeFloatLE(n,i*4));return bytes;
+  }
+  function text(field){
+    const current=value[field]??'';
+    if(typeof current!=='string'||current.includes('\0'))throw new Error('4DS: neplatný název textury.');
+    const entry=stored(field);if(entry&&current===original[field])return source.subarray(entry.offset,entry.offset+entry.length);
+    const bytes=iconv.encode(current,'windows-1250');if(bytes.length>255||iconv.decode(bytes,'windows-1250')!==current)throw new Error('4DS: název textury nelze kódovat nebo je příliš dlouhý.');
+    return Buffer.concat([Buffer.from([bytes.length]),bytes]);
+  }
+  const header=Buffer.alloc(4);header.writeUInt32LE(flags);
+  const parts=[header,number('ambient',3),number('diffuse',3),number('emission',3),number('opacity')];
+  if(flags&0x80000)parts.push(number('reflection'),text('environmentTexture'));
+  parts.push(text('texture'));
+  if(value.texture&&(flags&0x40000000)&&!(flags&0x01000000))parts.push(text('alphaTexture'));
+  else if(value.alphaTexture&&value.alphaTexture!==original.alphaTexture)throw new Error('4DS: alpha textura vyžaduje diffuse texturu a odpovídající režim masky.');
+  parts.push(source.subarray(original.layout.animationOffset,original.layout.animationOffset+original.layout.animationLength));
+  return Buffer.concat(parts);
 }
