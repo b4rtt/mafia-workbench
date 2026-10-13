@@ -12,6 +12,7 @@ import { inspectCache, editCache } from './cache.js';
 import { parseItems, editItems } from './items.js';
 import { pickupParameters } from '../shared/pickups.js';
 import { missionTaskScript } from '../shared/mission-task.js';
+import { missionDialogueScript, dialogueSpeakers } from '../shared/mission-dialogue.js';
 import { dialogueSoundPath, prepareDialogueWav } from './dialogue-audio.js';
 import { parseNavigation, prepareNavigationEdits, changeNavigationConnection, changeNavigationPoint } from './navigation.js';
 import { remapSegments } from './segments.js';
@@ -339,6 +340,26 @@ export class ModProject {
       dependencies.push({path:geometryPath,data:geometryBytes,expectedHash:hash(geometryBytes)},{path:tablePath,data:tableBytes,expectedHash:hash(tableBytes)},{path:modelPath,data:modelBytes,expectedHash:hash(modelBytes)});
     }
     if(['add-light','add-sound','add-detector'].includes(operation?.kind))dependencies.push({path:geometryPath,data:geometryBytes,expectedHash:hash(geometryBytes)});
+    if(operation?.kind==='add-detector' && operation.dialogue){
+      if(operation.task)throw new Error('Rozhovor: nelze současně vytvořit úkolovou šablonu.');
+      const dialogue={trigger:'use',camera:false,...operation.dialogue},textPath=relativeAssetPath(dialogue.textDb);
+      missionDialogueScript(dialogue);
+      if(!/^tables\/textdb_[a-z]{2}\.def$/i.test(textPath))throw new Error('Rozhovor: vyberte jazykový TextDB.');
+      const textAsset=this.asset(textPath),text=await this.read(textAsset.path);
+      if(hash(text)!==dialogue.textHash)throw new Error('Rozhovor: texty se od otevření změnily. Otevřete dialog znovu.');
+      const ids=new Set(parseTextDb(text,textAsset.path).entries.slice(0,-1).map(entry=>entry.id));
+      if([...dialogue.lines.map(line=>line.textId),...(dialogue.trigger==='use'?[dialogue.interactionId]:[])].some(id=>!ids.has(id)))throw new Error('Rozhovor: ID textu neexistuje nebo jde o hraniční záznam.');
+      const speakers=new Map(dialogueSpeakers({...inspectScene(before),geometry}).map(actor=>[key(actor.name),actor.name]));
+      const lines=dialogue.lines.map(line=>{const speaker=speakers.get(key(line.speaker)),listener=dialogue.camera?speakers.get(key(line.listener)):undefined;if(!speaker||(dialogue.camera&&!listener))throw new Error('Rozhovor: mluvčí a posluchač musí být jednoznačné lidské postavy této mise.');return {...line,speaker,...(dialogue.camera?{listener}:{})};});
+      dependencies.push({path:textAsset.path,data:text,expectedHash:dialogue.textHash});
+      for(const id of new Set(lines.map(line=>line.textId))){
+        const asset=this.index.get(key(dialogueSoundPath(id)));if(!asset)throw new Error(`Rozhovor: dabing ${id} chybí. Importujte jej v kategorii Texty.`);const bytes=await this.read(asset.path);
+        if(dialogue.soundHashes?.[id]!==hash(bytes))throw new Error('Rozhovor: dabing chybí nebo se od otevření změnil. Načtěte dialog znovu.');
+        if(bytes.length<44||bytes.toString('ascii',0,4)!=='RIFF'||bytes.toString('ascii',8,12)!=='WAVE')throw new Error('Rozhovor: dabing nemá WAV hlavičku.');
+        dependencies.push({path:asset.path,data:bytes,expectedHash:dialogue.soundHashes[id]});
+      }
+      request={...operation,mask:1,code:missionDialogueScript({...dialogue,lines})};
+    }
     if(operation?.kind==='add-detector' && operation.task){
       const task=operation.task,code=missionTaskScript(task),textPath=relativeAssetPath(task.textDb);
       if(!/^tables\/textdb_[a-z]{2}\.def$/i.test(textPath))throw new Error('Úkol: vyberte jazykový TextDB.');

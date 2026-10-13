@@ -102,7 +102,7 @@ function humanParameterLayout(kind, data) {
   return humanFields;
 }
 export function inspectScene(source) {
-  const roots = tree(source), entries = [], objects = [], actorScripts = [], pickups = [];
+  const roots = tree(source), entries = [], objects = [], actorScripts = [], pickups = [], actors = [];
   let opaque = 0;
   function visit(nodes, parent = '') {
     const named = nodes.find(n => n.type === 0x10 || n.type === 0xae23);
@@ -114,6 +114,7 @@ export function inspectScene(source) {
         const data = node.children.find(n => n.type === 0xae24)?.payload;
         const name = node.children.find(n => n.type === 0xae23)?.payload;
         const actorKind = kind?.length >= 4 ? kind.readUInt32LE(0) : null;
+        if(name)actors.push({id:node.id,name:string(name),kind:actorKind});
         if(name&&actorKind===5&&detectorScriptLayout(data)){
           const nodeId=node.children.find(n=>n.type===0xae24).id;
           entries.push({id:`${nodeId}:detector.mask`,nodeId,label:'Maska typů postav (detector_inrange)',kind:'uint',value:data.readUInt32LE(1),detectorParameter:true,actorKind,context:`${context} / ${string(name)}`.replace(/^ \/ /,''),bytes:4,min:0,max:4294967295});
@@ -164,7 +165,7 @@ export function inspectScene(source) {
     const candidates = pickups.filter(pickup=>pickup.name===object.name);
     if (object.frameType===9 && candidates.length===1 && entries.filter(entry=>entry.label==='Název aktéra' && sameName(entry.value)).length===1 && objects.filter(other=>sameName(other.name)).length===1) object.pickup=candidates[0];
   }
-  return { entries, opaque, objects, actorScripts };
+  return { entries, opaque, objects, actorScripts, actors };
 }
 export function editScene(source, id, value) {
   if (typeof id !== 'string') throw new Error('Scene: neplatná vlastnost.');

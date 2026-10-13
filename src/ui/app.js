@@ -6,6 +6,7 @@ import { doorFields } from '../shared/door-parameters.js';
 import { physicalFields } from '../shared/physical-parameters.js';
 import { detectorMasks, proximityDetectorScript } from '../shared/detectors.js';
 import { missionTaskScript } from '../shared/mission-task.js';
+import { missionDialogueScript, dialogueSpeakers } from '../shared/mission-dialogue.js';
 import { materialFlags, materialAlphaModes, materialAlphaMode, withMaterialAlphaMode, materialDraft } from '../shared/material-settings.js';
 import { lightTypes, lightDefaults, sceneSectors } from '../shared/lights.js';
 import { soundTypes, soundDefaults } from '../shared/sounds.js';
@@ -1073,7 +1074,7 @@ function renderMap(main, file, previous = null) {
   const add = element('button', 'Vložit model…'), addHuman=element('button','Přidat postavu…'), addCar=element('button','Přidat auto…'), duplicate = element('button', 'Duplikovat…'), remove = element('button', 'Odstranit…'), focus = element('button', 'Zarámovat objekt'), collision=element('button','Kolize modelu…');
   duplicate.disabled = remove.disabled = focus.disabled = collision.disabled = true;
   const addPickup=element('button','Přidat předmět k sebrání…'),configurePickup=element('button','Nastavit předmět…');configurePickup.disabled=true;
-  const addDoor=element('button','Vytvořit dveře…'),addPhysical=element('button','Vytvořit fyzikální předmět…'),addLight=element('button','Přidat světlo…'),addSound=element('button','Přidat zvuk…'),addDetector=element('button','Přidat skriptový bod…');addDoor.disabled=addPhysical.disabled=true;
+  const addDoor=element('button','Vytvořit dveře…'),addPhysical=element('button','Vytvořit fyzikální předmět…'),addLight=element('button','Přidat světlo…'),addSound=element('button','Přidat zvuk…'),addDetector=element('button','Přidat skriptový bod…'),addDialogue=element('button','Přidat rozhovor…');addDoor.disabled=addPhysical.disabled=true;
   const vehiclePhysics = element('button', 'Fyzika auta…');
   const vehicleTable = state.project.assets.find(asset => asset.path.normalize('NFC').toLowerCase() === 'tables/vehicles.bin');
   vehiclePhysics.dataset.vehicleLink = ''; vehiclePhysics.hidden = true;
@@ -1190,8 +1191,9 @@ function renderMap(main, file, previous = null) {
     addLight.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před vložením světla uložte rozepsané vlastnosti.');lightDialog(file,selectedObject?.position);});
     addSound.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před vložením zvuku uložte rozepsané vlastnosti.');soundDialog(file,selectedObject?.position);});
     addDetector.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před vložením skriptového bodu uložte rozepsané vlastnosti.');detectorDialog(file,selectedObject?.position);});
+    addDialogue.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před vytvořením rozhovoru uložte rozepsané vlastnosti.');dialogueDialog(file,selectedObject?.position);});
     for(const [button,configure] of [[addPickup,false],[configurePickup,true]])button.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před vložením nebo nastavením předmětu uložte rozepsané vlastnosti.');const catalog=await api.pickupItems();if(!catalog.items.length)throw new Error('Tabulka neobsahuje předměty s dostupným podporovaným modelem.');pickupDialog(file,catalog,configure?selectedObject:null,selectedObject?.position);});
-    tools.append(actionMenu('Přidat',[add,addHuman,addCar,addPickup,addLight,addSound,addDetector]),actionMenu('Objekt',[duplicate,remove,collision,configurePickup,addDoor,addPhysical]));
+    tools.append(actionMenu('Přidat',[add,addHuman,addCar,addPickup,addLight,addSound,addDetector,addDialogue]),actionMenu('Objekt',[duplicate,remove,collision,configurePickup,addDoor,addPhysical]));
   }
   tools.append(actionMenu('Zobrazení',displayActions));
   view.loadTextures(resolveTexture);
@@ -1316,6 +1318,47 @@ function physicalActorDialog(file,object){
     state.file=await api.changeSceneObject(file.path,{kind:'attach-physical',target,parameters,collisionHash:file.collision?.sha256},file.sha256);state.selectSceneName=target;dialog.close();await refresh();renderDetail();status('Fyzikální předmět vytvořen v modu se zálohou.');
   }catch(error){message.textContent=error.message;throw error;}finally{submit.disabled=cancel.disabled=false;}});};
   dialog.addEventListener('cancel',event=>{if(state.busy)event.preventDefault();});dialog.addEventListener('close',()=>dialog.remove(),{once:true});document.body.append(dialog);dialog.showModal();inputs.get('mass').focus();
+}
+function dialogueDialog(file,position=[0,0,0]){
+  const speakers=dialogueSpeakers(file);if(!speakers.length)throw new Error('Rozhovor: nejprve přidejte do mise postavu.');
+  const dialog=element('dialog',undefined,'mission-dialogue-dialog'),form=element('form',undefined,'mission-form'),fields=element('div',undefined,'mission-fields'),rows=element('div',undefined,'dialogue-lines'),message=element('p','','notice'),preview=element('textarea');
+  const field=(parent,label,input)=>{const row=element('label',label);input.setAttribute('aria-label',label);row.append(input);parent.append(row);return input;};
+  const numeric=(parent,label,value,min,max)=>{const input=field(parent,label,element('input'));input.type='number';input.step='1';input.required=true;input.value=String(value);if(min!==undefined)input.min=String(min);if(max!==undefined)input.max=String(max);return input;};
+  const name=field(fields,'Název rozhovoru',element('input'));name.value='WB_DIALOGUE';name.required=true;name.maxLength=63;
+  const xyz=['X','Y','Z'].map((label,i)=>{const input=numeric(fields,label,position[i]??0);input.step='any';return input;});
+  const trigger=field(fields,'Spuštění rozhovoru',element('select'));for(const [value,label]of [['use','Použití bodu tlačítkem akce (jednou)'],['load','Po načtení mise (jednou)']]){const option=element('option',label);option.value=value;trigger.append(option);}
+  const interaction=numeric(fields,'Volba akce · ID textu',90000,0,2147483647),interactionCaption=element('span');interaction.parentElement.append(interactionCaption);
+  const language=field(fields,'Jazyk textů',element('select'));for(const asset of state.project.assets.filter(asset=>/^tables\/textdb_[a-z]{2}\.def$/i.test(asset.path))){const option=element('option',asset.path);option.value=asset.path;language.append(option);}const cz=[...language.options].find(option=>/textdb_cz\.def$/i.test(option.value));if(cz)language.value=cz.value;
+  const camera=field(fields,'Dialogová kamera a střihy mezi účastníky',element('input'));camera.type='checkbox';camera.disabled=speakers.length<2;
+  const add=element('button','Přidat repliku'),cancel=element('button','Zrušit'),save=element('button','Vytvořit rozhovor','primary'),actions=element('div',undefined,'tools');add.type=cancel.type='button';save.type='submit';actions.append(cancel,save);
+  preview.readOnly=true;preview.rows=10;preview.setAttribute('aria-label','Výsledný program rozhovoru');let lines=[],textFile=null,revision=0,closed=false;const sounds=new Map();
+  const id=input=>input.value.trim()?Number(input.value):NaN;
+  const options=()=>({textDb:language.value,textHash:textFile?.sha256,trigger:trigger.value,interactionId:id(interaction),camera:camera.checked,lines:lines.map(line=>({speaker:line.speaker.value,listener:line.listener.value,textId:id(line.id)})),soundHashes:Object.fromEntries([...sounds].map(([key,value])=>[key,value.sha256]))});
+  const update=()=>{
+    interaction.disabled=trigger.value!=='use';interaction.parentElement.style.display=interaction.disabled?'none':'';
+    const lookup=value=>textFile?.entries.slice(0,-1).find(entry=>entry.id===value)?.text;
+    interactionCaption.textContent=lookup(id(interaction))??'Text akce nenalezený.';
+    for(const [i,line]of lines.entries()){
+      line.title.textContent=`Replika ${i+1}`;line.up.disabled=i===0;line.down.disabled=i===lines.length-1;line.remove.disabled=lines.length===1;
+      line.listener.disabled=!camera.checked;line.listener.parentElement.style.display=camera.checked?'':'none';line.caption.textContent=lookup(id(line.id))??'Text nenalezený · vytvořte jej v kategorii Texty.';
+      const sound=sounds.get(id(line.id));line.sound.textContent=sound?`Dabing: ${sound.path}`:'Dabing chybí nebo se ještě načítá · importujte jej u textu.';
+      if(line.audio.dataset.source!==(sound?.url??'')){line.audio.pause();line.audio.removeAttribute('src');line.audio.load();if(sound)line.audio.src=sound.url;line.audio.dataset.source=sound?.url??'';}line.audio.hidden=!sound;
+    }
+    add.disabled=lines.length>=32;
+    try{preview.value=missionDialogueScript(options());const valid=textFile?.path===language.value&&(!interaction.disabled?lookup(id(interaction))!==undefined:true)&&lines.every(line=>lookup(id(line.id))!==undefined&&sounds.has(id(line.id)));save.disabled=!valid;message.textContent=valid?'Repliky se přehrají v pořadí; další začne po skončení řeči. Postavy musí při spuštění existovat a být živé. Kamera se po rozhovoru uvolní.':'Vyberte existující texty a dabing všech replik. Nové texty a WAV připravte v kategorii Texty.';}catch(error){preview.value='';save.disabled=true;message.textContent=error.message;}
+  };
+  const load=async()=>{const current=++revision;save.disabled=true;try{const table=language.value?await api.inspect(language.value):null;const missing=[...new Set(lines.map(line=>id(line.id)))].filter(value=>Number.isSafeInteger(value)&&value>=0&&value<=2147483647&&!sounds.has(value));const available=await Promise.all(missing.map(async value=>{const asset=state.project.assets.find(asset=>asset.path.toLowerCase()===`sounds/${String(value).padStart(8,'0')}.wav`);if(!asset)return null;const sound=await api.inspect(asset.path),url=await api.media(asset.path);return [value,{path:asset.path,sha256:sound.sha256,url}];}));if(closed||current!==revision)return;textFile=table;for(const sound of available)if(sound)sounds.set(...sound);update();}catch(error){if(!closed&&current===revision){textFile=null;update();message.textContent=error.message;}}};
+  const repaint=()=>{rows.replaceChildren(...lines.map(line=>line.root));update();};
+  const addLine=()=>{
+    if(lines.length>=32)return;const root=element('section',undefined,'dialogue-line'),title=element('h3'),tools=element('div',undefined,'tools'),up=element('button','Nahoru'),down=element('button','Dolů'),remove=element('button','Odebrat'),inputs=element('div',undefined,'mission-fields');for(const button of [up,down,remove])button.type='button';tools.append(up,down,remove);
+    const choose=label=>{const select=field(inputs,label,element('select'));for(const actor of speakers){const option=element('option',actor.name);option.value=actor.name;select.append(option);}return select;};
+    const speaker=choose('Mluvčí'),listener=choose('Posluchač / kamera');listener.value=speakers[1]?.name??speakers[0].name;const input=numeric(inputs,'Replika · ID textu',90000,0,2147483647),caption=element('p'),sound=element('p',undefined,'muted'),audio=element('audio');audio.controls=true;audio.preload='metadata';root.append(title,tools,inputs,caption,sound,audio);const line={root,title,up,down,remove,speaker,listener,id:input,caption,sound,audio};lines.push(line);
+    const move=direction=>{const index=lines.indexOf(line),other=index+direction;if(other<0||other>=lines.length)return;[lines[index],lines[other]]=[lines[other],lines[index]];repaint();};up.onclick=()=>move(-1);down.onclick=()=>move(1);remove.onclick=()=>{audio.pause();lines=lines.filter(other=>other!==line);repaint();};speaker.onchange=listener.onchange=update;input.oninput=()=>{update();load();};repaint();load();
+  };
+  trigger.onchange=camera.onchange=update;interaction.oninput=update;language.onchange=load;add.onclick=addLine;cancel.onclick=()=>dialog.close();
+  form.onsubmit=event=>{event.preventDefault();if(!form.reportValidity()||state.busy||save.disabled)return;run(async()=>{save.disabled=cancel.disabled=true;try{const dialogue=options();state.file=await api.changeSceneObject(file.path,{kind:'add-detector',name:name.value,position:xyz.map(input=>Number(input.value)),mask:1,dialogue},file.sha256);state.selectSceneName=name.value;dialog.close();await refresh();renderDetail();status('Rozhovor vytvořený v modu se zálohou a jedním undo.');}catch(error){message.textContent=error.message;throw error;}finally{cancel.disabled=false;if(!closed)save.disabled=false;}});};
+  form.append(fields,rows,add,element('p','Výsledný program'),preview,message,element('p','Bod se ve hře nevykresluje. Kameru používejte pro účastníky poblíž sebe. Rozhovor nepozastavuje ostatní skripty ani nedoplňuje pohyb rtů; titulky řeči řídí nastavení hry. Větvení a opakování upravujte ve výsledném programu v inspektoru.'),actions);dialog.append(element('h2','Přidat rozhovor'),form);
+  dialog.addEventListener('cancel',event=>{if(state.busy)event.preventDefault();});dialog.addEventListener('close',()=>{closed=true;revision++;for(const line of lines){line.audio.pause();line.audio.removeAttribute('src');line.audio.load();}dialog.remove();},{once:true});document.body.append(dialog);addLine();dialog.showModal();name.select();
 }
 function detectorDialog(file,position=[0,0,0]){
   const dialog=element('dialog',undefined,'mission-task-dialog'),form=element('form',undefined,'mission-form'),fields=element('div',undefined,'mission-fields');
