@@ -120,6 +120,7 @@ app.whenReady().then(async () => {
     return `workbench://app/media/${mediaToken}?name=${encodeURIComponent(name)}`;
   });
   handle('asset:texts', (name, changes, expectedHash) => operation(async () => { await current().saveTexts(name, changes, expectedHash); return current().inspect(name); }));
+  handle('asset:text-add', (name, entry, expectedHash) => operation(async () => { await current().addText(name, entry, expectedHash); return current().inspect(name); }));
   handle('asset:scene', (name, changes, expectedHash) => operation(async () => { await current().saveScene(name, changes, expectedHash); return current().inspect(name); }));
   handle('asset:scene-object', (name, request, expectedHash) => operation(async () => { await current().changeSceneObject(name, request, expectedHash); return current().inspectMap(name); }));
   handle('asset:model', (name, changes, expectedHash) => operation(async () => { await current().saveModel(name, changes, expectedHash); return current().inspect(name); }));

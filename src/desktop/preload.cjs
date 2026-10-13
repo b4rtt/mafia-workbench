@@ -23,6 +23,7 @@ contextBridge.exposeInMainWorld('workbench', {
   missionTemplate: () => invoke('mission:template'),
   createMission: options => invoke('mission:create', options),
   saveTexts: (name, changes, expectedHash) => invoke('asset:texts', name, changes, expectedHash),
+  addText: (name, entry, expectedHash) => invoke('asset:text-add', name, entry, expectedHash),
   saveScene: (name, changes, expectedHash) => invoke('asset:scene', name, changes, expectedHash),
   changeSceneObject: (name, operation, expectedHash) => invoke('asset:scene-object', name, operation, expectedHash),
   saveModel: (name, changes, expectedHash) => invoke('asset:model', name, changes, expectedHash),

@@ -663,6 +663,18 @@ function renderTexts(main, file) {
   const workspace = element('div', undefined, 'text-workspace'), indexPanel = element('div', undefined, 'text-index');
   const search = element('input'); search.type = 'search'; search.placeholder = 'ID nebo část textu…'; search.setAttribute('aria-label', 'Hledat v textech');
   const list = element('div', undefined, 'text-list'), form = element('div', undefined, 'text-form');
+  const add = element('button','Nový text…');
+  add.onclick=()=>{
+    if(state.texts.size){status('Před přidáním textu uložte nebo vraťte rozepsané změny.');return;}
+    const dialog=element('dialog',undefined,'new-text-dialog'),heading=element('h2','Nový text pro misi nebo dialog'),body=element('form'),id=element('input'),text=element('textarea'),message=element('p',undefined,'notice'),cancel=element('button','Zrušit'),save=element('button','Vytvořit text','primary');
+    const used=new Set(file.entries.map(entry=>entry.id)), boundary=file.entries.at(-1)?.id??0;let suggested=boundary>90000?90000:0;while(suggested<boundary&&used.has(suggested))suggested++;
+    id.type='number';id.min='0';id.max=String((file.entries.at(-1)?.id??0)-1);id.step='1';id.value=String(suggested);id.setAttribute('aria-label','ID nového textu');text.setAttribute('aria-label','Nový text');
+    const idLabel=element('label','ID textu');idLabel.append(id);const textLabel=element('label','Text');textLabel.append(text);cancel.type='button';cancel.onclick=()=>dialog.close();save.type='submit';
+    const actions=element('div',undefined,'tools');actions.append(cancel,save);
+    body.append(idLabel,textLabel,element('p',`Text vznikne v tomto jazykovém souboru (${file.encoding}). Ve skriptu použijte jeho ID pro mission_objectives nebo subtitle_add. Dabing se připojuje zvlášť; zvuk tímto nevznikne.`),message,actions);dialog.append(heading,body);document.body.append(dialog);dialog.addEventListener('close',()=>dialog.remove(),{once:true});
+    body.onsubmit=event=>{event.preventDefault();const value=Number(id.value);if(!id.value.trim()||!Number.isSafeInteger(value)||value<0||value>=Number(id.max)+1||used.has(value)){message.textContent='Zvolte volné celé ID pod posledním hraničním záznamem.';return;}
+      run(async()=>{save.disabled=true;try{state.file=await api.addText(file.path,{id:value,text:text.value},file.sha256);state.textIndex=state.file.entries.find(entry=>entry.id===value).index;dialog.close();await refresh();renderDetail();status(`Nový text ${value} uložený do modu se zálohou a undo.`);}catch(error){message.textContent=error.message;}finally{save.disabled=false;}});};dialog.showModal();text.focus();
+  };
   function edit(entry) {
     state.textIndex = entry.index; form.replaceChildren();
     const label = element('label', `Text ID ${entry.id} · záznam ${entry.index + 1}`); label.htmlFor = 'text-value';
@@ -685,7 +697,7 @@ function renderTexts(main, file) {
     }
     list.replaceChildren(fragment);
   }
-  search.oninput = fill; fill(); indexPanel.append(search, list); workspace.append(indexPanel, form); main.append(workspace);
+  search.oninput = fill; fill(); indexPanel.append(add, search, list); workspace.append(indexPanel, form); main.append(workspace);
   if (file.entries.length) edit(file.entries[state.textIndex] ?? file.entries[0]);
 }
 function renderProperties(main, file, saveAPI, onEdit = () => {}, onPick = () => {}, initialSelection = true) {

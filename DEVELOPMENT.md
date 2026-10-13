@@ -30,7 +30,7 @@ Aktualizace: 13. října 2026. Vývoj pokračuje; komplexní editor není dokon�
 - Kolize — hlavní vývojový blok podle výslovného požadavku uživatele: samostatný 3D editor původních tree.klz, výběr a úpravy tvarů/povrchů, přidávání/mazání, materiály, přepočet mřížky, zachování vazeb a zálohy/export/undo jsou implementované. Ve hře ověřené paprskové dotazy i reakce navigovaných chodců na všech šest nových typů, přesun/undo/odstranění a nové souřadnice. Dosažení cíle a vybočení z dráhy měřené zvlášť, aby obcházení nepůsobilo jako průchod kolizí. Další dynamické reakce ještě vyžadují test.
 - První část tohoto bloku: obecný zápis šesti původních KLZ polí, přidávání/mazání a přemapování buněk, místní matice/inverze, roviny a winding, oddělení sdílených/frame-backed vrcholů, byte-local materiály a zachování opaque dat. Audit 77 souborů a 1 325 operací; změna původního trojúhelníku ve všech 77 misích. Opravené čtení instancovaných billboardů zpřístupňuje geometrii letiště (původní frame 128 byl chybný offset parseru). Tři singulární původní XTOBB zůstávají omezením prostorových změn. Viz research/collision-editor.md.
 - Kolize: generovaný box i přesný povrch modelu, transformace, kopie a odstranění mají datové testy; box ověřen ve hře. Přesný povrch potřebuje dokončit herní test průchodů/kolizí. Původní kolize nezahazovat.
-- 4DS: transformace, materiály, vrcholy, UV, topologie a více LOD implementované. Nové panely geometrie a materiálů potřebují UI/runtime ověření. Dále sektory/portály a tvary skin/morph; zachovat instance a neznámá data.
+- 4DS: transformace, materiály, vrcholy, UV, topologie a více LOD implementované. Panel geometrie má UI i herní ověření standardního modelu popsané níže; materiály a další varianty potřebují další průchod. Dále sektory/portály a tvary skin/morph; zachovat instance a neznámá data.
 - BMP: kreslení, kapátko, paleta a alpha implementované a datově ověřené; nové ovládání i textura ve hře ještě vyžadují test.
 - Mise: rozbalení, kategorie, slučování cest bez rozlišení velikosti písmen a nová prázdná mise implementované. Přímý start přes izolovanou kopii bez videí/menu a inkrementální synchronizace implementované. Ověřovat další starty po úpravách a jednotlivé nové aktéry ve hře.
 - Navigace a silnice: pohyb, mezilehlé body, nové křižovatky, vzájemné cesty a rozdělení existující cesty křižovatkou implementované. Doplnit slučování a asymetrické struktury, ověřit parkování, priority a semafory v herním provozu. Nová cesta, geometrická změna a připojení odbočky mají samostatný AI test.
@@ -107,3 +107,20 @@ WB_DOOR v jeho testovacím projektu již neupravovat ani nepřipojovat aktéra: 
 - Audit: 70 sítí, 7 152 výběrů křižovatek, 209 výběrů bodů, 399 368 instancí šipek a 930 instancí vypnutých směrů při opakovaných náhledech. Vše konečné ve float32, bez upozornění, hash zdrojů shodný. Chybné a neznámé varianty pokrývají samostatné testy.
 - UI: změna typu/posunu, vypnutí směru, zachování skryté vrstvy po uložení, nový výběr, živý posun bodu a rámování. Přesné uložené bajty a dvě přesná undo silnice/historie; scéna a KLZ shodné.
 - Kontroly: 302 testů, syntax check a build. Další otevřená práce zahrnuje slučování silnic/křižovatek a ověření pravidel provozu v runtime; ostatní formátové a UX body backlogu zůstávají v aktivním komplexním goalu.
+
+## Ověření tvorby geometrie přes UI a hru
+
+- V odděleném Electronu upraven bedna02 / Box01: nový vrchol s XYZ, normálou a UV, nová materiálová skupina a trojúhelník. Ověřená kopie/odstranění vrcholu, obrácení pořadí s návratem, přidání/odstranění prázdné skupiny a odmítnutí indexu mimo rozsah. Náhled zobrazil texturovanou plochu; uložení vytvořilo jediný krok historie.
+- Uložených 1 134 bajtů přesně odpovídá nezávisle sestavenému výsledku z původních 1 092 bajtů: 25 vrcholů, 13 trojúhelníků, dvě skupiny. Původní vrcholové řádky, plochy, materiály, jiný frame a suffix jsou zachované. Export má totožné bajty.
+- Izolovaná hra ukázala při stejném scénovém skriptu původní bednu a poté bednu s přidanou plochou; použité modely/scény kontrolované hashem. Testovací kameru bylo nutné nastavit skriptem až po načtení. Vlastní hra ukončená, dočasné kontrolní změny vrácené a následné UI undo obnovilo původní model, scénu, KLZ i historii. Chráněné projekty a původní EXE shodné. Test nepokrývá všechny LOD, skin/morph ani samostatný materiálový dialog.
+
+## Priorita: postup tvorby vlastní hratelné mise
+
+Navázat příkladem od založení mise přes vlastní zadání/titulky, interakci, návazný cíl a dokončení až po export a spuštění. Konkrétní závislosti: nové TextDB ID bez přepisování původních textů, import vlastního hlasu a jeho vazba, šablony doložených skriptových příkazů a kontrola návazností. Ověřit chování při restartu a načtení uložené hry. Tento postup zatím není dokončený; město navíc potřebuje import vlastních assetů, sektory/portály a širší ověření dopravy. Ostatní body backlogu zůstávají otevřené.
+
+
+## Vlastní zadání úkolů a titulky
+
+- Implementováno: Texty → jazykový TextDB → Nový text…; vlastní volné ID, kódování a zachování původních textů/indexových vazeb, hash guard, záloha, export a undo. Obsazené ID či nepodporované znaky se hlásí v dialogu. Limit a hraniční záznam jsou popsané v research/formats.md.
+- Audit všech tří tabulek, UI vytvoření/odmítnutí, přesný export a skutečný český titulek v izolované hře prošly. UI undo obnovilo tabulku/historii, ostatní testovací soubory a chráněné projekty/EXE shodné. Vlastní hra ukončená. Kontroly: 305 testů, check a build.
+- Návaznost: vlastní texty jsou hotový základ, celý postup hratelné mise stále vyžaduje ověření interakce, návazného cíle, dokončení a restartu/uložené hry. Dabing a import hlasu zůstávají otevřené. Ostatní backlog se tím neuzavírá.

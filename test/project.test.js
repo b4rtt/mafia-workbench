@@ -37,6 +37,15 @@ test('mod saves, reopen, undo, restore and export retain the original', async t 
   assert.equal((await reopened.list()).history, 0);
   assert.deepEqual(await readSafe(root, asset.original), original);
 });
+test('new mission text uses hash guard, exact export and undo without changing original IDs',async t=>{
+  const {root,project}=await setup(t),name='tables/textdb_cz.def',bytes=Buffer.alloc(26);bytes.writeUInt32LE(2,0);bytes.writeUInt32LE(0xabc,4);bytes.writeUInt32LE(10,8);bytes.writeUInt32LE(24,12);bytes.writeUInt32LE(99999999,16);bytes.writeUInt32LE(25,20);
+  await project.createFiles([{path:name,data:bytes}],'Text fixture');const history=project.manifest.history.length,manifest=JSON.stringify(project.manifest);
+  await assert.rejects(()=>project.addText(name,{id:90000,text:'Dojdi na místo.'},'stale'),/změnil/);assert.equal(project.manifest.history.length,history);
+  await project.addText(name,{id:90000,text:'Dojdi na místo.'},hash(bytes));const reopened=await ModProject.open(root),result=await reopened.inspect(name);assert.deepEqual(result.entries.map(e=>e.id),[10,90000,99999999]);assert.equal(result.entries[1].text,'Dojdi na místo.');assert.deepEqual(await fs.readFile(path.join(root,project.asset(name).original)),bytes);
+  const after=await reopened.read(name);await reopened.export(path.join(root,'text-export'));assert.deepEqual(await fs.readFile(path.join(root,'text-export',name)),after);
+  await assert.rejects(()=>reopened.addText(name,{id:90000,text:'Duplicate'},hash(after)),/existuje/);assert.equal(reopened.manifest.history.length,history+1);
+  await reopened.undo();assert.deepEqual(await reopened.read(name),bytes);assert.equal(reopened.manifest.history.length,history);assert.equal(JSON.stringify(reopened.manifest),manifest);
+});
 test('project boundary rejects traversal, symlinks, hardlinks and altered originals', async t => {
   const { root, project, asset } = await setup(t);
   const outside = path.join(root, 'outside'); await fs.mkdir(outside);

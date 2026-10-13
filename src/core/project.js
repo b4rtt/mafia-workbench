@@ -3,7 +3,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { DtaArchive, relativeAssetPath } from './dta.js';
 import { hash, safePath, readSafe, writeSafe } from './files.js';
-import { parseTextDb, editTextDb } from './textdb.js';
+import { parseTextDb, editTextDb, addTextDbEntry } from './textdb.js';
 import { inspectScene, editScene, changeSceneObject } from './scene.js';
 import { parseFourDs, editFourDs } from './fourds.js';
 import { parseFiveDs, editFiveDs } from './fiveds.js';
@@ -260,6 +260,13 @@ export class ModProject {
       if (expectedHash !== hash(before)) throw new Error('Soubor se od otevření změnil. Otevřete jej znovu.');
       return editTextDb(before, name, changes);
     }, 'Úprava textů');
+  }
+  async addText(name, entry, expectedHash) {
+    if (!/textdb_[a-z]{2}\.def$/i.test(name)) throw new Error('Soubor není TextDB.');
+    await this.change(name, before => {
+      if (expectedHash !== hash(before)) throw new Error('Soubor se od otevření změnil. Otevřete jej znovu.');
+      return addTextDbEntry(before,name,entry);
+    }, 'Nový text pro misi nebo dialog');
   }
   async saveScene(name, changes, expectedHash) {
     if (!/scene2\.bin$/i.test(name) || !Array.isArray(changes) || changes.length > 1024) throw new Error('Neplatná úprava scény.');
