@@ -2,6 +2,13 @@
 
 Aktualizace: 14. října 2026. Vývoj pokračuje; komplexní editor není dokončený. Implementace, datové testy, ověření UI a ověření ve hře jsou různé úrovně dokončení; neoznačovat jednu za druhou. Podrobnosti existujících funkcí a jejich omezení jsou v README.md a research/formats.md. Původní hra se nemění, úpravy mají kontrolu verze, zálohu, export a undo. Herní data a soukromé reference nepatří do veřejného repozitáře.
 
+## Vozovka a chodníky podle silniční sítě (2026-10-14)
+
+- Silniční síť → Vytvořit vozovku a chodníky…: jedna uložená cesta, živý náhled, tři BMP materiály, ruční rozměry a opakování, nový nativní 4DS s identity transformací a světovými souřadnicemi. Road.bin zůstává přesný, vytvoření má jeden undo; model se vkládá zvlášť s přesnou kolizí. Závislosti sítě/textur chráněné i při publikaci, invalidní a překrývající se cesty odmítnuté. Sdílený writer nových povrchů zachoval starý terén po bajtech.
+- Uživatel upozornil na nevhodný popraskaný asfalt a natažené UV. Rozbor původního města doložil výchozí ^SL_6M02 / ^CHDNK01 / ^OBRUB01 a přibližná metrická opakování. Rozvinutí každé dvojice trojúhelníků zachovává fyzickou hustotu i ve svahu se zatáčkou. Uživatel nový vzhled přijal; krajnice, značení, křižovatky a přesný profil se budou ladit podle OSM. Podklady a limity v research/road-surfaces.md, požadavek uložený také v zadání budoucího pluginu.
+- Vlastní Electron: vytvoření 100vrcholového/36trojúhelníkového modelu ze stoupající 90° cesty, textury, náhled, neplatný rozměr, přesný export a UI undo. Native GOG 1.2/Wine: model s 72 oboustrannými KLZ trojúhelníky, zásahy vozovky/chodníku/obrubníku v očekávaných souřadnicích = HUD 77; stejný model bez kolize = HUD 70. Oba běhy vizuálně ověřené. Přímá chůze a jízda po povrchu ještě nepotvrzené.
+- 433/433 testů, check a build prošly. Vlastní hra/aplikace ukončené, diagnostika i nový testovací model/cesta přesným undo vrácené, herní kopie znovu připravená z výchozí scény. Všechny chráněné soubory shodné. Zbývají napojení povrchů/křižovatek, plný průchod vlastní mise a další authoringové mezery; tento blok plný editor ani městský plugin nedokončuje.
+
 ## Ruční kolize NPC a úkol převozu (2026-10-14)
 
 - Uživatel ve stejné oddělené bojové misi potvrdil, že obě živé NPC blokují hráče a jedna po zastřelení spadne. Přesný zdroj/herní hash a historie 12 zachované, běh ukončený. Tím se uzavírá omezení předchozích testů pro tyto dvě postavy; celý bojový úkol, mrtvé tělo, další modely a checkpoint tím ověřené nejsou. Dřívější příčina byla vlastní pomocný program end, nikoli výchozí vložení NPC.

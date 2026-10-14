@@ -112,6 +112,7 @@ app.whenReady().then(async () => {
   handle('asset:map', name => current().inspectMap(name));
   handle('mission:destination', name => current().missionDestination(name));
   handle('model:terrain', (options,textureHash) => operation(async()=>{const active=current(),path=await active.createTerrain(options,textureHash);return {path,project:await active.list()};}));
+  handle('model:road-surface', (name,options,expectedHash,textureHashes) => operation(async()=>{const active=current(),path=await active.createRoadSurface(name,options,expectedHash,textureHashes);return {path,project:await active.list()};}));
   handle('asset:car-models', () => current().carModels());
   handle('asset:pickup-items', () => current().pickupItems());
   handle('replay:missions', name => replayMissions(current(), name));

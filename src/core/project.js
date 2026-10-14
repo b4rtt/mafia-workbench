@@ -15,6 +15,7 @@ import { resolveMissionFlow } from '../shared/mission-flow.js';
 import { missionTaskScript, missionTaskVehicles } from '../shared/mission-task.js';
 import { inspectMissionDestination } from './mission-destination.js';
 import { createTerrain } from './terrain.js';
+import { createRoadSurface } from './road-surface.js';
 import { missionDialogueScript, dialogueSpeakers } from '../shared/mission-dialogue.js';
 import { prepareMissionChoice } from './mission-choice.js';
 import { prepareMissionCombat } from './mission-combat.js';
@@ -235,6 +236,7 @@ export class ModProject {
   }
   async previewModelImport(files, name) { return modelImportPlan(this, files, name); }
   async createTerrain(options,textureHash){return createTerrain(this,options,textureHash);}
+  async createRoadSurface(name,options,expectedHash,textureHashes){return createRoadSurface(this,name,options,expectedHash,textureHashes);}
   async importModel(files, name, expected) { return importModel(this, files, name, expected); }
   async importLoose(progress = () => {}) {
     if (this.busy) throw new Error('Probíhá jiné ukládání.');

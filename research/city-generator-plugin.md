@@ -21,6 +21,12 @@ Uživatel vybere část skutečného města na mapě. Modul z mapových podklad�
 
 ## Oddělení modulu
 
+### Upřesnění vzhledu ulic a aktuální základ (14. října 2026)
+
+Uživatel požaduje silnice a chodníky vzhledem odpovídající původní hře. Editor nově umí samostatný povrch z jednoho propojení road.bin: vozovku, dva zvýšené chodníky a obrubníky, původní městské materiály, UV v metrech a přesné kolize. Podklady a ověření jsou v [road-surfaces.md](road-surfaces.md). Tento nástroj je základ authoringu, nikoli hotový generátor města.
+
+Po posledním náhledu uživatel současný vzhled přijal; asymetrické krajnice a přesnější tvar skutečné silnice chce ladit podle OSM. Při návrhu pluginu řešit šířku/pruhy/profil ulice, napojení chodníků a křižovatek, značení na obou stranách a návaznost textur bez deformace, spolu s reálnými výškami. Současné texturové švy a chybějící spojení křižovatek zůstávají explicitní mezerou.
+
 Při zahájení navrhnout úzké verzované rozhraní pro katalog assetů, tvorbu mise a transakční zápis změn. Generátor má mít vlastní vstupy, plán a kontroly; editor dál spravuje otevření, vizuální úpravy, export a playtest. Konkrétní architektura zůstává rozhodnutím příštího goalu.
 
 ## Zadání příštího goalu
