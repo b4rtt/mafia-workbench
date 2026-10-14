@@ -192,3 +192,44 @@ test('new surfaces coexist with imported frame triangles belonging to prefixed e
   const klz=await p.read(klzPath),parsed=parseCollision(klz);klz.write('a.crate\0',parsed.links[0].offset+4);klz.writeUInt16LE(0,parsed.primitives.triangles.start+6);await p.change(klzPath,klz,'Imported model surface');
   await p.changeSceneObject(scenePath,{...operation,collision:{kind:'mesh',material:2}},hash(await p.read(scenePath)));const map=await p.inspectMap(scenePath),after=parseCollision(await p.read(klzPath));assert.equal(map.collision.warning,undefined);assert.equal(map.collision.surfaces[0].triangleCount,2);assert.deepEqual(after.primitives.triangles.records[0].raw,parseCollision(klz).primitives.triangles.records[0].raw);
 });
+
+test('mission collision rebuild updates all owned models from edited geometry, preserves manual/original records and undoes alone',async t=>{
+ const {p,scene,root}=await setup(t);
+ await p.changeSceneObject(scenePath,{...operation,collision:{kind:'mesh',material:9,doubleSided:false}},hash(scene));
+ await p.changeSceneObject(scenePath,{...operation,name:'BOX',position:[15,0,5]},hash(await p.read(scenePath)));
+ const manualPoints=[[12,0,12],[12,3,12],[12,0,14]],manual=editCollision(await p.read(klzPath),[{kind:'add',array:'triangles',changes:{points:manualPoints,material:21}}]).bytes;
+ await p.change(klzPath,manual,'Independent manual surface');const beforeScene=await p.read(scenePath),oldOwners=collisionOwnership(p.manifest,scenePath),oldModel=await p.read('models/crate.4ds');
+ await p.saveGeometry('models/crate.4ds',{mesh:1,levels:[{lod:0,recomputeNormals:false,vertices:[{index:1,position:[4,2,0]}]}]},hash(oldModel));const model=await p.read('models/crate.4ds'),history=p.manifest.history.length,map=await p.inspectMap(scenePath);
+ assert.deepEqual(await p.read(klzPath),manual);
+ assert.deepEqual(await p.rebuildSceneCollision(scenePath,map.sha256,map.collision.sha256),{count:2,changed:true});
+ const result=await p.read(klzPath),q=parseCollision(result),original=parseCollision(manual),next=await p.inspectMap(scenePath);
+ assert.equal(p.manifest.history.length,history+1);assert.deepEqual(p.manifest.history.at(-1).files.map(f=>f.path),[klzPath]);assert.deepEqual(await p.read(scenePath),beforeScene);assert.deepEqual(await p.read('models/crate.4ds'),model);
+ assert.equal(next.collision.surfaces[0].material,9);assert.equal(next.collision.surfaces[0].doubleSided,false);assert(next.collision.surfaces[0].positions.some((n,i,a)=>i%3===0&&n===9&&a[i+1]===2));assert.deepEqual(next.collision.boxes[0].max,[19,4,8]);
+ assert.deepEqual(q.primitives.triangles.records[0].raw,original.primitives.triangles.records[0].raw);assert.deepEqual(q.primitives.aabbs.records[0].raw,original.primitives.aabbs.records[0].raw);
+ for(const name of ['xtobbs','obbs','spheres','cylinders'])assert.deepEqual(q.primitives[name].raw,original.primitives[name].raw);
+ assert.deepEqual(collisionTriangleVertices(q,q.primitives.triangles.records.find(r=>r.material===21)).sort(),manualPoints.sort());
+ const reopened=await ModProject.open(root),destination=path.join(root,'rebuild-export');await reopened.export(destination);assert.deepEqual(await fs.readFile(path.join(destination,klzPath)),result);
+ const length=reopened.manifest.history.length;assert.deepEqual(await reopened.rebuildSceneCollision(scenePath,next.sha256,next.collision.sha256),{count:2,changed:false});assert.equal(reopened.manifest.history.length,length);
+ await reopened.undo();assert.deepEqual(await reopened.read(klzPath),manual);assert.deepEqual(collisionOwnership(reopened.manifest,scenePath),oldOwners);assert.deepEqual(await reopened.read('models/crate.4ds'),model);await reopened.undo();assert.deepEqual(await reopened.read('models/crate.4ds'),oldModel);
+});
+test('collision rebuild refuses stale scene/KLZ, unsupported paths and changed ownership without publishing',async t=>{
+ const {p,scene}=await setup(t),history=p.manifest.history.length;
+ assert.deepEqual(await p.rebuildSceneCollision(scenePath,hash(scene),hash(await p.read(klzPath))),{count:0,changed:false});assert.equal(p.manifest.history.length,history);
+ await p.changeSceneObject(scenePath,{...operation,collision:{kind:'mesh',material:9}},hash(scene));const map=await p.inspectMap(scenePath),bytes=await p.read(klzPath),h=p.manifest.history.length;
+ await assert.rejects(p.rebuildSceneCollision('models/crate.4ds',map.sha256,map.collision.sha256),/scene2/);
+ await assert.rejects(p.rebuildSceneCollision(scenePath,'stale',map.collision.sha256),/od otevření/);
+ await assert.rejects(p.rebuildSceneCollision(scenePath,map.sha256,'stale'),/Kolize se/);
+ await assert.rejects(p.rebuildSceneCollision(scenePath,map.sha256),/aktuální/);
+ assert.equal(p.manifest.history.length,h);assert.deepEqual(await p.read(klzPath),bytes);
+ const q=parseCollision(bytes);bytes.writeFloatLE(123,q.extraVertices.byteOffset-q.bytes.byteOffset+36);await writeSafe(p.root,p.asset(klzPath).overlay,bytes);
+ await assert.rejects(p.rebuildSceneCollision(scenePath,map.sha256,hash(bytes)),/mimo editor/);assert.equal(p.manifest.history.length,h);assert.deepEqual(await p.read(klzPath),bytes);
+});
+test('collision rebuild protects source geometry and rolls back failed publication independently from model editing',async t=>{
+ const {p,scene}=await setup(t);await add(p,scene);const oldModel=await p.read('models/crate.4ds');
+ await p.saveGeometry('models/crate.4ds',{mesh:1,levels:[{lod:0,recomputeNormals:false,vertices:[{index:1,position:[4,2,0]}]}]},hash(oldModel));
+ const map=await p.inspectMap(scenePath),klz=await p.read(klzPath),owners=collisionOwnership(p.manifest,scenePath),history=p.manifest.history.length,save=p.saveManifest;
+ p.saveManifest=async()=>{throw Error('rebuild publish failed');};await assert.rejects(p.rebuildSceneCollision(scenePath,map.sha256,map.collision.sha256),/publish failed/);p.saveManifest=save;
+ assert.deepEqual(await p.read(klzPath),klz);assert.equal(p.manifest.history.length,history);assert.deepEqual(collisionOwnership(p.manifest,scenePath),owners);
+ const batch=p.changeBatch;p.changeBatch=async function(...args){await this.change('models/crate.4ds',oldModel,'Independent geometry edit');return batch.apply(this,args);};
+ await assert.rejects(p.rebuildSceneCollision(scenePath,map.sha256,map.collision.sha256),/od otevření/);assert.deepEqual(await p.read(klzPath),klz);assert.equal(p.manifest.history.length,history+1);assert.deepEqual(collisionOwnership(p.manifest,scenePath),owners);
+});

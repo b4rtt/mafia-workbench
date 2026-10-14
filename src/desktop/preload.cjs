@@ -37,6 +37,7 @@ contextBridge.exposeInMainWorld('workbench', {
   importModel: (token,name,expected) => invoke('model-import:save',token,name,expected),
   saveScene: (name, changes, expectedHash) => invoke('asset:scene', name, changes, expectedHash),
   changeSceneObject: (name, operation, expectedHash) => invoke('asset:scene-object', name, operation, expectedHash),
+  rebuildSceneCollision: (name, expectedHash, collisionHash) => invoke('asset:scene-collision-rebuild',name,expectedHash,collisionHash),
   saveModel: (name, changes, expectedHash) => invoke('asset:model', name, changes, expectedHash),
   modelGeometry: (name, mesh) => invoke('asset:model-geometry', name, mesh),
   saveGeometry: (name, request, expectedHash) => invoke('asset:geometry', name, request, expectedHash),

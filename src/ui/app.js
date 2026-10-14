@@ -60,6 +60,10 @@ function buttons() {
   $('import-model').title = state.texts.size ? 'Nejdřív uložte rozepsané změny.' : 'Importovat vlastní 4DS a BMP textury do projektu.';
   $('stop-level').disabled = state.busy;
   for (const part of document.querySelectorAll('[data-mission-part]')) part.disabled = state.busy;
+  for(const rebuild of document.querySelectorAll('[data-collision-rebuild]')){
+    rebuild.disabled=state.busy||Boolean(state.texts.size)||rebuild.dataset.collisionRebuild==='unavailable';
+    rebuild.title=state.texts.size?'Nejdřív uložte rozepsané změny.':rebuild.dataset.collisionRebuild==='unavailable'?'Mise nemá platné generované kolize.':'Přepočítat kolize vytvořené editorem z aktuálních modelů; původní a ruční kolize zachovat.';
+  }
   for (const link of document.querySelectorAll('[data-vehicle-link]')) {
     link.disabled = state.busy || Boolean(state.texts.size);
     link.title = state.texts.size ? 'Nejdřív uložte rozepsané změny.' : 'Otevřít společnou fyzikální definici všech variant tohoto auta.';
@@ -1184,9 +1188,9 @@ function renderMap(main, file, previous = null) {
     }
     view.loadTextures(resolveTexture); status(warnings.length ? `3D mapa načtená; ${warnings.length} vazeb má chybějícího nebo nejednoznačného rodiče.` : '3D mapa: geometrie a dostupné objekty načtené.');
   }
-  addObjects().catch(error => status(error.message, true));
+  view.loadPromise=addObjects();view.loadPromise.catch(error => status(error.message, true));
   for (const [mode, label] of [['translate', 'Posun'], ['rotate', 'Rotace'], ['scale', 'Měřítko']]) { const button = element('button', label); button.onclick = () => view.gizmo.setMode(mode); tools.append(button); }
-  const displayActions=[];
+  const displayActions=[],collisionActions=[];
   const fit = element('button', 'Zarámovat mapu'); fit.onclick = () => { cameraMoved = true; view.fit(); };
   const sky = element('button', 'Obloha'); let showSky = Boolean(previous?.backdrop); sky.setAttribute('aria-pressed', String(showSky)); sky.onclick = () => { showSky = !showSky; view.showBackdrop(showSky); sky.setAttribute('aria-pressed', String(showSky)); updateSoundExtent(); updateLightPreview(); };
   tools.append(fit); displayActions.push(sky); objects.onchange = () => view.select(objects.value);
@@ -1194,6 +1198,18 @@ function renderMap(main, file, previous = null) {
     const show=element('button',`Generované kolize (${file.collision.boxes.length+(file.collision.surfaces?.length??0)})`);let visible=Boolean(previous?.collisions);show.setAttribute('aria-pressed',String(visible));
     view.showCollisionBoxes(file.collision.boxes,visible,file.collision.surfaces??[]);show.onclick=()=>{visible=!visible;view.showCollisionBoxes(file.collision.boxes,visible,file.collision.surfaces??[]);show.setAttribute('aria-pressed',String(visible));};displayActions.push(show);
     if(file.collision.warning)center.append(element('p',file.collision.warning,'notice'));
+    if(!file.cacheSource){
+      const rebuild=element('button','Přepočítat generované kolize');
+      rebuild.dataset.collisionRebuild=file.collision.warning||!(file.collision.boxes.length+(file.collision.surfaces?.length??0))?'unavailable':'available';
+      rebuild.onclick=()=>run(async()=>{
+        if(state.texts.size)throw new Error('Nejdřív uložte rozepsané změny.');
+        const result=await api.rebuildSceneCollision(file.path,file.sha256,file.collision.sha256);
+        state.file=result.map;await refresh();renderDetail();await state.viewport.loadPromise;
+        const models=result.count===1?'modelu':'modelů';
+        status(result.changed?`Kolize ${result.count} ${models} přepočítané s jedním undo.`:`Kolize ${result.count} ${models} už odpovídají aktuální geometrii; žádná změna.`);
+      });
+      collisionActions.push(rebuild);
+    }
   }
   focus.onclick = () => { const object = view.frames.get(selectedId); if (object) { cameraMoved = true; view.fit(object); } };
   tools.append(focus, vehiclePhysics);
@@ -1222,6 +1238,7 @@ function renderMap(main, file, previous = null) {
     tools.append(actionMenu('Přidat',[add,addHuman,addCar,addPickup,addLight,addSound,addDetector,addDialogue]),actionMenu('Objekt',[duplicate,remove,collision,configurePickup,addDoor,addPhysical]));
   }
   tools.append(actionMenu('Zobrazení',displayActions));
+  if(collisionActions.length)tools.append(actionMenu('Kolize',collisionActions));
   view.loadTextures(resolveTexture);
   properties = renderProperties(inspector, file, file.cacheSource ? api.saveCache : async (...args) => { await api.saveScene(...args); return api.map(file.path); }, (entry, value) => { const field = byField.get(entry.id); if (field && ['position','rotation','scale'].includes(field.kind)) view.update(field.id, { [field.kind]: value }); updateSoundExtent(); updateLightPreview(); }, entry => {
     const field=byField.get(entry.id);

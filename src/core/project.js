@@ -327,6 +327,18 @@ export class ModProject {
       return result;
     }, 'Úprava scény a skriptů');
   }
+  async rebuildSceneCollision(name, expectedHash, collisionHash) {
+    if(!/^missions\/[^/]+\/scene2\.bin$/i.test(name))throw new Error('Vyberte scene2.bin mise.');
+    const before=await this.read(name);
+    if(hash(before)!==expectedHash)throw new Error('Soubor se od otevření změnil. Otevřete jej znovu.');
+    if(typeof collisionHash!=='string')throw new Error('Nejdřív otevřete aktuální kolize mapy.');
+    const count=collisionOwnership(this.manifest,name).length;
+    if(!count)return {count:0,changed:false};
+    const collision=await prepareSceneCollision(this,name,before,before,{expectedHash:collisionHash});
+    const changed=collision.files.some(file=>hash(file.data)!==file.expectedHash);
+    await this.changeBatch([{path:name,data:before,expectedHash},...collision.files],'Přepočet generovaných kolizí mise',collision.ownership);
+    return {count,changed};
+  }
   async changeSceneObject(name, operation, expectedHash) {
     if (!/^missions\/[^/]+\/scene2\.bin$/i.test(name)) throw new Error('Vyberte scene2.bin mise.');
     const before=await this.read(name);
