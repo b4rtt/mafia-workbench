@@ -19,6 +19,7 @@ import { createRoadSurface } from './road-surface.js';
 import { missionDialogueScript, dialogueSpeakers } from '../shared/mission-dialogue.js';
 import { prepareMissionChoice } from './mission-choice.js';
 import { prepareMissionCombat } from './mission-combat.js';
+import { editableMissionCombat } from '../shared/mission-combat.js';
 import { prepareHumanBehavior } from './human-behavior.js';
 import { dialogueSoundPath, prepareDialogueWav } from './dialogue-audio.js';
 import { dialogueLipPath, parseLip, editLip, createLip, lipFromVoice } from './lip.js';
@@ -423,6 +424,14 @@ export class ModProject {
       const combat=await prepareMissionCombat(this,before,geometry,operation);
       request={...operation,mask:1,code:combat.code};dependencies.push(...combat.dependencies);
     }
+    if(operation?.kind==='configure-combat'){
+      if(operation.task||operation.dialogue||operation.behavior)throw new Error('Bojový úkol: vyberte pouze jednu šablonu.');
+      const current=editableMissionCombat({...inspectScene(before),geometry},operation.target);
+      if(!current)throw new Error('Bojový úkol: vyberte jednoznačný skriptový bod s nezměněnou šablonou a maskou 1. Vlastní program upravte v editoru zdroje.');
+      const combat=await prepareMissionCombat(this,before,geometry,{...operation,name:current.entry.value.name});
+      choiceScene=editScene(before,current.entry.id,{...current.entry.value,code:combat.code});
+      dependencies.push(...combat.dependencies,{path:geometryPath,data:geometryBytes,expectedHash:hash(geometryBytes)});
+    }
     if(operation?.kind==='add-choice'){
       const choice=await prepareMissionChoice(this,before,geometry,operation);choiceScene=choice.data;
       dependencies.push(...choice.dependencies,{path:geometryPath,data:geometryBytes,expectedHash:hash(geometryBytes)});
@@ -548,7 +557,7 @@ export class ModProject {
       if(owned){const klz=parseCollision(await this.read(`${folder}/tree.klz`)),record=ownedCollisionRecords(klz,[owned])[0];requests.push({name:operation.name,kind:owned.kind,material:record.material,doubleSided:owned.doubleSided});}
     }
     const collision=await prepareSceneCollision(this,name,before,after,{requests,expectedHash:operation?.collisionHash});
-    const label={ 'add-model': 'Vložení modelu do mise', 'add-human':'Vložení postavy a jejího skriptu','configure-human':'Nastavení chování postavy','add-car':'Vložení automobilu a jeho aktéra','add-light':'Vložení světla do mise','add-sound':'Vložení prostorového zvuku do mise','add-detector':'Vložení skriptového bodu','add-choice':'Vložení volby odpovědi','add-pickup':'Vložení předmětu k sebrání','configure-pickup':'Nastavení předmětu k sebrání','attach-door':'Vytvoření dveřního aktéra','attach-physical':'Vytvoření fyzikálního předmětu', duplicate: 'Duplikace objektu mise', delete: 'Odstranění objektu mise',collision:'Generování kolize modelu' }[operation?.kind]??'Úprava objektů mise';
+    const label={ 'add-model': 'Vložení modelu do mise', 'add-human':'Vložení postavy a jejího skriptu','configure-human':'Nastavení chování postavy','configure-combat':'Nastavení bojového úkolu','add-car':'Vložení automobilu a jeho aktéra','add-light':'Vložení světla do mise','add-sound':'Vložení prostorového zvuku do mise','add-detector':'Vložení skriptového bodu','add-choice':'Vložení volby odpovědi','add-pickup':'Vložení předmětu k sebrání','configure-pickup':'Nastavení předmětu k sebrání','attach-door':'Vytvoření dveřního aktéra','attach-physical':'Vytvoření fyzikálního předmětu', duplicate: 'Duplikace objektu mise', delete: 'Odstranění objektu mise',collision:'Generování kolize modelu' }[operation?.kind]??'Úprava objektů mise';
     const files=new Map([{path:name,data:after,expectedHash},...dependencies,...(collision?.files??[])].map(file=>[key(file.path),file]));
     await this.changeBatch([...files.values()],label,collision?.ownership);
   }

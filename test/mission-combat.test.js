@@ -99,3 +99,54 @@ test('combat transaction protects text and geometry dependencies, preserves scri
     reopened.changeBatch = batch; await reopened.undo(); assert.deepEqual(await reopened.read(dependency), original);
   }
 });
+
+test('combat wizard recovers existing canonical programs and refuses any edited source', async () => {
+  const {inspectMissionCombat}=await import('../src/shared/mission-combat.js');
+  for(const trigger of ['use','load'])for(const checkpointId of [null,5050])for(const exitToMenu of [false,true])for(const failure of [null,{timeoutSeconds:.1,textId:40},{humanName:'Guard',textId:40},{humanName:'Guard',timeoutSeconds:123.456,textId:40,endMission:true}])for(const waiting of [false,true]){
+    const options={...combat,trigger,checkpointId,exitToMenu,failure,flow:{waitForSignal:waiting}},source=missionCombatScript(options),parsed=inspectMissionCombat(source);
+    assert(parsed);assert.equal(missionCombatScript(parsed),source);assert.equal(missionCombatScript(inspectMissionCombat(source.replaceAll('\n','\r\n'))),source);assert.deepEqual(parsed.targets,combat.targets);assert.equal(parsed.trigger,trigger);
+    for(const changed of [source+'\n// changed',source.replace('wait 2000','wait 2001'),source.replace('Energy','"Energy"'),source.replace('goto 20','goto 30'),source.replace('dim_act','dim_frm')])assert.equal(inspectMissionCombat(changed),null);
+  }
+  for(const flow of [{onComplete:'Next'},{onFailure:'Fail'},{waitForSignal:true,onComplete:'Next',onFailure:'Next'},{onComplete:'Next',onFailure:'Fail'}]){
+    const code=missionCombatScript({...combat,failure:{timeoutSeconds:10,textId:40},flow});assert.equal(missionCombatScript(inspectMissionCombat(code)),code);assert.deepEqual(inspectMissionCombat(code).flow,{waitForSignal:flow.waitForSignal??false,onComplete:flow.onComplete??null,onFailure:flow.onFailure??null});
+  }
+  for(const invalid of [null,{},'end','mission_objectives 10\nsubtitle_add 30', 'findactor 0, "First"\nhuman_getproperty 0, 0, Energy\nif flt[0] > 0, 40, -1'])assert.equal(inspectMissionCombat(invalid),null);
+});
+async function combatEditFixture(t){
+  const root=await fs.mkdtemp(path.join(os.tmpdir(),'mafia-combat-edit-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));
+  await writeSafe(root,'workbench.json',JSON.stringify({format:'mafia-workbench',version:2,name:'Edit test',assets:[],history:[]}));
+  const p=await ModProject.open(root),name='missions/Edit/scene2.bin',geometryPath='missions/Edit/scene.4ds',textPath='tables/textdb_cz.def',geometry=Buffer.alloc(19);geometry.write('4DS\0');geometry.writeUInt16LE(29,4);geometry[18]=1;
+  let scene=chunk(0x4c53,Buffer.concat([chunk(0x4000,Buffer.alloc(0)),chunk(0xbabe,Buffer.from('opaque sibling'))]));for(const npc of ['First','Second','Guard'])scene=human(scene,npc);
+  for(const detector of ['Next','Fail'])scene=changeSceneObject(scene,{kind:'add-detector',name:detector,position:[1,2,3],mask:128,code:'wait 789\nend'});
+  const recipe={...combat,checkpointId:5050,failure:{humanName:'Guard',timeoutSeconds:10,textId:40},flow:{waitForSignal:true,onComplete:'Next',onFailure:'Fail'}};
+  scene=changeSceneObject(scene,{kind:'add-detector',name:'Quest',position:[4,5,6],mask:1,code:missionCombatScript(recipe)});
+  let text=Buffer.alloc(17);text.writeUInt32LE(1);text.writeUInt32LE(99999999,8);text.writeUInt32LE(16,12);for(const[id,value]of [[10,'Poraz oba'],[20,'Přijmout'],[30,'Hotovo'],[40,'Neúspěch'],[5050,'Boj začíná'],[50,'   ']])text=addTextDbEntry(text,textPath,{id,text:value});
+  await p.createFiles([{path:name,data:scene},{path:geometryPath,data:geometry},{path:textPath,data:text}]);
+  return {p,root,name,geometryPath,textPath,geometry,text,scene,recipe,request:{kind:'configure-combat',target:'qUEST',name:'Do not rename',position:[99,99,99],mask:0,code:'Do not trust client code',combat:{...recipe,targets:['second'],checkpointId:null,failure:{timeoutSeconds:5,textId:40},flow:{onComplete:'next'},textDb:textPath,textHash:hash(text)}}};
+}
+
+test('editing a combat quest changes only its code; exact old recipe survives reopen, export, no-op and undo',async t=>{
+  const {editableMissionCombat}=await import('../src/shared/mission-combat.js'),{p,root,name,geometryPath,textPath,scene,geometry,text,request}=await combatEditFixture(t),original=inspectScene(scene),history=p.manifest.history.length;
+  assert(editableMissionCombat({...original,geometry:{meshes:[]}},'Quest'));
+  await p.changeSceneObject(name,request,hash(scene));const after=await p.read(name),parsed=inspectScene(after),entry=parsed.entries.find(e=>e.actorScript&&e.value.name==='Quest'),expected={...request.combat,targets:['Second'],flow:{onComplete:'Next'}};
+  assert.equal(entry.value.code,missionCombatScript(expected));assert.deepEqual(parsed.entries.filter(e=>e.id!==entry.id),original.entries.filter(e=>e.id!==entry.id));assert(after.includes(Buffer.from('opaque sibling')));assert.deepEqual(await p.read(textPath),text);assert.deepEqual(await p.read(geometryPath),geometry);assert.deepEqual(p.manifest.history.at(-1).files.map(f=>f.path),[name]);
+  await p.changeSceneObject(name,request,hash(after));assert.equal(p.manifest.history.length,history+1,'Unchanged recipe must not create history');
+  const reopened=await ModProject.open(root);await reopened.export(root+'/export');assert.deepEqual(await fs.readFile(root+'/export/'+name),after);assert.equal(missionCombatScript(editableMissionCombat(await reopened.inspectMap(name),'Quest').combat),entry.value.code);
+  await reopened.undo();assert.deepEqual(await reopened.read(name),scene);assert.equal(reopened.manifest.history.length,history);
+});
+
+test('combat editing refuses custom programs, changed masks, ambiguous actors, stale text and mixed templates',async t=>{
+  const {editableMissionCombat}=await import('../src/shared/mission-combat.js'),{p,name,scene,request}=await combatEditFixture(t),history=p.manifest.history.length;
+  for(const invalid of [{target:'Missing'},{target:'First'},{task:{}},{dialogue:{}},{combat:{...request.combat,targets:['Missing']}},{combat:{...request.combat,textHash:'stale'}},{combat:{...request.combat,completeId:50}}])await assert.rejects(p.changeSceneObject(name,{...request,...invalid},hash(scene)),/Bojový úkol/);
+  const parsed=inspectScene(scene),entry=parsed.entries.find(e=>e.actorScript&&e.value.name==='Quest'),{editScene}=await import('../src/core/scene.js');
+  for(const change of [{id:entry.id,value:{...entry.value,code:entry.value.code+'\n// custom'}},{id:parsed.entries.find(e=>e.detectorParameter&&e.context.endsWith('/ Quest')).id,value:128}]){
+    const custom=editScene(scene,change.id,change.value);assert.equal(editableMissionCombat({...inspectScene(custom),geometry:{meshes:[]}},'Quest'),null);await p.change(name,custom,'User source');await assert.rejects(p.changeSceneObject(name,request,hash(custom)),/editoru zdroje/);await p.undo();
+  }
+  const duplicate={...parsed,actors:[...parsed.actors,parsed.actors.find(a=>a.name==='Quest')]};assert.equal(editableMissionCombat(duplicate,'Quest'),null);assert.deepEqual(await p.read(name),scene);assert.equal(p.manifest.history.length,history);
+});
+
+test('combat edit guards dependencies at publication and rolls back a failed manifest',async t=>{
+  const {p,name,geometryPath,textPath,scene,request}=await combatEditFixture(t),history=p.manifest.history.length,batch=p.changeBatch;
+  for(const dependency of [textPath,geometryPath]){const before=await p.read(dependency);p.changeBatch=async function(files,...args){await this.change(dependency,Buffer.concat([before,Buffer.from([1])]),'Independent change');return batch.call(this,files,...args);};await assert.rejects(p.changeSceneObject(name,request,hash(scene)),/změnil/);assert.deepEqual(await p.read(name),scene);p.changeBatch=batch;await p.undo();assert.deepEqual(await p.read(dependency),before);}
+  const save=p.saveManifest;p.saveManifest=async()=>{throw Error('combat edit publication failure');};await assert.rejects(p.changeSceneObject(name,request,hash(scene)),/publication failure/);p.saveManifest=save;assert.deepEqual(await p.read(name),scene);assert.equal(p.manifest.history.length,history);
+});

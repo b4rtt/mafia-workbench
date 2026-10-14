@@ -160,6 +160,14 @@ Hra a Audit aplikace ukončené. UI bod i čtyři přípravné operace vráceny 
 
 Core sestaví zdroj znovu a ověří skutečnou scénu, geometrii a neprázdné jednoznačné TextDB ID včetně případného názvu checkpointu. Ostatní NPC programy nepřepisuje, zdraví nenastavuje a aktéry nemaže. Proto samotná šablona nevytvoří nepřítele: výzbroj, chování a aktivní program cíle musí připravit autor mise.
 
+### Opětovné nastavení bojového úkolu
+
+Vyberte úkol ve 3D scéně a zvolte **Objekt → Nastavit bojový úkol…**. Formulář obnoví všechny původní volby, včetně ochrany NPC, checkpointu a obou návazných větví. Název a poloha se mění v běžném inspektoru; toto uložení změní jen program vybraného detektoru. Jazyk není zapsaný v programu, proto vyberte TextDB obsahující jeho ID pro jejich kontrolu a náhled. Nepřístupné původní NPC/vazby se zobrazí jako nedostupné, bez tichého nahrazení. Nezměněný recept nelze zbytečně uložit.
+
+Rozpoznání neodhaduje význam libovolného skriptu: načte možný recept a porovná jeho celou regenerovanou podobu s původním zdrojem, po sjednocení CRLF/LF. Musí jít o jednoznačný skriptový bod typu 5 s maskou 1. Původní šablony bez metadat tím zůstávají upravitelné; přidané komentáře, změněné příkazy a vlastní programy otevřete v editoru zdroje. Backend ověřuje tentýž stav znovu, skutečné NPC a návaznosti, texty i verze závislostí. Změna zachová ostatní položky po bajtech a má jedno exportovatelné undo.
+
+Oddělené UI ověřilo obnovení původního dvoucílového úkolu a uložení jednocílové varianty s load aktivací, limitem 7 s a oddělenými následnými body. Ve dvou GOG 1.2/Wine bězích přesný uložený program dokončil úkol po smrti Second, ačkoli odstraněný cíl First zůstal živý (následný bod/HUD 85). Při smrti pouze First a živé Second vypršel limit, objevila se hláška a následný bod neúspěchu/HUD 71. Samostatný diagnostický program pouze vyvolal úmrtí cíle a nastavil počáteční kontrolní HUD; rozhodnutí úkolu a odeslání signálů provedla produkční šablona. Export, znovuotevření, UI undo a obnova výchozích dat přesné. Tento test neověřuje ruční aktivaci/boj, smrt ochránce ani načtení checkpointu této varianty.
+
 **Pozor na `end` v programu NPC.** V PC enginu příkaz volá `program_clear_after_end` (VA 0x005bac10), který nastaví vlastnímu aktérovi stav 2 přes `actor_set_act_state` (0x0044c750). `human_change_state` (0x00494d60) pro jiný stav než 0 odregistruje dynamické kolize; pro živou postavu odstraní všechny. Model může zůstat stát, ale aktér už není aktivní. Typ 27 ani správná kostra tomu nezabrání. Pro stojící živou NPC použijte výchozí program editoru:
 
 ```text

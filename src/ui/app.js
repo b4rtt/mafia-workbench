@@ -12,6 +12,7 @@ import { missionDestinations } from '../shared/mission-destinations.js';
 import { missionDialogueScript, dialogueSpeakers } from '../shared/mission-dialogue.js';
 import { missionChoiceDialog } from './mission-choice.js';
 import { missionCombatDialog } from './mission-combat.js';
+import { editableMissionCombat } from '../shared/mission-combat.js';
 import { humanBehaviorDialog, humanBehaviorFields } from './human-behavior.js';
 import { materialFlags, materialAlphaModes, materialAlphaMode, withMaterialAlphaMode, materialDraft } from '../shared/material-settings.js';
 import { lightTypes, lightDefaults, sceneSectors } from '../shared/lights.js';
@@ -1148,6 +1149,7 @@ function renderMap(main, file, previous = null) {
   const addDoor=element('button','Vytvořit dveře…'),addPhysical=element('button','Vytvořit fyzikální předmět…'),addLight=element('button','Přidat světlo…'),addSound=element('button','Přidat zvuk…'),addDetector=element('button','Přidat skriptový bod…'),addDialogue=element('button','Přidat rozhovor…'),addChoice=element('button','Přidat volbu odpovědi…'),addCombat=element('button','Přidat bojový úkol…');addDoor.disabled=addPhysical.disabled=true;
   const vehiclePhysics = element('button', 'Fyzika auta…');
   const configureHuman = element('button', 'Chování postavy…'); configureHuman.disabled = true;
+  const configureCombat = element('button', 'Nastavit bojový úkol…'); configureCombat.disabled = true; configureCombat.title = 'Pouze přesně rozpoznaná šablona s maskou 1; vlastní program upravte v inspektoru.';
   const vehicleTable = state.project.assets.find(asset => asset.path.normalize('NFC').toLowerCase() === 'tables/vehicles.bin');
   vehiclePhysics.dataset.vehicleLink = ''; vehiclePhysics.hidden = true;
   vehiclePhysics.onclick = () => run(async () => {
@@ -1167,6 +1169,7 @@ function renderMap(main, file, previous = null) {
     assignSector.disabled=!object||![1,2,4,6,9].includes(object.frameType??frame.type);
     selectedFrame=frame;
     configureHuman.disabled = file.entries.filter(entry => entry.actorScript && entry.actorKind === 27 && entry.value.name.toLowerCase() === (object?.name ?? frame.name).toLowerCase()).length !== 1;
+    configureCombat.disabled = !editableMissionCombat(file, object?.name ?? frame.name);
     selectedId = frame.id;
     vehiclePhysics.hidden = file.cacheSource || !vehicleTable || !sceneVehicleFamily(file, object);
     vehiclePhysics.disabled = state.busy || Boolean(state.texts.size);
@@ -1281,6 +1284,11 @@ function renderMap(main, file, previous = null) {
       const context=await humanBehaviorContext(file);
       humanBehaviorDialog({element,file,...context,target:entry.value.name,run,save:async request=>{state.file=await api.changeSceneObject(file.path,request,file.sha256);state.selectSceneName=entry.value.name;await refresh();renderDetail();status('Chování postavy uložené v modu se zálohou a jedním undo. Spusťte misi znovu.');}});
     });
+    configureCombat.onclick=()=>run(async()=>{
+      if(state.texts.size)throw new Error('Nejdřív uložte rozepsané vlastnosti.');
+      const target=selectedObject?.name??selectedFrame?.name;
+      missionCombatDialog({api,assets:state.project.assets,file,target,element,run,flowFields:missionFlowFields,onCreated:async(result,name)=>{state.file=result;state.selectSceneName=name;await refresh();renderDetail();status('Bojový úkol uložený se zálohou a jedním undo. Spusťte misi znovu.');}});
+    });
     addDoor.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před vytvořením dveří uložte rozepsané vlastnosti.');if(!selectedFrame)throw new Error('Nejdřív vyberte křídlo dveří.');doorActorDialog(file,selectedFrame);});
     addPhysical.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před vytvořením fyzikálního předmětu uložte rozepsané vlastnosti.');if(!selectedObject)throw new Error('Nejdřív vyberte model.');physicalActorDialog(file,selectedObject);});
     addLight.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před vložením světla uložte rozepsané vlastnosti.');lightDialog(file,selectedObject?.position);});
@@ -1290,7 +1298,7 @@ function renderMap(main, file, previous = null) {
     addChoice.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před vytvořením volby uložte rozepsané vlastnosti.');missionChoiceDialog({api,assets:state.project.assets,file,position:selectedObject?.position,element,run,onCreated:async(result,name)=>{state.file=result;state.selectSceneName=name;await refresh();renderDetail();status('Volba odpovědi vytvořená se zálohou a jedním společným undo.');}});});
     addCombat.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před vytvořením bojového úkolu uložte rozepsané vlastnosti.');missionCombatDialog({api,assets:state.project.assets,file,position:selectedObject?.position,element,run,flowFields:missionFlowFields,onCreated:async(result,name)=>{state.file=result;state.selectSceneName=name;await refresh();renderDetail();status('Bojový úkol vytvořený se zálohou a jedním undo.');}});});
     for(const [button,configure] of [[addPickup,false],[configurePickup,true]])button.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před vložením nebo nastavením předmětu uložte rozepsané vlastnosti.');const catalog=await api.pickupItems();if(!catalog.items.length)throw new Error('Tabulka neobsahuje předměty s dostupným podporovaným modelem.');pickupDialog(file,catalog,configure?selectedObject:null,selectedObject?.position);});
-    tools.append(actionMenu('Přidat',[add,addHuman,addCar,addPickup,addLight,addSound,addDetector,addDialogue,addChoice,addCombat]),actionMenu('Objekt',[duplicate,remove,collision,assignSector,configureHuman,configurePickup,addDoor,addPhysical]));
+    tools.append(actionMenu('Přidat',[add,addHuman,addCar,addPickup,addLight,addSound,addDetector,addDialogue,addChoice,addCombat]),actionMenu('Objekt',[duplicate,remove,collision,assignSector,configureHuman,configureCombat,configurePickup,addDoor,addPhysical]));
   }
   tools.append(actionMenu('Zobrazení',displayActions));
   if(collisionActions.length)tools.append(actionMenu('Kolize',collisionActions));
@@ -1417,14 +1425,17 @@ function physicalActorDialog(file,object){
   }catch(error){message.textContent=error.message;throw error;}finally{submit.disabled=cancel.disabled=false;}});};
   dialog.addEventListener('cancel',event=>{if(state.busy)event.preventDefault();});dialog.addEventListener('close',()=>dialog.remove(),{once:true});document.body.append(dialog);dialog.showModal();inputs.get('mass').focus();
 }
-function missionFlowFields(file,parent,name,onchange,{failure=false}={}){
+function missionFlowFields(file,parent,name,onchange,{failure=false,initial=null}={}){
   const field=(label,input)=>{const row=element('label',label);input.setAttribute('aria-label',label);row.append(input);parent.append(row);return input;};
   const waiting=field('Čekat na signál jiného bodu před spuštěním',element('input'));waiting.type='checkbox';
   const choose=label=>{const input=field(label,element('select')),none=element('option','Bez návaznosti');none.value='';input.append(none);for(const actor of missionFlowTargets(file)){const option=element('option',actor.name);option.value=actor.name;input.append(option);}return input;};
   const complete=choose('Po dokončení poslat signál bodu'),failed=failure?choose('Po neúspěchu poslat signál bodu'):null;
+  waiting.checked=initial?.waitForSignal??false;
+  const available=new Set(missionFlowTargets(file).map(actor=>actor.name));
+  for(const [input,value]of [[complete,initial?.onComplete],[failed,initial?.onFailure]])if(input&&value){if(!available.has(value)){const option=element('option',`${value} · nedostupný bod`);option.value=value;input.append(option);}input.value=value;}
   const notice=element('p','Nejprve vytvořte cílové body s čekáním na signál, potom zdrojový úkol nebo rozhovor. Příjemce začne jednou po signálu 1; další aktivaci určuje jeho konfigurace. Signál se automaticky nemaže. Větve úspěchu a neúspěchu lze poslat různým bodům.','notice');notice.style.gridColumn='1 / -1';parent.append(notice);
   for(const input of [waiting,complete,failed].filter(Boolean))input.onchange=onchange;
-  return {options:()=>{const flow={waitForSignal:waiting.checked,onComplete:complete.value||null,onFailure:failed&&!failed.disabled?failed.value||null:null};return flow.waitForSignal||flow.onComplete||flow.onFailure?flow:null;},update:({enabled=true,hasFailure=false,exit=false,end=false}={})=>{waiting.disabled=complete.disabled=!enabled;if(failed){failed.disabled=!enabled||!hasFailure;failed.parentElement.style.display=hasFailure?'':'none';}for(const [input,ending]of [[complete,exit],[failed,end]])if(input)input.setCustomValidity(!input.disabled&&input.value&&(input.value.normalize('NFC').toLowerCase()===name.value.normalize('NFC').toLowerCase()?'Bod nemůže poslat signál sám sobě.':ending?'Návazný bod nelze spustit současně s ukončením mise.':'')||'');}};
+  return {options:()=>{const flow={waitForSignal:waiting.checked,onComplete:complete.value||null,onFailure:failed&&!failed.disabled?failed.value||null:null};return flow.waitForSignal||flow.onComplete||flow.onFailure?flow:null;},update:({enabled=true,hasFailure=false,exit=false,end=false}={})=>{waiting.disabled=complete.disabled=!enabled;if(failed){failed.disabled=!enabled||!hasFailure;failed.parentElement.style.display=hasFailure?'':'none';}for(const [input,ending]of [[complete,exit],[failed,end]])if(input)input.setCustomValidity(!input.disabled&&input.value&&(!available.has(input.value)?'Návazný bod už v misi není dostupný.':input.value.normalize('NFC').toLowerCase()===name.value.normalize('NFC').toLowerCase()?'Bod nemůže poslat signál sám sobě.':ending?'Návazný bod nelze spustit současně s ukončením mise.':'')||'');}};
 }
 function dialogueDialog(file,position=[0,0,0]){
   const speakers=dialogueSpeakers(file);if(!speakers.length)throw new Error('Rozhovor: nejprve přidejte do mise postavu.');

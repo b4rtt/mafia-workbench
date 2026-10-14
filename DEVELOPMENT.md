@@ -2,6 +2,13 @@
 
 Aktualizace: 14. října 2026. Vývoj pokračuje; komplexní editor není dokončený. Implementace, datové testy, ověření UI a ověření ve hře jsou různé úrovně dokončení; neoznačovat jednu za druhou. Podrobnosti existujících funkcí a jejich omezení jsou v README.md a research/formats.md. Původní hra se nemění, úpravy mají kontrolu verze, zálohu, export a undo. Herní data a soukromé reference nepatří do veřejného repozitáře.
 
+## Úpravy existujících bojových úkolů (2026-10-14)
+
+- Objekt → Nastavit bojový úkol… obnoví cíle, aktivaci, texty, limit, ochranu NPC, checkpoint, konce a návaznosti ze stávajícího programu. Rozpoznání vyžaduje přesnou shodu s celým znovu generovaným zdrojem, jednoznačného aktéra 5 a masku 1; původní šablony bez metadat i CRLF podporované. Vlastní změněné skripty zůstávají v editoru zdroje. Jazyk se ze skriptu nedá určit, proto formulář výslovně žádá volbu TextDB pro náhled/kontrolu ID.
+- Nová configure-combat mění pouze pole code vybraného úkolu. Přesný název, poloha, maska, parametry, programy NPC a neznámé bloky zůstávají zachované. Verze scény/TextDB/geometrie chráněné při publikaci; neplatné vazby a souběžná změna odmítnuté. Nezměněný formulář má disabled Save a nevyrobí historii; změna má jednu zálohu/undo.
+- Oddělený Electron obnovil starou dvoucílovou šablonu s ochranou NPC, checkpointem a návazností. Přes formulář v UI vznikl jeden cíl Second, aktivace load, limit 7 s a samostatné body Next/WB_COMBAT_FAIL. Save/reopen, přesný export a skutečné UI undo ověřené. Native GOG 1.2/Wine použilo přesně tento uložený program: smrt pouze Second, First stále živá → Next/HUD 85; smrt pouze First, Second stále živá → vypršení limitu, hláška neúspěchu a WB_COMBAT_FAIL/HUD 71. Energie cíle se měnila samostatnou testovací diagnostikou, ne ruční střelbou.
+- 441/441 testů, check a build prošly. Obě vlastní hry ukončené, diagnostika vrácená, UI změna i vlastní přidaný bod přesným undo odstraněné; výchozí herní kopie znovu připravená a chráněné uživatelské soubory shodné. Ruční průchod celého úkolu, smrt ochránce, bojový checkpoint a plná vlastní mise ještě vyžadují ověření. Goal zůstává aktivní; navazující městský plugin čeká na plnohodnotné vytváření misí.
+
 ## Řízená jízda NPC (2026-10-14)
 
 - Přidání postavy a Objekt → Chování postavy… nabízí jízdu konkrétním autem přes 1–32 stálých cílových framů, jejich pořadí a čekání, počáteční prodlevu, jednorázovou/opakovanou trasu a přirozený nástup nebo začátek na sedadle řidiče. Po dojezdu zůstává aktér aktivní. Přesně rozpoznaná šablona obnoví formulář; ruční programy zůstávají vlastními.

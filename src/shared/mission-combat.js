@@ -1,5 +1,5 @@
 import { dialogueSpeakers } from './mission-dialogue.js';
-import { missionFlow, resolveMissionFlow } from './mission-flow.js';
+import { missionFlow, resolveMissionFlow, missionFlowTargets } from './mission-flow.js';
 
 const key = name => name.normalize('NFC').toLowerCase();
 const validName = name => typeof name === 'string' && name.trim() && name.length <= 255 && !/["\x00-\x1f]/.test(name);
@@ -47,4 +47,36 @@ export function resolveMissionCombat(scene, combat, owner) {
   const result = { ...combat, targets: combat.targets.map(resolve), failure: combat.failure == null ? null : { ...combat.failure, ...(combat.failure.humanName == null ? {} : { humanName: resolve(combat.failure.humanName) }) }, flow: resolveMissionFlow(scene, combat.flow, owner) };
   missionCombatScript(result);
   return result;
+}
+
+// Recover only the exact source emitted by our wizard, including older files
+// without recipe metadata. A partial match must never authorize replacing code.
+export function inspectMissionCombat(code) {
+  if (typeof code !== 'string' || code.length > 1000000) return null;
+  const source = code.replaceAll('\r\n', '\n'), bindings = new Map([...source.matchAll(/^findactor (\d+), "([^"\x00-\x1f]+)"$/gm)].map(match => [Number(match[1]), match[2]]));
+  const objective = /^mission_objectives (\d+)$/m.exec(source), complete = /^label 20\nmission_objectivesremove \d+\nsubtitle_add (\d+)$/m.exec(source);
+  const use = /^detector_waitforuse (\d+)$/m.exec(source), checkpoint = /^autosavegamefull (\d+), 1$/m.exec(source);
+  const targetSlots = [...source.matchAll(/^human_getproperty (\d+), 0, Energy\nif flt\[0\] > 0, 40, -1$/gm)].map(match => Number(match[1]));
+  const guard = /^human_getproperty (\d+), 0, Energy\nif flt\[0\] > 0, -1, 30$/m.exec(source), timeout = /^if flt\[2\] > ([\d.e+-]+), 30, -1$/m.exec(source);
+  const failureText = /^label 30\nmission_objectivesremove \d+\nsubtitle_add (\d+)$/m.exec(source), parts = source.split('\nlabel 30\n');
+  const signal = part => { const match = /^detector_setsignal (\d+), 1$/m.exec(part ?? ''); return match ? bindings.get(Number(match[1])) : null; };
+  const flow = { waitForSignal: source.includes('label 1\ndetector_issignal -1, 2, -1\n'), onComplete: signal(parts[0]), onFailure: signal(parts[1]) };
+  const combat = {
+    targets: targetSlots.map(slot => bindings.get(slot)), trigger: use ? 'use' : 'load', ...(use ? { interactionId: Number(use[1]) } : {}),
+    objectiveId: Number(objective?.[1]), completeId: Number(complete?.[1]), checkpointId: checkpoint ? Number(checkpoint[1]) : null,
+    failure: failureText ? { timeoutSeconds: timeout ? Number(timeout[1]) / 1000 : null, humanName: guard ? bindings.get(Number(guard[1])) : null, textId: Number(failureText[1]), endMission: /^endofmission 0, \d+$/m.test(parts[1] ?? '') } : null,
+    flow: flow.waitForSignal || flow.onComplete || flow.onFailure ? flow : null, exitToMenu: /^endofmission 1, \d+$/m.test(parts[0])
+  };
+  try { if (missionCombatScript(combat) === source) return combat; } catch { /* Unknown or edited programs stay in the source editor. */ }
+  return null;
+}
+
+export function editableMissionCombat(scene, owner) {
+  if (!validName(owner)) return null;
+  const actors = (scene.actors ?? []).filter(actor => key(actor.name) === key(owner)), entries = (scene.entries ?? []).filter(entry => entry.actorScript && entry.actorKind === 5 && key(entry.value.name) === key(owner));
+  if (actors.length !== 1 || actors[0].kind !== 5 || entries.length !== 1 || !missionFlowTargets(scene).some(actor => key(actor.name) === key(owner))) return null;
+  const masks = scene.entries.filter(entry => entry.detectorParameter && entry.id.startsWith(actors[0].id + '/'));
+  if (masks.length !== 1 || masks[0].value !== 1) return null;
+  const combat = inspectMissionCombat(entries[0].value.code);
+  return combat ? { entry: entries[0], combat } : null;
 }
