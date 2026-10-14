@@ -37,6 +37,7 @@ import { parseBmp, editBmp } from './bmp.js';
 import { inspectModelGeometry, editModelGeometry } from './model-geometry.js';
 import { appendSector } from './sector-create.js';
 import { inspectSectorLinks, linkSectorPortal } from './sector-link.js';
+import { inspectSceneSectors, assignSceneSectors } from './scene-sectors.js';
 import { inspectProjectCollision, saveProjectCollision } from './collision-project.js';
 import { modelImportPlan, importModel } from './model-import.js';
 
@@ -329,6 +330,21 @@ export class ModProject {
       for (const { id, value } of ordered) result = editScene(result, id, value);
       return result;
     }, 'Úprava scény a skriptů');
+  }
+  async sceneSectorContext(name,id) {
+    if(!/^missions\/[^/]+\/scene2\.bin$/i.test(name))throw new Error('Vyberte scene2.bin mise.');
+    const bytes=await this.read(name),geometry=await this.read(name.slice(0,name.lastIndexOf('/'))+'/scene.4ds');
+    return {sha256:hash(bytes),geometryHash:hash(geometry),...inspectSceneSectors(bytes,geometry,id)};
+  }
+  async assignSceneSectors(name,request,expectedHash,geometryHash) {
+    if(!/^missions\/[^/]+\/scene2\.bin$/i.test(name))throw new Error('Vyberte scene2.bin mise.');
+    const before=await this.read(name),geometryPath=name.slice(0,name.lastIndexOf('/'))+'/scene.4ds',geometry=await this.read(geometryPath);
+    if(hash(before)!==expectedHash||hash(geometry)!==geometryHash)throw new Error('Scéna nebo geometrie se od otevření změnila. Otevřete dialog znovu.');
+    const after=assignSceneSectors(before,geometry,request);
+    const moved=inspectScene(before).objects.find(o=>o.id===request.id)?.parent!==inspectScene(after).objects.find(o=>o.id===request.id)?.parent;
+    const collision=moved&&collisionOwnership(this.manifest,name).length?await prepareSceneCollision(this,name,before,after):null;
+    const files=new Map([{path:name,data:after,expectedHash},{path:geometryPath,data:geometry,expectedHash:geometryHash},...(collision?.files??[])].map(file=>[key(file.path),file]));
+    await this.changeBatch([...files.values()],'Přiřazení objektu do sektorů',collision?.ownership);
   }
   async rebuildSceneCollision(name, expectedHash, collisionHash) {
     if(!/^missions\/[^/]+\/scene2\.bin$/i.test(name))throw new Error('Vyberte scene2.bin mise.');

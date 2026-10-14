@@ -37,3 +37,6 @@ Plán propojení sektorů, převody souřadnic, kontroly hranice/overlap a dialo
 
 
 Konstrukce konvexního povrchu používá MIT Three.js addon [ConvexHull](https://threejs.org/docs/pages/ConvexHull.html) z již instalované závislosti (QuickHull port uvedený v její dokumentaci). Addon je importovaný, nikoli kopírovaný z jiného Mafia editoru; bundler zachovává licenční komentáře. Mapování původních bodů/ID, float32 a LS3D inward validace, odebrání/přemapování, GUI a testy jsou implementace tohoto projektu. Herní evidence zůstává soukromá v ignored local.
+
+
+Vazby scene2 rodiče a opakované light/sound sector seznamy byly porovnány s load/save v Richard01CZ/mEdit SceneEditor.cpp a konstantami mLib Datablock.h. Vlastní structural writer, world-preserving TRS převod, ochrana dependency hashů, dialog a testy jsou implementace tohoto projektu; žádný kód referenčních editorů nebyl zkopírovaný. Syntetické public testy neobsahují původní assets; reálné auditní, UI a native soubory zůstávají ignored local.

@@ -26,6 +26,16 @@ async function setup(t){
 const operation={kind:'add-model',name:'WB_CRATE',model:'models/crate.4ds',position:[5,0,5],rotation:[1,0,0,0],scale:[1,1,1],collision:{kind:'aabb',material:7}};
 async function add(p,scene){await p.changeSceneObject(scenePath,operation,hash(scene));return p.read(scenePath);}
 
+test('sector reparent keeps generated model collisions at the same world position with one exact undo',async t=>{
+  const {p,scene,root}=await setup(t);await add(p,scene);const geometryPath='missions/NEW/scene.4ds',context=await p.sectorContext(geometryPath);await p.createSector(geometryPath,{name:'ROOM',center:[0,0,0],size:[20,20,20]},context.sha256,context.sceneHash);
+  const file=await p.inspect(geometryPath);await p.saveModel(geometryPath,[{id:'meshes/0/position',value:[13,4,-7]},{id:'meshes/0/rotation',value:[Math.SQRT1_2,0,Math.SQRT1_2,0]}],file.sha256);
+  const before=await p.read(scenePath),klz=await p.read(klzPath),oldOwners=structuredClone(collisionOwnership(p.manifest,scenePath)),map=await p.inspectMap(scenePath),ctx=await p.sceneSectorContext(scenePath,map.objects[0].id),history=p.manifest.history.length;
+  await p.assignSceneSectors(scenePath,{id:map.objects[0].id,parent:'ROOM'},ctx.sha256,ctx.geometryHash);assert.equal(p.manifest.history.length,history+1);assert.equal((await p.inspectMap(scenePath)).collision.warning,undefined);
+  const oldBox=parseCollision(klz).primitives.aabbs.records.at(-1),box=parseCollision(await p.read(klzPath)).primitives.aabbs.records.at(-1);for(const key of ['min','max'])box[key].forEach((v,i)=>assert.ok(Math.abs(v-oldBox[key][i])<1e-4));
+  await p.export(root+'/sector-export');assert.deepEqual(await fs.readFile(path.join(root,'sector-export',scenePath)),await p.read(scenePath));assert.deepEqual(await fs.readFile(path.join(root,'sector-export',klzPath)),await p.read(klzPath));
+  await p.undo();assert.deepEqual(await p.read(scenePath),before);assert.deepEqual(await p.read(klzPath),klz);assert.deepEqual(collisionOwnership(p.manifest,scenePath),oldOwners);assert.equal(p.manifest.history.length,history);
+});
+
 test('automatic model collisions keep independent manual surfaces across regeneration, export and undo',async t=>{
   const {p,scene,root}=await setup(t);await p.changeSceneObject(scenePath,{...operation,collision:{kind:'mesh',material:7}},hash(scene));
   const before=await p.read(klzPath),manualPoints=[[12,0,12],[12,3,12],[12,0,14]],manual=editCollision(before,[{kind:'add',array:'triangles',changes:{points:manualPoints,material:21}}]).bytes;

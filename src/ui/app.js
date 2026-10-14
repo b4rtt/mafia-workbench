@@ -27,6 +27,7 @@ import { modelImportDialog } from './model-import.js';
 import { terrainDialog } from './terrain.js';
 import { sectorCreateDialog } from './sector-create.js';
 import { sectorLinkDialog } from './sector-link.js';
+import { sceneSectorsDialog } from './scene-sectors.js';
 import { EffectsViewport } from './effects.js';
 import { renderEffectDefinitions } from './effect-types.js';
 import { AnimationPreview } from './animation.js';
@@ -1111,6 +1112,7 @@ function renderMap(main, file, previous = null) {
   }
   const add = element('button', 'Vložit model…'), addHuman=element('button','Přidat postavu…'), addCar=element('button','Přidat auto…'), duplicate = element('button', 'Duplikovat…'), remove = element('button', 'Odstranit…'), focus = element('button', 'Zarámovat objekt'), collision=element('button','Kolize modelu…');
   duplicate.disabled = remove.disabled = focus.disabled = collision.disabled = true;
+  const assignSector=element('button','Přiřadit do sektorů…');assignSector.disabled=true;
   const addPickup=element('button','Přidat předmět k sebrání…'),configurePickup=element('button','Nastavit předmět…');configurePickup.disabled=true;
   const addDoor=element('button','Vytvořit dveře…'),addPhysical=element('button','Vytvořit fyzikální předmět…'),addLight=element('button','Přidat světlo…'),addSound=element('button','Přidat zvuk…'),addDetector=element('button','Přidat skriptový bod…'),addDialogue=element('button','Přidat rozhovor…'),addChoice=element('button','Přidat volbu odpovědi…');addDoor.disabled=addPhysical.disabled=true;
   const vehiclePhysics = element('button', 'Fyzika auta…');
@@ -1130,6 +1132,7 @@ function renderMap(main, file, previous = null) {
   const view = new Viewport(viewport, frame => {
     const object = frame.sceneObject; selected.textContent = object ? object.name : `${frame.name} · geometrie ve scene.4ds`;
     selectedObject = object;
+    assignSector.disabled=!object||![1,2,4,6,9].includes(object.frameType??frame.type);
     selectedFrame=frame;
     selectedId = frame.id;
     vehiclePhysics.hidden = file.cacheSource || !vehicleTable || !sceneVehicleFamily(file, object);
@@ -1222,6 +1225,7 @@ function renderMap(main, file, previous = null) {
   focus.onclick = () => { const object = view.frames.get(selectedId); if (object) { cameraMoved = true; view.fit(object); } };
   tools.append(focus, vehiclePhysics);
   if(!file.cacheSource){
+    assignSector.onclick=()=>run(async()=>{if(!selectedObject)return;if(state.texts.size)throw new Error('Nejdřív uložte rozepsané změny.');const context=await api.sceneSectorContext(file.path,selectedObject.id);sceneSectorsDialog(context,{element,run,status,save:async(request,expectedHash,geometryHash)=>{state.file=await api.assignSceneSectors(file.path,request,expectedHash,geometryHash);state.selectSceneName=selectedObject.name;await refresh();renderDetail();}});});
     soundExtent.onclick=()=>{soundExtentVisible=!soundExtentVisible;soundExtent.setAttribute('aria-pressed',String(soundExtentVisible));updateSoundExtent();};
     focusSound.onclick=()=>{if(view.soundOverlay?.visible){cameraMoved=true;view.fit(view.soundOverlay);}};
     displayActions.push(soundExtent,focusSound);
@@ -1244,7 +1248,7 @@ function renderMap(main, file, previous = null) {
     addDialogue.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před vytvořením rozhovoru uložte rozepsané vlastnosti.');dialogueDialog(file,selectedObject?.position);});
     addChoice.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před vytvořením volby uložte rozepsané vlastnosti.');missionChoiceDialog({api,assets:state.project.assets,file,position:selectedObject?.position,element,run,onCreated:async(result,name)=>{state.file=result;state.selectSceneName=name;await refresh();renderDetail();status('Volba odpovědi vytvořená se zálohou a jedním společným undo.');}});});
     for(const [button,configure] of [[addPickup,false],[configurePickup,true]])button.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před vložením nebo nastavením předmětu uložte rozepsané vlastnosti.');const catalog=await api.pickupItems();if(!catalog.items.length)throw new Error('Tabulka neobsahuje předměty s dostupným podporovaným modelem.');pickupDialog(file,catalog,configure?selectedObject:null,selectedObject?.position);});
-    tools.append(actionMenu('Přidat',[add,addHuman,addCar,addPickup,addLight,addSound,addDetector,addDialogue,addChoice]),actionMenu('Objekt',[duplicate,remove,collision,configurePickup,addDoor,addPhysical]));
+    tools.append(actionMenu('Přidat',[add,addHuman,addCar,addPickup,addLight,addSound,addDetector,addDialogue,addChoice]),actionMenu('Objekt',[duplicate,remove,collision,assignSector,configurePickup,addDoor,addPhysical]));
   }
   tools.append(actionMenu('Zobrazení',displayActions));
   if(collisionActions.length)tools.append(actionMenu('Kolize',collisionActions));

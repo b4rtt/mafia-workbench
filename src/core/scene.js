@@ -233,6 +233,44 @@ export function editScene(source, id, value) {
   return result;
 }
 
+// Structural sector edits stay within one object. Keep opaque sibling chunks,
+// numeric tails and retained sector strings; rebuilding membership can shift IDs.
+export function editSceneSectorBindings(source, id, {parent, transform, sectors} = {}) {
+  const roots=tree(source);let found=false;
+  const chunk=(type,payload)=>{const h=Buffer.alloc(6);h.writeUInt16LE(type);h.writeUInt32LE(payload.length+6,2);return Buffer.concat([h,payload]);};
+  const text=value=>Buffer.concat([encode(value),Buffer.from([0])]);
+  function write(node){
+    if(node.id===id){
+      if(node.type!==0x4010)throw new Error('Sektory: vyberte objekt scény.');found=true;
+      const replacements=new Map(),append=[];
+      const replaceField=(type,value,kind)=>{
+        const old=node.children.filter(n=>n.type===type);if(old.length>1)throw new Error('Sektory: nejednoznačná transformace.');
+        const payload=old.length?encodeField(kind,value,old[0].payload):encodeField(kind,value,Buffer.alloc({vec3:12,quat:16}[kind]));
+        const raw=chunk(type,payload);if(old.length)replacements.set(old[0].id,raw);else append.push(raw);
+      };
+      if(parent!==undefined){
+        const links=node.children.filter(n=>n.type===0x4020);if(links.length>1)throw new Error('Sektory: nejednoznačný rodič.');
+        if(links.length){const link=links[0],names=link.children.filter(n=>n.type===0x10);if(names.length!==1)throw new Error('Sektory: nejednoznačný rodič.');
+          replacements.set(link.id,chunk(0x4020,Buffer.concat(link.children.map(n=>n===names[0]?chunk(0x10,encodeField('string',parent,n.payload)):n.raw))));
+        }else append.push(chunk(0x4020,chunk(0x10,text(parent))));
+      }
+      if(transform)for(const [type,key,kind] of [[0x20,'position','vec3'],[0x22,'rotation','quat'],[0x2d,'scale','vec3']])replaceField(type,transform[key],kind);
+      if(sectors!==undefined){
+        if(!Array.isArray(sectors)||sectors.length>256||sectors.some(s=>typeof s!=='string'))throw new Error('Sektory: neplatný seznam.');
+        const parameters=node.children.filter(n=>[0x4040,0x4060].includes(n.type));if(parameters.length!==1)throw new Error('Sektory: objekt nemá jednoznačné parametry světla nebo zvuku.');
+        const block=parameters[0],type=block.type===0x4040?0x4046:0xb200,old=block.children.filter(n=>n.type===type);
+        const records=sectors.map(name=>{const same=old.filter(n=>string(n.payload)===name);return same.length===1?same[0].raw:chunk(type,text(name));});
+        let inserted=false;const children=[];
+        for(const child of block.children){if(child.type===type){if(!inserted){children.push(...records);inserted=true;}}else children.push(child.raw);}
+        if(!inserted)children.push(...records);replacements.set(block.id,chunk(block.type,Buffer.concat(children)));
+      }
+      return chunk(node.type,Buffer.concat([...node.children.map(n=>replacements.get(n.id)??n.raw),...append]));
+    }
+    return node.children?chunk(node.type,Buffer.concat(node.children.map(write))):node.raw;
+  }
+  const result=Buffer.concat(roots.map(write));if(!found)throw new Error('Sektory: objekt již neexistuje.');inspectScene(result);return result;
+}
+
 // Existing opaque actor data, scripts, geometry overrides and sibling chunks
 // remain intact. New human actors use the verified C_human v6 layout.
 export function changeSceneObject(source, operation, geometryNames = [], geometryFrames = []) {
