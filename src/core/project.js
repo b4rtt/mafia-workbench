@@ -12,7 +12,7 @@ import { inspectCache, editCache } from './cache.js';
 import { parseItems, editItems } from './items.js';
 import { pickupParameters } from '../shared/pickups.js';
 import { resolveMissionFlow } from '../shared/mission-flow.js';
-import { missionTaskScript, missionTaskVehicles } from '../shared/mission-task.js';
+import { missionTaskScript, missionTaskVehicles, editableMissionTask } from '../shared/mission-task.js';
 import { inspectMissionDestination } from './mission-destination.js';
 import { createTerrain } from './terrain.js';
 import { createRoadSurface } from './road-surface.js';
@@ -473,7 +473,10 @@ export class ModProject {
       if(current){choiceScene=editScene(before,current.entry.id,{...current.entry.value,code});dependencies.push({path:geometryPath,data:geometryBytes,expectedHash:hash(geometryBytes)});}
       else request={...operation,mask:1,code};
     }
-    if(operation?.kind==='add-detector' && operation.task){
+    if((operation?.kind==='add-detector' && operation.task)||operation?.kind==='configure-task'){
+      if(operation.dialogue||operation.combat||operation.behavior)throw new Error('Úkol: vyberte pouze jednu šablonu.');
+      const current=operation.kind==='configure-task'?editableMissionTask({...inspectScene(before),geometry},operation.target):null;
+      if(operation.kind==='configure-task'&&!current)throw new Error('Úkol: vyberte jednoznačný skriptový bod s nezměněnou šablonou a maskou 1. Vlastní program upravte v editoru zdroje.');
       const task=operation.task,textPath=relativeAssetPath(task.textDb);
       missionTaskScript(task);
       if(!/^tables\/textdb_[a-z]{2}\.def$/i.test(textPath))throw new Error('Úkol: vyberte jazykový TextDB.');
@@ -505,7 +508,9 @@ export class ModProject {
         for(const file of destination.files)if(task.nextMissionHashes?.[file.path]!==file.expectedHash)throw new Error('Další mise: data se od výběru změnila. Vyberte misi znovu.');
         dependencies.push(...destination.files);nextMission=destination.name;
       }
-      request={...operation,mask:1,code:missionTaskScript({...task,nextMission,failure,vehicle,flow:resolveMissionFlow({...inspectScene(before),geometry},task.flow,operation.name)})};
+      const code=missionTaskScript({...task,nextMission,failure,vehicle,flow:resolveMissionFlow({...inspectScene(before),geometry},task.flow,current?.entry.value.name??operation.name)});
+      if(current){choiceScene=editScene(before,current.entry.id,{...current.entry.value,code});dependencies.push({path:geometryPath,data:geometryBytes,expectedHash:hash(geometryBytes)});}
+      else request={...operation,mask:1,code};
     }
     if(operation?.kind==='add-sound'){
       const soundPath=relativeAssetPath(operation.sound);
@@ -561,7 +566,7 @@ export class ModProject {
       if(owned){const klz=parseCollision(await this.read(`${folder}/tree.klz`)),record=ownedCollisionRecords(klz,[owned])[0];requests.push({name:operation.name,kind:owned.kind,material:record.material,doubleSided:owned.doubleSided});}
     }
     const collision=await prepareSceneCollision(this,name,before,after,{requests,expectedHash:operation?.collisionHash});
-    const label={ 'add-model': 'Vložení modelu do mise', 'add-human':'Vložení postavy a jejího skriptu','configure-human':'Nastavení chování postavy','configure-combat':'Nastavení bojového úkolu','configure-dialogue':'Nastavení rozhovoru','add-car':'Vložení automobilu a jeho aktéra','add-light':'Vložení světla do mise','add-sound':'Vložení prostorového zvuku do mise','add-detector':'Vložení skriptového bodu','add-choice':'Vložení volby odpovědi','add-pickup':'Vložení předmětu k sebrání','configure-pickup':'Nastavení předmětu k sebrání','attach-door':'Vytvoření dveřního aktéra','attach-physical':'Vytvoření fyzikálního předmětu', duplicate: 'Duplikace objektu mise', delete: 'Odstranění objektu mise',collision:'Generování kolize modelu' }[operation?.kind]??'Úprava objektů mise';
+    const label={ 'add-model': 'Vložení modelu do mise', 'add-human':'Vložení postavy a jejího skriptu','configure-human':'Nastavení chování postavy','configure-combat':'Nastavení bojového úkolu','configure-dialogue':'Nastavení rozhovoru','configure-task':'Nastavení úkolu','add-car':'Vložení automobilu a jeho aktéra','add-light':'Vložení světla do mise','add-sound':'Vložení prostorového zvuku do mise','add-detector':'Vložení skriptového bodu','add-choice':'Vložení volby odpovědi','add-pickup':'Vložení předmětu k sebrání','configure-pickup':'Nastavení předmětu k sebrání','attach-door':'Vytvoření dveřního aktéra','attach-physical':'Vytvoření fyzikálního předmětu', duplicate: 'Duplikace objektu mise', delete: 'Odstranění objektu mise',collision:'Generování kolize modelu' }[operation?.kind]??'Úprava objektů mise';
     const files=new Map([{path:name,data:after,expectedHash},...dependencies,...(collision?.files??[])].map(file=>[key(file.path),file]));
     await this.changeBatch([...files.values()],label,collision?.ownership);
   }

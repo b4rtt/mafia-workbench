@@ -57,6 +57,14 @@ Ověření 13. října 2026: v odděleném Electronu vytvořen bod se čtyřmi n
 
 Zbývá ověřit ruční interakci, volitelný návrat do menu a stav při restartu/načtení save. Šablona není hotový generátor kompletní mise ani větveného questu; návazná práce zahrnuje vlastní hlas a jeho vazbu, podmínky/failure a spolehlivý postup celou misí.
 
+### Opětovné nastavení lineárního úkolu
+
+Vyberte existující bod ve 3D a otevřete **Objekt → Nastavit úkol…**. Stejný formulář obnoví všechna čtyři ID, cíl a poloměr, převoz konkrétního auta a místo řidiče, checkpoint, časový limit a ochranu NPC, konec mise, další misi i oba signály návazností. Jazyk není v programu uložený; vyberte TextDB pro kontrolu ID. Název a polohu upravujte v inspektoru. Původní chybějící vazby se zobrazí jako nedostupné, bez tiché náhrady. Uložení beze změny není aktivní.
+
+`inspectMissionTask` po normalizaci CRLF přijme pouze úplnou shodu s nově sestaveným `missionTaskScript`; `editableMissionTask` navíc vyžaduje jednoznačný detektor typu 5, jeho frame a masku 1. Původní šablony nepotřebují metadata. Jakýkoli vlastní přídavek či změna programu zůstane v editoru zdroje. `configure-task` mění pouze vybraný code; ostatní vlastnosti, aktéři, programy NPC, texty a neznámá data jsou zachované. Scéna, geometrie, TextDB a při přechodu i tři soubory cílové mise jsou při publikaci chráněné verzí. Změna má jedinou zálohu a undo; cílová mise se nemění.
+
+Ověření 15. října 2026: samostatný Electron obnovil převoz, checkpoint, limit, ochranu NPC a signály. Uživatelův projekt se neměnil. Přes formulář uložen jiný cíl/poloměr a pěší dokončení se sedmivteřinovým limitem, bez checkpointu, ochrany a čekání na signál; save/reopen, export a skutečné UI undo mají přesné hashe. Dvě herní větve použily přesně tento uložený program a TextDB: nový cíl spustil dokončení a návazný Next/HUD 85; vypršení limitu spustilo neúspěch a WB_TASK_FAIL/HUD 71. Aktivaci vyvolal pomocný NPC, přesun k cíli pomocný skript. Ruční interakce, restart/save/load a změněný převoz/checkpoint/přechod mise tím nejsou ověřené. Testovací příprava vrácená na původní historii 12 a výchozí data, herní staging obnovený. 450/450 testů, check a build prošly.
+
 ## Vlastní dabing navázaný na TextDB
 
 PC engine `speech_channel_speak_line` (VA 005473b0) načítá `sounds/%08d.wav` podle stejného ID jako text a volitelný `tables/dat/%08d.dat` pro synchronizaci rtů. Podklad je [rozbor řečového kanálu](https://github.com/st0rm94/mafia-reverse-engineering-export/blob/main/structs/speech.md) a uložená anotovaná dekompilace. Formátování v této PC verzi používá signed int32; import dovoluje nezáporná ID do 2147483647. Chybějící DAT nebrání otevření WAV, import jej zatím nevytváří.

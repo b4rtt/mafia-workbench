@@ -1,6 +1,13 @@
 # Vývoj Mafia Workbench
 
-Aktualizace: 14. října 2026. Vývoj pokračuje; komplexní editor není dokončený. Implementace, datové testy, ověření UI a ověření ve hře jsou různé úrovně dokončení; neoznačovat jednu za druhou. Podrobnosti existujících funkcí a jejich omezení jsou v README.md a research/formats.md. Původní hra se nemění, úpravy mají kontrolu verze, zálohu, export a undo. Herní data a soukromé reference nepatří do veřejného repozitáře.
+Aktualizace: 15. října 2026. Vývoj pokračuje; komplexní editor není dokončený. Implementace, datové testy, ověření UI a ověření ve hře jsou různé úrovně dokončení; neoznačovat jednu za druhou. Podrobnosti existujících funkcí a jejich omezení jsou v README.md a research/formats.md. Původní hra se nemění, úpravy mají kontrolu verze, zálohu, export a undo. Herní data a soukromé reference nepatří do veřejného repozitáře.
+
+## Úpravy existujících lineárních úkolů (2026-10-15)
+
+- Objekt → Nastavit úkol… obnoví čtyři ID textů, cíl a poloměr, konkrétní auto a sedadlo řidiče, checkpoint, časový limit/ochranu NPC, konce a návaznosti. Přijímá pouze úplnou shodu programu s generátorem, jednoznačný detektor typu 5 a masku 1; původní šablony bez metadat i CRLF podporované. Vlastní program zůstává v inspektoru. Jazyk není součástí programu, proto formulář žádá TextDB pro kontrolu ID.
+- configure-task mění pouze code vybraného bodu. Název, poloha, maska, parametry, NPC, texty, geometrie a neznámé bloky zachované. Scéna/TextDB/geometrie a při přechodu tři soubory cílové mise chráněné při publikaci. Chybějící původní vazba je výslovně nedostupná; neplatný či nezměněný formulář má disabled Save. Jedna změna má jednu zálohu a undo.
+- Oddělený Electron obnovil převoz s checkpointem, ochranou NPC, limitem a návaznostmi. Přes UI vznikl úkol pěšky k jinému cíli s poloměrem 2,5, limitem 7 s, bez checkpointu/ochrany/čekání na signál. Volba řidiče, save/reopen, přesný export a skutečné UI undo ověřené. Native GOG 1.2/Wine použilo přesně uložený program a TextDB: přesun k novému cíli → „Úkol dokončen.“ → Next/HUD 85; čekání → „Úkol selhal.“ → WB_TASK_FAIL/HUD 71. Nezávislé zadání původního bojového úkolu zůstalo zachované, svět dál běžel. Aktivaci řídil pomocný NPC a přesun pomocný skript; nejde o ruční použití/průchod.
+- 450/450 testů, check a build prošly. Vlastní hry i aplikace ukončené; UI změna a příprava vrácené na historii 12, výchozí hashe všech částí mise/TextDB a chráněných souborů shodné, herní staging obnovený. Ruční průchod, restart/save/load a nově upravená varianta převozu/checkpointu/přechodu mise ještě vyžadují ověření. Goal zůstává aktivní, městský plugin zatím nezahájený.
 
 ## Úpravy existujících rozhovorů (2026-10-14)
 
