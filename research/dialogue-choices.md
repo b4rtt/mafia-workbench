@@ -1,6 +1,6 @@
 # Výběr odpovědi v původním enginu
 
-Rozpracovaná rešerše, 14. října 2026. Dosavadní průvodce generuje lineární rozhovor s návazným signálem. Tento zápis nepřidává ani neprokazuje funkční výběr odpovědi hráčem.
+Rozpracovaná rešerše a nativní experimenty, 14. října 2026. Dosavadní průvodce generuje lineární rozhovor s návazným signálem. Ověřený skriptový úklid nabídek je podkladem další implementace; tento zápis nepřidává hotový výběr odpovědi hráčem do editoru.
 
 ## Doložené možnosti
 
@@ -8,20 +8,47 @@ MSDR popisuje souběžné `detector_waitforuse` jako několik akcí v nabídce S
 
 PC `detector_use` odstraní registraci a posune čekající program pouze u skutečně použitého detektoru. Ostatní nabídky tím nezmizí. Podklad: [PC dekompilace](https://github.com/st0rm94/mafia-reverse-engineering-export/blob/main/ghidra/Game-ghidra.exe.annotated.c), `detector_create_using_object` 0x0047a6b0, `detector_use` 0x0047a790, `detector_program_process` 0x0047a840 a `using_object_find_near_objects` 0x0061bf50; [popis C_detector](https://github.com/st0rm94/mafia-reverse-engineering-export/blob/main/structs/detector.md).
 
-## Zrušení nezvolených odpovědí není vyřešené
+## Samotné vypnutí odpověď nezruší
 
 `act_setstate …, off` zapisuje stav aktéra. V samotném setteru není odstranění `S_using_object`; ani vyhledání blízkých akcí přímo nekontroluje tento stav. Přechod seznamů aktérů volá virtuální změnu stavu, jejíž konkrétní účinek na registraci detektoru ještě potřebuje ověření. Proto zatím nelze tento příkaz vydávat za ověřené zrušení odpovědi. Stejně tak `end` ukončuje program; jeho vlastní úklid nastavuje stav aktéra a není doloženým voláním `detector_use`.
 
 `detector_game_done` registraci odstraní, ale jde o teardown enginu, nikoli nalezený obecný skriptový příkaz. `actor_delete` má cestu přes odstranění dočasného aktéra. Není doložen jako řešení pro běžný detektor uložený ve scéně. `actor_duplicate` navíc vyžaduje modelový frame typu 9, takže jej nelze bez další implementace použít na dnešní skriptové body s frame typu 6.
 
-Podklad: stejná [PC dekompilace](https://github.com/st0rm94/mafia-reverse-engineering-export/blob/main/ghidra/Game-ghidra.exe.annotated.c), `actor_set_act_state` 0x0044c750, `game_change_act_state` 0x005e0ad0, `program_clear_after_end` 0x005bac10, `detector_game_done` 0x004795b0 a dispatcher 0xda/0xdb. Jde o interpretaci uloženého zdrojového exportu; herní experiment zatím neproběhl.
+Podklad: stejná [PC dekompilace](https://github.com/st0rm94/mafia-reverse-engineering-export/blob/main/ghidra/Game-ghidra.exe.annotated.c), `actor_set_act_state` 0x0044c750, `game_change_act_state` 0x005e0ad0, `program_clear_after_end` 0x005bac10, `detector_game_done` 0x004795b0 a dispatcher 0xda/0xdb.
+
+Nativní negativní kontrola: dvě nabídky na stejném místě, volba A přes NPC a `act_setstate` druhé odpovědi na `off`. V úplném save v 12 216 ms zůstala čekací hodnota B rovna 1, A již 0 a společný signál 1. Vypnutí tedy není dostačující úklid serializovaného čekání. Pozdější použití B kontrolním NPC tento stav mění, a proto se pro negativní kontrolu používá pouze checkpoint před tímto druhým použitím. První krátký běh nestačil vytvořit poslední checkpoint; jeho starý save se nepoužívá jako důkaz.
+
+## Úklid přes NPC a pojistka jediné větve
+
+`enemy_use_detector` v programu lidského NPC volá nativní `detector_use`, tedy odstraní registraci i čekací flag a posune čekající program. Příkaz patří do dispatcheru `C_entity` (0x1024); není obecným příkazem programu detektoru. Podklad: stejná PC dekompilace a MSDR, kapitoly `enemy_use_detector`, `setevent` a `event`.
+
+Pouhé nucené použití ostatních detektorů by spustilo jejich větve. Experiment proto po každém `detector_waitforuse` nejprve kontroluje společný signál: první použitá odpověď nastaví signál na 1 před událostí úklidu a vlastní akcí. Všechny následně použité odpovědi při signálu 1 skončí. Kontrola a nastavení neobsahují čekání. Vlastní NPC má událost `choice_clear`, která použije oba detektory a vrátí se do jeho kontrolního programu.
+
+Testovací programy jsou vlastní syntetické skripty. První odpověď nastaví zdraví na 31, druhá na 81, počáteční stav je 21. NPC v samostatných bězích použije A nebo B přibližně v deváté sekundě herního času a druhou odpověď znovu přibližně ve čtrnácté. Úplné save se vytvářejí kolem 5, 12 a 22 sekund. Kontrolní detektor i obě odpovědi se před čekáním zahrnou do save nulovým `detector_setsignal`; tím se netestují pouze položky náhodou přítomné v paměti.
+
+| Běh | Save před volbou | Save po volbě | Po opakovaném použití |
+| --- | --- | --- | --- |
+| A | zdraví 21, A/B čekají, signál 0 | zdraví 31, A/B nečekají, signál 1 | zdraví 31, A/B nečekají |
+| B | zdraví 21, A/B čekají, signál 0 | zdraví 81, A/B nečekají, signál 1 | zdraví 81, A/B nečekají |
+
+Jde o GOG 1.2 spuštěný produkční cestou izolovaného `Playtest.start`. Synchronizovaná scéna a TextDB mají přesné očekávané hashe; čtení save používá původní per-block `G_Stream` dešifrování, nikoli změnu jeho bajtů. V koncovém 12bajtovém záznamu detektoru je byte 5 signál a byte 6 čekání na použití. Writer a loader potvrzují, že nenulový byte 6 při načtení znovu registruje akci. Tyto offsety vycházejí z těl funkcí a experimentu, ne pouze z komentářů exportu.
+
+Výsledek prokazuje právě jednu výslednou větev a odstranění čekání při nativním skriptovém použití. Neprokazuje zatím skutečný hráčův výběr klávesou v nabídce ani dialogovou kameru, hlasy či smrt řídicího NPC. Průvodce nesmí automaticky přepsat program libovolné postavy: úklid potřebuje připravený program a žijícího aktéra, jehož událost je dostupná. Úspěšný experiment neřeší tuto produktovou integraci.
+
+## Načtení před volbou a po ní
+
+Ve scénáři B byly po ukončení prvního běhu zaevidovány úplné checkpointy stejnou produkční cestou, kterou používá editor. Nový proces postupně načetl slot 597 před volbou a slot 598 po volbě. Hash načítaného save se při startu nezměnil. V obou procesech pokračoval uložený měřicí program a vytvořil nový slot 599: zdraví 81, signál 1, obě čekací hodnoty 0. U načtení slotu 597 šlo o dokončení dosud nevybrané větve; u 598 se už dokončená volba neopakovala ani při pozdějším nuceném použití druhé odpovědi.
+
+Pomocný test nejprve vracel soubory checkpointů mezi těmito dvěma běhy bez současného vrácení jejich evidence. Produkční kontrola odmítla druhý start kvůli rozdílnému hashi save. Opravený test obnovuje společně soubory i jejich index z první zaznamenané verze; teprve opakovaný pár je důkazem obou načtení. Editor nevyžadoval změnu a žádná kontrola kompatibility nebyla vypnuta.
+
+Všechny vlastní procesy hry byly ukončeny. Scéna a TextDB byly vráceny přes undo na původní historii 38. Pět výchozích assetů testovacího projektu, ostatní kontrolované projekty a původní EXE jsou hashově stejné. Před experimenty vznikla trvalá místní záloha všech save profilu 0 i indexu; všechny byly obnoveny, nově vytvořené save odstraněny. Toto ověření neodvolává starší samostatně zdokumentovanou ztrátu automatického save 570 při prvním testu terénního štětce. Pomocné programy, snímky a save zůstávají v ignorovaném `local/`, nikoli ve veřejném repozitáři.
 
 ## Další ověření před přidáním průvodce
 
 - V izolované misi zobrazit dvě skutečné odpovědi a zvolit každou v samostatném běhu.
 - Doložit odstranění ostatních akcí, právě jednu výslednou větev a uvolnění dialogové kamery.
 - Ověřit odchod hráče od bodu, předčasný signál, přerušení rozhovoru a opakované stisknutí akce.
-- Uložit a načíst checkpoint před volbou i po ní; nezvolená odpověď se nesmí znovu objevit.
+- Zopakovat checkpoint před volbou i po ní s ručním výběrem hráče a dialogem; skriptová varianta B je již ověřená výše.
 - Teprve poté doplnit generátor, kontrolu všech textů/hlasů/cílů, atomický zápis celé sady bodů a jedno společné undo. Nezavádět volby pouze jako neověřenou editorskou maketu.
 
 `ctrl_read` a `ctrl_readex` jsou další možná cesta, ale PC používá dvě rozdílná pole ovládacích akcí. Dispatcher nekontroluje horní mez ID. Bez ověření konkrétního mapování a chování při zamčeném ovládání je nelze bezpečně nabízet s libovolným ID klávesy. Podklad: dispatcher 0x123/0x124 ve stejné dekompilaci.
