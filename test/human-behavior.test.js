@@ -3,12 +3,20 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { humanAttackTargets, humanBehaviorScript, inspectHumanBehavior } from '../src/shared/human-behavior.js';
+import { humanAttackTargets, humanBehaviorScript, inspectHumanBehavior, humanRoutePoints, validateHumanRoute } from '../src/shared/human-behavior.js';
 import { HUMAN_IDLE_SCRIPT } from '../src/shared/human-program.js';
 import { ModProject } from '../src/core/project.js';
+import { parseNavigation, changeNavigationConnection } from '../src/core/navigation.js';
 import { inspectScene, changeSceneObject } from '../src/core/scene.js';
 import { hash, writeSafe } from '../src/core/files.js';
 
+const patrol = { mode: 'patrol', waypoints: [{ id: 101, pauseSeconds: 2 }, { id: 17, pauseSeconds: .5 }], pace: 'walk', loop: true, delaySeconds: 1 };
+function navigation() {
+  let data = Buffer.alloc(98); data.writeUInt32LE(0x01abcedf); data.writeUInt32LE(3, 4);
+  [17, 101, 65535].forEach((id, index) => { const at = 8 + index * 30; data.writeFloatLE(index * 5, at); data.writeUInt16LE(1, at + 12); data.writeUInt16LE(id, at + 14); data.writeUInt16LE(50, at + 16); });
+  data = changeNavigationConnection(data, { action: 'connect', from: 0, to: 1 });
+  return changeNavigationConnection(data, { action: 'connect', from: 1, to: 2 });
+}
 const attack = { mode: 'attack', targetName: 'Target', itemId: 1, clip: 7, reserve: 35, range: -1, delaySeconds: 5 };
 test('NPC recipes preserve custom code and keep generated attackers active; edited recipes stay custom', () => {
   const code = humanBehaviorScript('Guard', attack);
@@ -39,7 +47,7 @@ async function fixture(t) {
   let scene = chunk(0x4c53, Buffer.concat([chunk(0x4000, Buffer.alloc(0)), chunk(0xbabe, Buffer.from('opaque sibling'))]));
   for (const name of ['Guard', 'Target']) scene = changeSceneObject(scene, { kind: 'add-human', name, model: 'Human.i3d', position: [0, 0, 0], rotation: [1, 0, 0, 0], scale: [1, 1, 1], parameters: {}, code: HUMAN_IDLE_SCRIPT });
   const name = 'missions/NPC/scene2.bin';
-  await project.createFiles([{ path: name, data: scene }, { path: 'missions/NPC/scene.4ds', data: empty }, { path: 'models/Human.4ds', data: human }, { path: 'models/Gun.4ds', data: gun }, { path: 'tables/predmety.def', data: table }]);
+  await project.createFiles([{ path: name, data: scene }, { path: 'missions/NPC/scene.4ds', data: empty }, { path: 'models/Human.4ds', data: human }, { path: 'models/Gun.4ds', data: gun }, { path: 'tables/predmety.def', data: table }, { path: 'missions/NPC/check.bin', data: navigation() }]);
   const catalog = await project.pickupItems(), behavior = { ...attack, tableHash: catalog.sha256, modelHash: catalog.items[0].modelHash };
   return { project, root, name, scene, table, behavior };
 }
@@ -81,4 +89,58 @@ test('concurrent weapon edits and failed manifest publication do not partially c
   const save = project.saveManifest; project.saveManifest = async () => { throw new Error('publication failure'); };
   await assert.rejects(project.changeSceneObject(name, { kind: 'configure-human', target: 'Guard', behavior }, hash(scene)), /publication failure/);
   project.saveManifest = save; assert.deepEqual(await project.read(name), scene); assert.equal(project.manifest.history.length, history);
+});
+
+
+test('patrols use stored IDs, wait after arrival, loop or remain active, and edited recipes remain custom', () => {
+  for (const loop of [false, true]) for (const pace of ['walk', 'run']) {
+    const options = { ...patrol, loop, pace }, code = humanBehaviorScript('Guard', options);
+    assert.deepEqual(inspectHumanBehavior('Guard', code), options);
+    assert.match(code, new RegExp(`enemy_move 101, ${pace}\\r\\nwait 2000\\r\\nenemy_move 17, ${pace}\\r\\nwait 500`));
+    assert.doesNotMatch(code, /^end$/m); assert.ok(code.endsWith(loop ? 'wait 100\r\ngoto 1\r\n' : 'label 2\r\nwait 1000\r\ngoto 2\r\n'));
+    const changed = code.replace('wait 500', 'wait 500\r\nhuman_do_breath'); assert.equal(inspectHumanBehavior('Guard', changed).mode, 'custom');
+  }
+  for (const invalid of [{ waypoints: [] }, { waypoints: [{ id: 0, pauseSeconds: 0 }] }, { waypoints: [{ id: 65536, pauseSeconds: 0 }] }, { waypoints: [{ id: '17', pauseSeconds: 0 }] }, { waypoints: [{ id: 17, pauseSeconds: NaN }] }, { waypoints: Array(33).fill(patrol.waypoints[0]) }, { pace: 'walk\nend' }, { loop: 1 }, { delaySeconds: -1 }]) assert.throws(() => humanBehaviorScript('Guard', { ...patrol, ...invalid }));
+  assert.doesNotThrow(() => humanBehaviorScript('Guard', { ...patrol, loop: false, waypoints: [{ id: 65535, pauseSeconds: 0 }] }));
+});
+
+test('routes reject duplicate IDs, nonhuman targets, disconnected and reverse-blocked paths', () => {
+  const parsed = parseNavigation(navigation()); validateHumanRoute(patrol, parsed);
+  assert.deepEqual(humanRoutePoints(parsed).map(point => point.id), [17, 101, 65535]);
+  const duplicate = structuredClone(parsed); duplicate.points[2].id = 101;
+  assert.deepEqual(humanRoutePoints(duplicate).map(point => point.id), [17]); assert.throws(() => validateHumanRoute(patrol, duplicate), /jednoznačné/);
+  const vehicle = structuredClone(parsed); vehicle.points[1].type = 4; assert.throws(() => validateHumanRoute(patrol, vehicle), /kategorii/);
+  const broken = structuredClone(parsed); broken.points[0].links = []; assert.throws(() => validateHumanRoute(patrol, broken), /spojení/);
+  const oneWay = structuredClone(parsed); oneWay.points[0].links[0].type = 0x81;
+  assert.throws(() => validateHumanRoute(patrol, oneWay), /ID 17 a 101/);
+  assert.doesNotThrow(() => validateHumanRoute({ ...patrol, loop: false }, oneWay));
+  const carsOnly = structuredClone(parsed); carsOnly.points[1].links[0].type = 4; assert.throws(() => validateHumanRoute(patrol, carsOnly), /spojení/);
+  const disabled = structuredClone(parsed); disabled.points[1].links[0].type = 0x4001; assert.throws(() => validateHumanRoute(patrol, disabled), /spojení/);
+  const longRoute = { ...patrol, waypoints: [{ id: 17, pauseSeconds: 0 }, { id: 65535, pauseSeconds: 0 }] }; validateHumanRoute(longRoute, parsed); // Intermediate nodes need not be stops.
+});
+
+test('NPC route authoring guards mission navigation, preserves unrelated bytes and has exact export/undo', async t => {
+  const { project, root, name, scene } = await fixture(t), navName = 'missions/NPC/check.bin', nav = await project.inspect(navName), history = project.manifest.history.length;
+  const behavior = { ...patrol, navigationHash: nav.sha256, navigationPath: 'missions/OTHER/check.bin' }; // Client cannot redirect the dependency.
+  for (const invalid of [{ navigationHash: 'stale' }, { waypoints: [{ id: 3, pauseSeconds: 0 }, { id: 17, pauseSeconds: 0 }] }]) await assert.rejects(project.changeSceneObject(name, { kind: 'configure-human', target: 'Guard', behavior: { ...behavior, ...invalid } }, hash(scene)));
+  assert.deepEqual(await project.read(name), scene); assert.equal(project.manifest.history.length, history);
+  await project.changeSceneObject(name, { kind: 'configure-human', target: 'Guard', behavior }, hash(scene));
+  const after = await project.read(name), parsed = inspectScene(after); assert.equal(parsed.actorScripts[0].code, humanBehaviorScript('Guard', patrol));
+  assert.deepEqual(parsed.actorScripts[1], inspectScene(scene).actorScripts[1]); assert.deepEqual(parsed.entries.filter(entry => !entry.actorScript).map(entry => entry.value), inspectScene(scene).entries.filter(entry => !entry.actorScript).map(entry => entry.value));
+  assert.ok(after.includes(Buffer.from('opaque sibling'))); assert.deepEqual(await project.read(navName), navigation());
+  assert.deepEqual(project.manifest.history.at(-1).files.map(file => file.path), [name]);
+  const reopened = await ModProject.open(root); await reopened.export(path.join(root, 'patrol-export')); assert.deepEqual(await fs.readFile(path.join(root, 'patrol-export', name)), after);
+  await reopened.undo(); assert.deepEqual(await reopened.read(name), scene); assert.equal(reopened.manifest.history.length, history);
+  await reopened.changeSceneObject(name, { kind: 'add-human', name: 'Walker', model: 'models/Human.4ds', position: [0, 0, 0], rotation: [1, 0, 0, 0], scale: [1, 1, 1], parameters: {}, behavior }, hash(scene));
+  assert.equal(inspectScene(await reopened.read(name)).actorScripts.at(-1).code, humanBehaviorScript('Walker', patrol)); await reopened.undo(); assert.deepEqual(await reopened.read(name), scene);
+});
+
+test('concurrent navigation changes and publication failures cannot partially save a route', async t => {
+  const { project, name, scene } = await fixture(t), navName = 'missions/NPC/check.bin', before = await project.read(navName), behavior = { ...patrol, navigationHash: hash(before) }, history = project.manifest.history.length, batch = project.changeBatch;
+  project.changeBatch = async function(files, ...args) { const data = Buffer.from(before); data.writeUInt16LE(44, 8 + 14); await this.change(navName, data); return batch.call(this, files, ...args); };
+  await assert.rejects(project.changeSceneObject(name, { kind: 'configure-human', target: 'Guard', behavior }, hash(scene)), /změnil/);
+  project.changeBatch = batch; assert.deepEqual(await project.read(name), scene); await project.undo(); assert.deepEqual(await project.read(navName), before);
+  const save = project.saveManifest; project.saveManifest = async () => { throw new Error('patrol publication failure'); };
+  await assert.rejects(project.changeSceneObject(name, { kind: 'configure-human', target: 'Guard', behavior }, hash(scene)), /patrol publication failure/);
+  project.saveManifest = save; assert.equal(project.manifest.history.length, history); assert.deepEqual(await project.read(name), scene); assert.deepEqual(await project.read(navName), before);
 });

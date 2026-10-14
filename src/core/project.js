@@ -411,7 +411,7 @@ export class ModProject {
     let request = operation,choiceScene=null;const dependencies=[];
     if(operation?.behavior||operation?.kind==='configure-human'){
       if(!['add-human','configure-human'].includes(operation?.kind))throw new Error('Chování lze nastavit pouze NPC postavě.');
-      const behavior=await prepareHumanBehavior(this,before,geometry,operation);
+      const behavior=await prepareHumanBehavior(this,before,geometry,operation,this.asset(name).path);
       dependencies.push(...behavior.dependencies,{path:geometryPath,data:geometryBytes,expectedHash:hash(geometryBytes)});
       if(operation.kind==='configure-human')choiceScene=editScene(before,behavior.entry.id,{...behavior.entry.value,code:behavior.code});
       else request={...operation,code:behavior.code};

@@ -409,3 +409,14 @@ Uživatel požaduje oddělený AI plugin pro generování propracovaného živé
 - Dočasné diagnostické programy i nastavení NPC vrácené dvěma přesnými undo, hra ukončená; chráněný uživatelský projekt a původní EXE shodné. Soukromé snímky a herní data se nepublikují. Plná vlastní mise a navazující AI městský plugin zůstávají v aktivním goalu.
 
 - Závěrečná validace: 420/420 testů, check a build prošly. Nový dialog NPC při neplatné vzdálenosti zakázal vložení. Před obnovením platné hodnoty se Mac zamkl; tato doplňková UI akce není potvrzená. Oddělená testovací aplikace ukončena, projektové drafty se neuložily. Uložení/obnovení/undo existující NPC a native útok výše dokončené před zamčením.
+
+
+## Trasy a hlídkování NPC (2026-10-14)
+
+- Nová i existující NPC: Pohyb po trase s 1–32 zastávkami podle jednoznačného uloženého ID v check.bin, pořadí/odebrání, čekání, chůze/běh, prodleva a jednou/opakovaně. Formulář používá stejné Chování postavy…; vlastní kód se nepřepisuje bez uložení a jen přesný recept se obnoví do voleb. Nedostupná navigace neblokuje aktivní čekání, vlastní kód ani útok.
+- Core znovu generuje zdroj, chrání skutečný check.bin stejné mise (klient nemůže přesměrovat závislost), odmítá duplicitní/chybějící ID, nelidskou kategorii, nepropojené/vypnuté/jednosměrné vazby. Trasa potřebuje nejbližší dostupnou síť a průchozí kolize; samotná kontrola grafu negarantuje pohyb. Jednorázový konec zachová aktivního aktéra. Uložení mění jen program, chrání navigaci/geometrii a má jeden krok undo.
+- Data: ID odlišná od indexu, celý uint16 rozsah, cestování přes mezilehlý bod, návrat opakování, raw zachování, invalidní hodnoty, stale/concurrent navigace, rollback, nová i existující NPC a export/reopen/undo. Oddělená skutečná šestikoridorová mise: tři produkční varianty, přesné programy/rozpoznání/export a tři undo; ostatní aktéři, navigace a chráněné projekty/EXE zachované.
+- Native pokus připravil správný hash scény, ale Wine selhalo před grafickým oknem; žádné checkpointy. CUA zaznamenalo zamčený Mac. Nový formulář a nový recept zatím nemají vizuální/herní ověření. Ruční průchod hráče proti NPC dál zůstává otevřený; potvrzení colliderů z minulého bloku není důkaz neprůchodnosti. Dočasné soukromé změny přesným undo vráceny, hra ukončená.
+- Goal zůstává aktivní: nejbližší ověření trasy a dynamických kolizí, plný průchod vlastní mise a další authoring/formátové mezery. AI městský plugin čeká na plnohodnotnou vlastní misi.
+
+- Závěrečná kontrola tohoto bloku: 424/424 testů, check a build prošly. Diff zkontrolovaný proti výchozímu commitu; žádné herní soubory/runtime v public změnách. Isolated herní kopie po diagnostice znovu připravená z obnoveného výchozího projektu, všechny chráněné hashe shodné.

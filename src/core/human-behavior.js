@@ -1,8 +1,9 @@
 import { hash } from './files.js';
 import { inspectScene } from './scene.js';
-import { humanAttackTargets, humanBehaviorScript, humanWeapons } from '../shared/human-behavior.js';
+import { humanAttackTargets, humanBehaviorScript, humanWeapons, validateHumanRoute } from '../shared/human-behavior.js';
+import { parseNavigation } from './navigation.js';
 
-export async function prepareHumanBehavior(project, before, geometry, operation) {
+export async function prepareHumanBehavior(project, before, geometry, operation, scenePath) {
   const scene = { ...inspectScene(before), geometry }, owner = operation.kind === 'configure-human' ? operation.target : operation.name;
   const entries = scene.entries.filter(entry => entry.actorScript && entry.actorKind === 27 && entry.value.name.normalize('NFC').toLowerCase() === owner?.normalize('NFC').toLowerCase());
   if (operation.kind === 'configure-human' && (entries.length !== 1 || !scene.actors.some(actor => actor.kind === 27 && actor.name === entries[0].value.name) || !humanAttackTargets(scene, '').some(actor => actor.name === entries[0].value.name))) throw new Error('Postava: vyberte jednoznačnou NPC s podporovaným programem.');
@@ -10,6 +11,12 @@ export async function prepareHumanBehavior(project, before, geometry, operation)
   let options = operation.behavior;
   humanBehaviorScript(name, options);
   const dependencies = [];
+  if (options.mode === 'patrol') {
+    const navigationName = scenePath.replace(/scene2\.bin$/i, 'check.bin'), asset = project.asset(navigationName), data = await project.read(asset.path);
+    if (options.navigationHash !== hash(data)) throw new Error('Trasa: navigace se od otevření změnila. Otevřete dialog znovu.');
+    validateHumanRoute(options, parseNavigation(data));
+    dependencies.push({ path: asset.path, data, expectedHash: options.navigationHash });
+  }
   if (options.mode === 'attack') {
     const target = humanAttackTargets(scene, name).find(actor => actor.name.normalize('NFC').toLowerCase() === options.targetName.normalize('NFC').toLowerCase());
     if (!target) throw new Error('Postava: cíl musí být jednoznačný lidský aktér této mise.');
