@@ -21,5 +21,12 @@
     "Ověřit zpětné čtení a zápis podporovaných formátů a zachování neznámých dat.",
     "Ověřit UI editoru a reálné načtení upravených dat ve hře."
   ],
-  "progressFile": "DEVELOPMENT.md"
+  "progressFile": "DEVELOPMENT.md",
+  "nextGoal": {
+    "title": "Samostatný AI plugin pro generování města",
+    "status": "waiting-for-complete-mission-authoring",
+    "prerequisite": "Editor umožní vytvořit, exportovat a v původní hře ověřit celou vlastní hratelnou misi.",
+    "specificationFile": "research/city-generator-plugin.md",
+    "activation": "Po splnění předpokladu založit samostatný goal podle uloženého zadání. Nenahrazovat aktivní goal editoru ani nyní zahajovat plugin."
+  }
 }
