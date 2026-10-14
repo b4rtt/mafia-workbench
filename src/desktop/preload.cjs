@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('workbench', {
   inspect: name => invoke('asset:inspect', name),
   media: name => invoke('asset:media', name),
   map: name => invoke('asset:map', name),
+  missionDestination: name => invoke('mission:destination',name),
   carModels: () => invoke('asset:car-models'),
   pickupItems: () => invoke('asset:pickup-items'),
   replayMissions: name => invoke('replay:missions', name),

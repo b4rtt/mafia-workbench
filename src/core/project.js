@@ -13,6 +13,7 @@ import { parseItems, editItems } from './items.js';
 import { pickupParameters } from '../shared/pickups.js';
 import { resolveMissionFlow } from '../shared/mission-flow.js';
 import { missionTaskScript } from '../shared/mission-task.js';
+import { inspectMissionDestination } from './mission-destination.js';
 import { missionDialogueScript, dialogueSpeakers } from '../shared/mission-dialogue.js';
 import { dialogueSoundPath, prepareDialogueWav } from './dialogue-audio.js';
 import { parseNavigation, prepareNavigationEdits, changeNavigationConnection, changeNavigationPoint } from './navigation.js';
@@ -381,7 +382,14 @@ export class ModProject {
         if(failure.humanName!=null){const human=dialogueSpeakers({...inspectScene(before),geometry}).find(actor=>key(actor.name)===key(failure.humanName));if(!human)throw new Error('Úkol: hlídaná postava musí být jednoznačný lidský aktér této mise.');failure={...failure,humanName:human.name};}
       }
       dependencies.push({path:asset.path,data:bytes,expectedHash:task.textHash});
-      request={...operation,mask:1,code:missionTaskScript({...task,failure,flow:resolveMissionFlow({...inspectScene(before),geometry},task.flow,operation.name)})};
+      let nextMission=task.nextMission??null;
+      if(nextMission!==null){
+        if(key(`missions/${nextMission}`)===key(folder))throw new Error('Další mise: vyberte jinou misi.');
+        const destination=await inspectMissionDestination(this,nextMission);
+        for(const file of destination.files)if(task.nextMissionHashes?.[file.path]!==file.expectedHash)throw new Error('Další mise: data se od výběru změnila. Vyberte misi znovu.');
+        dependencies.push(...destination.files);nextMission=destination.name;
+      }
+      request={...operation,mask:1,code:missionTaskScript({...task,nextMission,failure,flow:resolveMissionFlow({...inspectScene(before),geometry},task.flow,operation.name)})};
     }
     if(operation?.kind==='add-sound'){
       const soundPath=relativeAssetPath(operation.sound);
@@ -442,6 +450,9 @@ export class ModProject {
     for(const asset of this.manifest.assets){const definition=vehicleModelDefinition(table,asset.path);if(!definition)continue;
       try{validateVehicleModel(parseFourDs(await this.read(asset.path)));models.push(definition);}catch{rejected++;}}
     return {models,sha256:hash(bytes),rejected};
+  }
+  async missionDestination(name){
+    const {files,...result}=await inspectMissionDestination(this,name);return result;
   }
   async pickupItems(){
     const bytes=await this.read('tables/predmety.def'),items=[];let rejected=0;

@@ -212,3 +212,12 @@ Uživatel požaduje oddělený AI plugin pro generování propracovaného živé
 
 - Uložený podklad v [research/dialogue-choices.md](research/dialogue-choices.md): nativní nabídka několika akcí, registrace a použití detektoru, omezení vypnutí/ukončení programu a runtime klonování. Zrušení nezvolené odpovědi ani save/load nabídky zatím nejsou ověřené; průvodce zůstává lineární. Nevydávat samotné `off` nebo `end` za hotové odstranění akce.
 - Další implementace potřebuje izolovaný experiment s právě jednou výslednou větví a obnovou checkpointu, potom společnou transakci/undo všech bodů a UI. Tato rešerše nemění běh editoru ani herní soubory, nepřidává hotovou funkci a neuzavírá goal celé mise. Zadání samostatného AI městského pluginu je nadále uložené a podmíněné v goal.json.
+
+
+## Přechod do další mise po dokončení úkolu
+
+- Implementováno: úkolový formulář vybírá jinou misi projektu, kontroluje scénu, geometrii, KLZ a jednoznačného hráče Tommy. Výchozí volba zůstává v této misi. Úspěch načte vlastní startovní stav cíle; inventář/zdraví/auto se nepřenáší. Konflikt s menu nebo signálem dokončení odmítnutý; neúspěšná větev se nemění.
+- Core: název podle 64bajtového nativního pole, aktuální tři parsované závislosti, kanonizace a ochrana proti změně od výběru i během publikace. Cíl se neupravuje, vytvoření má jeden krok undo. Testy pokrývají jinou velikost písmen, chybějící/neplatná data, NPC místo hráče, export/reopen/undo a rollback indexu.
+- UI a hra: skutečný formulář odmítl konflikt a vytvořil přesný bod. Produkční izolovaný start aplikoval shodné hashe, engine po skriptovaném převzetí a příchodu načetl cílovou misi. Nový hráč přešel ze startovních 100 na kontrolní zdraví 31 pouze jejím startovním skriptem. Přesný export/reopen a UI undo ověřené. Podklady a hranice v research/scripting.md.
+- Obnova: hra/Audit ukončené, testovací bod i příprava vráceny na historii 38. Scéna/model/geometrie/KLZ/TextDB a chráněné projekty/EXE přesné, nový cíl mimo index; původní profilový save obnovený. Soukromá data se nepublikují.
+- Kontroly: 336 testů, check a build. Zůstává ruční průchod, checkpoint přes hranici misí, dialogové volby/lip synchronizace, vlastní geometrie/sektory a další backlog. Aktivní goal celé mise tím není dokončený; samostatný AI městský plugin je uložený v research/city-generator-plugin.md a čeká na tento předpoklad.
