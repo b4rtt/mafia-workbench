@@ -1,6 +1,6 @@
 # Výběr odpovědi v původním enginu
 
-Rozpracovaná rešerše a nativní experimenty, 14. října 2026. Dosavadní průvodce generuje lineární rozhovor s návazným signálem. Ověřený skriptový úklid nabídek je podkladem další implementace; tento zápis nepřidává hotový výběr odpovědi hráčem do editoru.
+Rešerše, nativní experimenty a první průvodce volbou odpovědi, 14. října 2026. Lineární rozhovor zůstává samostatnou funkcí. Nová volba propojuje nativní nabídku akcí s existujícími cílovými úkoly či rozhovory; skriptový životní cyklus a formulář jsou ověřené, ruční výběr hráčem zůstává otevřenou kontrolou.
 
 ## Doložené možnosti
 
@@ -22,7 +22,7 @@ Nativní negativní kontrola: dvě nabídky na stejném místě, volba A přes N
 
 `enemy_use_detector` v programu lidského NPC volá nativní `detector_use`, tedy odstraní registraci i čekací flag a posune čekající program. Příkaz patří do dispatcheru `C_entity` (0x1024); není obecným příkazem programu detektoru. Podklad: stejná PC dekompilace a MSDR, kapitoly `enemy_use_detector`, `setevent` a `event`.
 
-Pouhé nucené použití ostatních detektorů by spustilo jejich větve. Experiment proto po každém `detector_waitforuse` nejprve kontroluje společný signál: první použitá odpověď nastaví signál na 1 před událostí úklidu a vlastní akcí. Všechny následně použité odpovědi při signálu 1 skončí. Kontrola a nastavení neobsahují čekání. Vlastní NPC má událost `choice_clear`, která použije oba detektory a vrátí se do jeho kontrolního programu.
+Pouhé nucené použití ostatních detektorů by spustilo jejich větve. Experiment proto po každém `detector_waitforuse` nejprve kontroluje společný signál: první použitá odpověď nastaví signál na 1 před událostí úklidu a vlastní akcí. Všechny následně použité odpovědi při signálu 1 skončí. Kontrola a nastavení neobsahují čekání. V prvním experimentu mělo vlastní NPC událost zapsanou jako `choice_clear`, která použila oba detektory a vrátila se do kontrolního programu. Pozdější zjištění níže ukazuje, že engine tuto textovou hodnotu ve skutečnosti převedl na číslo 0; není to důkaz podpory pojmenovaných vlastních událostí.
 
 Testovací programy jsou vlastní syntetické skripty. První odpověď nastaví zdraví na 31, druhá na 81, počáteční stav je 21. NPC v samostatných bězích použije A nebo B přibližně v deváté sekundě herního času a druhou odpověď znovu přibližně ve čtrnácté. Úplné save se vytvářejí kolem 5, 12 a 22 sekund. Kontrolní detektor i obě odpovědi se před čekáním zahrnou do save nulovým `detector_setsignal`; tím se netestují pouze položky náhodou přítomné v paměti.
 
@@ -33,7 +33,7 @@ Testovací programy jsou vlastní syntetické skripty. První odpověď nastaví
 
 Jde o GOG 1.2 spuštěný produkční cestou izolovaného `Playtest.start`. Synchronizovaná scéna a TextDB mají přesné očekávané hashe; čtení save používá původní per-block `G_Stream` dešifrování, nikoli změnu jeho bajtů. V koncovém 12bajtovém záznamu detektoru je byte 5 signál a byte 6 čekání na použití. Writer a loader potvrzují, že nenulový byte 6 při načtení znovu registruje akci. Tyto offsety vycházejí z těl funkcí a experimentu, ne pouze z komentářů exportu.
 
-Výsledek prokazuje právě jednu výslednou větev a odstranění čekání při nativním skriptovém použití. Neprokazuje zatím skutečný hráčův výběr klávesou v nabídce ani dialogovou kameru, hlasy či smrt řídicího NPC. Průvodce nesmí automaticky přepsat program libovolné postavy: úklid potřebuje připravený program a žijícího aktéra, jehož událost je dostupná. Úspěšný experiment neřeší tuto produktovou integraci.
+Výsledek prokazuje právě jednu výslednou větev a odstranění čekání při nativním skriptovém použití. Neprokazuje zatím skutečný hráčův výběr klávesou v nabídce ani dialogovou kameru, hlasy či smrt řídicího NPC. Průvodce nesmí automaticky přepsat program libovolné postavy: úklid potřebuje připravený program a žijícího aktéra, jehož událost je dostupná. Produktová integrace níže přijímá pouze postavu s prázdným nebo celým nezměněným vygenerovaným řídicím programem.
 
 ## Načtení před volbou a po ní
 
@@ -43,12 +43,24 @@ Pomocný test nejprve vracel soubory checkpointů mezi těmito dvěma běhy bez 
 
 Všechny vlastní procesy hry byly ukončeny. Scéna a TextDB byly vráceny přes undo na původní historii 38. Pět výchozích assetů testovacího projektu, ostatní kontrolované projekty a původní EXE jsou hashově stejné. Před experimenty vznikla trvalá místní záloha všech save profilu 0 i indexu; všechny byly obnoveny, nově vytvořené save odstraněny. Toto ověření neodvolává starší samostatně zdokumentovanou ztrátu automatického save 570 při prvním testu terénního štětce. Pomocné programy, snímky a save zůstávají v ignorovaném `local/`, nikoli ve veřejném repozitáři.
 
-## Další ověření před přidáním průvodce
+## Průvodce a číselné události
+
+`event` (dispatcher 0x48) a `setevent` (0x49) převádějí vlastní identifikátor přes `atoi`. Dva různé textové názvy se tak mohou oba změnit na událost 0. Výjimkou jsou explicitní rezervované názvy v kompilátoru. Generátor proto používá oddělená čísla 1000–1015, pod rezervovaným rozsahem 60000+. První běh generovaných dvou sad s textovými názvy ponechal nezvolenou odpověď čekající; teprve opravené číselné události mají níže doložený výsledek. Podklad: stejná PC dekompilace, kompilace 0x48/0x49 a dispatcher `setevent`.
+
+Ve 3D scéně je **Přidat → Přidat volbu odpovědi…**. Vznikne aktivace, společná pojistka a 2–4 odpovědi na stejné pozici. Aktivace čeká dvě sekundy na inicializaci, zachová i časný příchozí signál a volitelně čeká na jeho přijetí. Jedna živá NPC obsluhuje nejvýše 16 sad; program se rozšíří pouze při úplné shodě zdroje s generátorem a existenci všech dřívějších bodů. Libovolný vlastní program se nepřepisuje. Vybraná větev musí mít vlastní čekání na signál. Šablona je jednorázová; sama nezajišťuje hlasy, natočení ani dialogovou kameru.
+
+Core ověřuje jednoznačného lidského NPC, názvy, 2–4 různá ID neprázdných skutečných textů a cílové detektory. Znovu sestavuje zdroj bez důvěry v klientský kód či masku, chrání snapshoty scény, TextDB a geometrie. Celá scéna se publikuje jednou transakcí s přesným undo; geometrii, texty, parametry postav a neznámé bloky zachovává.
+
+Produkční generátor byl spuštěn v oddělené GOG 1.2 misi se dvěma sadami a stejným NPC. V první sadě volba B změnila zdraví 21 → 81 a odstranila čekání obou odpovědí. Načtení checkpointu před volbou i po ní skončilo na 81, bez znovuspuštění nezvolené větve. Druhá sada používala událost 1001: volba A změnila zdraví 21 → 31, oba její čekací příznaky byly 0, neaktivovaná první sada zůstala neaktivovaná. Opětovné použití druhé odpovědi výsledek nezměnilo. Předběžná kontrola je z úplného save kolem 5 s, následné kolem 12 a 22 s. Vstupy provedl kontrolní NPC; ruční hráčův výběr tím není doložený.
+
+Samostatné okno Electronu ověřilo prázdné výchozí cíle, deaktivované potvrzení pro chybějící cíl, neexistující či duplicitní text, přidání/odebrání odpovědi a limit čtyř odpovědí. Vytvořilo tři odpovědi s přesnými pozicemi/zdroji, pět nových bodů a jediný krok historie. Nový formulář nabídl stejného NPC s evidencí jedné sady; zrušení nic nezapsalo. Reopen a export odpovídaly skutečným bajtům, UI undo obnovilo původní scénu a historii 1. Všech ostatních 12 assetů soukromého UI projektu, chráněné projekty a původní EXE zůstaly shodné. Nativní projekt byl vrácen na historii 38, všech pět kontrolovaných assetů a save/index profilu obnovené. Soukromé pomocné programy a data zůstávají v ignorovaném local/.
+
+## Další herní ověření
 
 - V izolované misi zobrazit dvě skutečné odpovědi a zvolit každou v samostatném běhu.
 - Doložit odstranění ostatních akcí, právě jednu výslednou větev a uvolnění dialogové kamery.
 - Ověřit odchod hráče od bodu, předčasný signál, přerušení rozhovoru a opakované stisknutí akce.
 - Zopakovat checkpoint před volbou i po ní s ručním výběrem hráče a dialogem; skriptová varianta B je již ověřená výše.
-- Teprve poté doplnit generátor, kontrolu všech textů/hlasů/cílů, atomický zápis celé sady bodů a jedno společné undo. Nezavádět volby pouze jako neověřenou editorskou maketu.
+- Základní generátor s kontrolou textů/cílů, atomickým zápisem a společným undo je doplněný. Mluvené odpovědi se připojují přes cílový rozhovor; rozšířený společný životní cyklus kamery a přerušení zůstává další prací.
 
 `ctrl_read` a `ctrl_readex` jsou další možná cesta, ale PC používá dvě rozdílná pole ovládacích akcí. Dispatcher nekontroluje horní mez ID. Bez ověření konkrétního mapování a chování při zamčeném ovládání je nelze bezpečně nabízet s libovolným ID klávesy. Podklad: dispatcher 0x123/0x124 ve stejné dekompilaci.

@@ -16,6 +16,7 @@ import { missionTaskScript } from '../shared/mission-task.js';
 import { inspectMissionDestination } from './mission-destination.js';
 import { createTerrain } from './terrain.js';
 import { missionDialogueScript, dialogueSpeakers } from '../shared/mission-dialogue.js';
+import { prepareMissionChoice } from './mission-choice.js';
 import { dialogueSoundPath, prepareDialogueWav } from './dialogue-audio.js';
 import { parseNavigation, prepareNavigationEdits, changeNavigationConnection, changeNavigationPoint } from './navigation.js';
 import { remapSegments } from './segments.js';
@@ -345,7 +346,11 @@ export class ModProject {
     if (expectedHash !== hash(before)) throw new Error('Soubor se od otevření změnil. Otevřete jej znovu.');
     const folder = this.asset(name).path.slice(0, this.asset(name).path.lastIndexOf('/'));
     const geometryPath=`${folder}/scene.4ds`,geometryBytes=await this.read(geometryPath),geometry = parseFourDs(geometryBytes);
-    let request = operation;const dependencies=[];
+    let request = operation,choiceScene=null;const dependencies=[];
+    if(operation?.kind==='add-choice'){
+      const choice=await prepareMissionChoice(this,before,geometry,operation);choiceScene=choice.data;
+      dependencies.push(...choice.dependencies,{path:geometryPath,data:geometryBytes,expectedHash:hash(geometryBytes)});
+    }
     if(['add-pickup','configure-pickup'].includes(operation?.kind)){
       pickupParameters(operation.itemId,operation.clip,operation.reserve);
       const tablePath=this.asset('tables/predmety.def').path,tableBytes=await this.read(tablePath);
@@ -441,7 +446,7 @@ export class ModProject {
       }
       request = { ...operation, model: this.asset(operation.model).path.slice(7).replace(/\.4ds$/i, '.i3d') };
     }
-    const after=operation?.kind==='collision'?before:changeSceneObject(before, request, geometry.meshes.map(mesh => mesh.name),geometry.meshes);
+    const after=choiceScene??(operation?.kind==='collision'?before:changeSceneObject(before, request, geometry.meshes.map(mesh => mesh.name),geometry.meshes));
     const requests=[];
     if(['attach-door','attach-physical'].includes(operation?.kind)&&collisionOwnership(this.manifest,name).some(object=>key(object.name)===key(operation.target)))requests.push({name:operation.target,kind:'none'});
     if(operation?.collision){
@@ -455,7 +460,7 @@ export class ModProject {
       if(owned){const klz=parseCollision(await this.read(`${folder}/tree.klz`)),record=ownedCollisionRecords(klz,[owned])[0];requests.push({name:operation.name,kind:owned.kind,material:record.material,doubleSided:owned.doubleSided});}
     }
     const collision=await prepareSceneCollision(this,name,before,after,{requests,expectedHash:operation?.collisionHash});
-    const label={ 'add-model': 'Vložení modelu do mise', 'add-human':'Vložení postavy a jejího skriptu','add-car':'Vložení automobilu a jeho aktéra','add-light':'Vložení světla do mise','add-sound':'Vložení prostorového zvuku do mise','add-detector':'Vložení skriptového bodu','add-pickup':'Vložení předmětu k sebrání','configure-pickup':'Nastavení předmětu k sebrání','attach-door':'Vytvoření dveřního aktéra','attach-physical':'Vytvoření fyzikálního předmětu', duplicate: 'Duplikace objektu mise', delete: 'Odstranění objektu mise',collision:'Generování kolize modelu' }[operation?.kind]??'Úprava objektů mise';
+    const label={ 'add-model': 'Vložení modelu do mise', 'add-human':'Vložení postavy a jejího skriptu','add-car':'Vložení automobilu a jeho aktéra','add-light':'Vložení světla do mise','add-sound':'Vložení prostorového zvuku do mise','add-detector':'Vložení skriptového bodu','add-choice':'Vložení volby odpovědi','add-pickup':'Vložení předmětu k sebrání','configure-pickup':'Nastavení předmětu k sebrání','attach-door':'Vytvoření dveřního aktéra','attach-physical':'Vytvoření fyzikálního předmětu', duplicate: 'Duplikace objektu mise', delete: 'Odstranění objektu mise',collision:'Generování kolize modelu' }[operation?.kind]??'Úprava objektů mise';
     const files=new Map([{path:name,data:after,expectedHash},...dependencies,...(collision?.files??[])].map(file=>[key(file.path),file]));
     await this.changeBatch([...files.values()],label,collision?.ownership);
   }

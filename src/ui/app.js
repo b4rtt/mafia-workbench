@@ -9,6 +9,7 @@ import { missionFlowTargets } from '../shared/mission-flow.js';
 import { missionTaskScript } from '../shared/mission-task.js';
 import { missionDestinations } from '../shared/mission-destinations.js';
 import { missionDialogueScript, dialogueSpeakers } from '../shared/mission-dialogue.js';
+import { missionChoiceDialog } from './mission-choice.js';
 import { materialFlags, materialAlphaModes, materialAlphaMode, withMaterialAlphaMode, materialDraft } from '../shared/material-settings.js';
 import { lightTypes, lightDefaults, sceneSectors } from '../shared/lights.js';
 import { soundTypes, soundDefaults } from '../shared/sounds.js';
@@ -1104,7 +1105,7 @@ function renderMap(main, file, previous = null) {
   const add = element('button', 'Vložit model…'), addHuman=element('button','Přidat postavu…'), addCar=element('button','Přidat auto…'), duplicate = element('button', 'Duplikovat…'), remove = element('button', 'Odstranit…'), focus = element('button', 'Zarámovat objekt'), collision=element('button','Kolize modelu…');
   duplicate.disabled = remove.disabled = focus.disabled = collision.disabled = true;
   const addPickup=element('button','Přidat předmět k sebrání…'),configurePickup=element('button','Nastavit předmět…');configurePickup.disabled=true;
-  const addDoor=element('button','Vytvořit dveře…'),addPhysical=element('button','Vytvořit fyzikální předmět…'),addLight=element('button','Přidat světlo…'),addSound=element('button','Přidat zvuk…'),addDetector=element('button','Přidat skriptový bod…'),addDialogue=element('button','Přidat rozhovor…');addDoor.disabled=addPhysical.disabled=true;
+  const addDoor=element('button','Vytvořit dveře…'),addPhysical=element('button','Vytvořit fyzikální předmět…'),addLight=element('button','Přidat světlo…'),addSound=element('button','Přidat zvuk…'),addDetector=element('button','Přidat skriptový bod…'),addDialogue=element('button','Přidat rozhovor…'),addChoice=element('button','Přidat volbu odpovědi…');addDoor.disabled=addPhysical.disabled=true;
   const vehiclePhysics = element('button', 'Fyzika auta…');
   const vehicleTable = state.project.assets.find(asset => asset.path.normalize('NFC').toLowerCase() === 'tables/vehicles.bin');
   vehiclePhysics.dataset.vehicleLink = ''; vehiclePhysics.hidden = true;
@@ -1234,8 +1235,9 @@ function renderMap(main, file, previous = null) {
     addSound.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před vložením zvuku uložte rozepsané vlastnosti.');soundDialog(file,selectedObject?.position);});
     addDetector.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před vložením skriptového bodu uložte rozepsané vlastnosti.');detectorDialog(file,selectedObject?.position);});
     addDialogue.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před vytvořením rozhovoru uložte rozepsané vlastnosti.');dialogueDialog(file,selectedObject?.position);});
+    addChoice.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před vytvořením volby uložte rozepsané vlastnosti.');missionChoiceDialog({api,assets:state.project.assets,file,position:selectedObject?.position,element,run,onCreated:async(result,name)=>{state.file=result;state.selectSceneName=name;await refresh();renderDetail();status('Volba odpovědi vytvořená se zálohou a jedním společným undo.');}});});
     for(const [button,configure] of [[addPickup,false],[configurePickup,true]])button.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před vložením nebo nastavením předmětu uložte rozepsané vlastnosti.');const catalog=await api.pickupItems();if(!catalog.items.length)throw new Error('Tabulka neobsahuje předměty s dostupným podporovaným modelem.');pickupDialog(file,catalog,configure?selectedObject:null,selectedObject?.position);});
-    tools.append(actionMenu('Přidat',[add,addHuman,addCar,addPickup,addLight,addSound,addDetector,addDialogue]),actionMenu('Objekt',[duplicate,remove,collision,configurePickup,addDoor,addPhysical]));
+    tools.append(actionMenu('Přidat',[add,addHuman,addCar,addPickup,addLight,addSound,addDetector,addDialogue,addChoice]),actionMenu('Objekt',[duplicate,remove,collision,configurePickup,addDoor,addPhysical]));
   }
   tools.append(actionMenu('Zobrazení',displayActions));
   if(collisionActions.length)tools.append(actionMenu('Kolize',collisionActions));
