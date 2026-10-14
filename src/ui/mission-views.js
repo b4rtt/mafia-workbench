@@ -10,7 +10,7 @@ export class MissionViews {
     if (view.mapPath) {
       path=view.mapPath;type='map';value={selectedName:view.selectedName,mode:view.gizmo.mode,backdrop:view.backdrop?.visible,collisions:view.collisionOverlay?.visible,sounds:view.soundExtentVisible,lights:view.lightPreviewVisible};
     } else if (view.modelPath) {
-      path=view.modelPath;type='model';value={selectedId:view.selectedId,mode:view.gizmo.mode,wireframe:view.modelWireframe};
+      path=view.modelPath;type='model';value={selectedId:view.selectedId,mode:view.gizmo.mode,wireframe:view.modelWireframe,sectors:view.sectorsVisible};
     } else if (view.navigationPath || view.roadPath) {
       path=view.navigationPath??view.roadPath;type=view.navigationPath?'navigation':'roads';value={selectedPoint:view.selectedPoint,geometry:view.navigationGeometryWanted??view.roadGeometryWanted};
       if(view.roadPath)value.lanes=view.roadLanesVisible;

@@ -22,3 +22,6 @@ Pozorované rozdíly referencí:
 U některých starších referencí nebyla nalezena jednoznačná licence v kořeni. Jejich uložení a čtení není totéž jako svolení k přelicencování. Pro další funkce se použije vlastní implementace podle formátu nebo řádně licencovaný zdroj s atribucí.
 
 Scénový chunk parser, 4DS/5DS parsery a jejich zápisové cesty jsou vlastní implementace podle porovnaných binárních layoutů a reálných souborů. Nebyl kopírovaný zdroj Blender doplňků, DCED ani mEdit. Převod V pro náhled 4DS odpovídá konvenci LS3D popsané čtením Blender reference. Three.js a esbuild jsou instalované balíčky s vlastními licencemi; sestavení uchovává jejich licenční komentáře. Přehled dalších formátů a původ soukromé šablony Empty Mission jsou v `formats.md`.
+
+
+Sektorové/portálové čtení a byte-local zápis 4DS v29 i Three.js obrysy jsou vlastní implementace. Rozložení bylo porovnáno s Richard01CZ/Mafia4Blender_4ds `4ds.py` a RoadTrain/mafia-formats `4ds.bt`; žádný jejich zdrojový kód nebyl převzat. Rozpor pořadí dat portálu je vyřešen kontrolou skutečných rovin a vrcholů, popsanou v `formats.md`. Neověřené dvě float hodnoty jsou zpřístupněné jako raw; šablonové názvy near/far se nepřebírají jako tvrzení o enginu. Testovací model v `test/sector.test.js` je syntetický, není výňatkem herního assetu.

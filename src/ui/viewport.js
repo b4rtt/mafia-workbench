@@ -7,6 +7,7 @@ import { materialTransparency, bmpTransparency, textureWithMask } from './materi
 import { createSoundExtent } from './sound-extent.js';
 import { sceneMarkerKind, markerMaterial } from './scene-markers.js';
 import { createLightPreview } from './light-preview.js';
+import { createSectorPreview } from './sector-preview.js';
 
 export class Viewport {
   constructor(container, onSelect = () => {}, onChange = () => {}) {
@@ -135,6 +136,10 @@ export class Viewport {
         mesh.visible = !(frame.renderFlags & 0x40) && !/(?:^|\s)SECT(?:\s|$)/i.test(frame.properties ?? '');
         object.add(mesh); if (skin) skins.push({ mesh, object, skin });
       }
+      if (frame.sector) {
+        const outline = createSectorPreview(frame.sector); outline.visible = Boolean(this.sectorsVisible);
+        outline.traverse(node => { if (node.material) this.materials.add(node.material); }); object.add(outline);
+      }
       const ancestor = frames.get(frame.parent);
       if (frame.parent && (!ancestor || frame.parent === frame.id)) throw new Error('4DS: neplatná hierarchie.');
       (ancestor ?? parent).add(object);
@@ -146,6 +151,18 @@ export class Viewport {
       this.skinWarnings?.push(object.name);
     }
     return frames;
+  }
+  showSectors(visible, selected = null) {
+    this.sectorsVisible = Boolean(visible);
+    for (const [id, object] of this.frames) for (const child of object.children) if (child.userData.sectorPreview) child.visible = this.sectorsVisible || id === selected;
+  }
+  updateSector(id, sector) {
+    const object = this.frames.get(id); if (!object) return;
+    const outline = object.children.find(child => child.userData.sectorPreview); if (!outline) return;
+    for (const line of outline.children) {
+      const portal = line.userData.sectorPortal;
+      line.material.color.set(portal === null ? sector.flags[0] & 1 ? 0x36c5d0 : 0x81909a : sector.portals[portal].flags & 4 ? 0xc58bff : 0x81909a);
+    }
   }
   async loadTextures(resolveUrl, selection = null) {
     const loader = new THREE.TextureLoader(), cache = new Map(), variants = new Map(), warnings = new Set();

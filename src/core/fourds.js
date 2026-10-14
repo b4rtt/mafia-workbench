@@ -7,16 +7,16 @@ class Reader {
   u8() { return this.number('readUInt8', 1); }
   u16() { return this.number('readUInt16LE', 2); }
   u32() { return this.number('readUInt32LE', 4); }
-  field(id, label, kind, count = 1) {
+  field(id, label, kind, count = 1, allowInvalid = false) {
     const offset = this.pos;
     let value;
     if (kind === 'string8') { const size = this.u8(), start = this.pos; this.skip(size); value = iconv.decode(this.bytes.subarray(start, this.pos), 'windows-1250'); }
     else {
-      const values = Array.from({ length: count }, () => kind === 'u8' ? this.u8() : kind === 'u16' ? this.u16() : this.number('readFloatLE', 4));
-      if (values.some(n => !Number.isFinite(n))) throw new Error(`4DS: neplatná hodnota ${label}.`);
+      const values = Array.from({ length: count }, () => kind === 'u8' ? this.u8() : kind === 'u16' ? this.u16() : kind === 'u32' ? this.u32() : this.number('readFloatLE', 4));
+      if (!allowInvalid && values.some(n => !Number.isFinite(n))) throw new Error(`4DS: neplatná hodnota ${label}.`);
       value = count === 1 ? values[0] : values;
     }
-    this.entries.push({ id, label, kind, value, offset, length: this.pos - offset, context: this.context });
+    this.entries.push({ id, label, kind, value, offset, length: this.pos - offset, context: this.context, ...(id.includes('/sector/') ? { sectorField: true, ...(kind === 'u32' ? { min: 0, max: 4294967295 } : {}), ...(count === 2 ? { componentLabels: ['1', '2'] } : {}) } : {}) });
     return value;
   }
 }
@@ -84,6 +84,27 @@ function triangleMesh(reader, sector = false) {
   const vertices = reader.u32(), faces = reader.u32(); reader.skip(vertices * 12 + faces * 6);
   if (sector) { reader.skip(24); const portals = reader.u8(); for (let portal = 0; portal < portals; portal++) { const points = reader.u8(); reader.skip(28 + points * 12); } }
 }
+function sectorMesh(reader, base, geometry) {
+  const flags = reader.field(`${base}/sector/flags`, 'Sektor · příznaky 1/2 (raw)', 'u32', 2);
+  const vertices = reader.u32(), faces = reader.u32(), start = reader.pos;
+  reader.skip(vertices * 12 + faces * 6);
+  const positions = geometry ? Array.from({ length: vertices * 3 }, (_, i) => reader.bytes.readFloatLE(start + i * 4)) : [];
+  const indices = geometry ? Array.from({ length: faces * 3 }, (_, i) => reader.bytes.readUInt16LE(start + vertices * 12 + i * 2)) : [];
+  const bounds = Array.from({ length: 6 }, () => reader.number('readFloatLE', 4));
+  const count = reader.u8(), portals = [];
+  for (let i = 0; i < count; i++) {
+    const points = reader.u8(), prefix = `${base}/sector/portals/${i}`;
+    // Mafia v29 is flags, two raw float parameters, plane, vertices. The
+    // RoadTrain template puts the plane first; original files contradict it.
+    const flags = reader.field(`${prefix}/flags`, `Portál ${i + 1} · příznaky (raw)`, 'u32');
+    const parameters = reader.field(`${prefix}/parameters`, `Portál ${i + 1} · parametry 1/2 (raw)`, 'float', 2, true);
+    const plane = Array.from({ length: 4 }, () => reader.number('readFloatLE', 4));
+    const start = reader.pos; reader.skip(points * 12);
+    const positions = geometry ? Array.from({ length: points * 3 }, (_, j) => reader.bytes.readFloatLE(start + j * 4)) : [];
+    portals.push({ flags, parameters, plane, points, positions });
+  }
+  return { flags, vertices, faces, positions, indices, bounds, portals };
+}
 export function parseFourDs(source, geometry = false) {
   const reader = new Reader(source);
   if (reader.bytes.length < 16 || reader.bytes.toString('ascii', 0, 4) !== '4DS\0') throw new Error('4DS: neplatná hlavička.');
@@ -125,7 +146,7 @@ export function parseFourDs(source, geometry = false) {
       else if (visual === 9) reader.skip(5);
       else throw new Error(`4DS: nepodporovaný visual type ${visual}.`);
     } else if (type === 2) reader.skip(84);
-    else if (type === 5) triangleMesh(reader, true);
+    else if (type === 5) mesh.sector = sectorMesh(reader, base, geometry);
     else if (type === 6) reader.skip(24);
     else if (type === 7) { reader.skip(2); reader.skip(reader.u8() * 2); }
     else if (type === 10) { mesh.inverseBind = Array.from({ length: 16 }, () => reader.number('readFloatLE', 4)); mesh.joint = reader.u32() + 1; }
@@ -158,7 +179,10 @@ export function editFourDs(source, changes) {
     }
     const entry = parsed.entries.find(e => e.id === id);
     if (!entry || seen.has(id)) throw new Error('4DS: neplatná vlastnost.'); seen.add(id);
-    if (JSON.stringify(value) === JSON.stringify(entry.value)) continue;
+    const unchanged = entry.sectorField
+      ? Array.isArray(entry.value) ? Array.isArray(value) && entry.value.length === value.length && entry.value.every((v, i) => Object.is(v, value[i])) : Object.is(entry.value, value)
+      : JSON.stringify(value) === JSON.stringify(entry.value);
+    if (unchanged) continue;
     let payload;
     if (entry.kind === 'string8') {
       if (typeof value !== 'string' || value.includes('\0')) throw new Error('4DS: neplatný řetězec.');
@@ -171,10 +195,12 @@ export function editFourDs(source, changes) {
       if (!Array.isArray(values) || values.length !== count || values.some(v => typeof v !== 'number' || !Number.isFinite(v) || !Number.isFinite(Math.fround(v)))) throw new Error('4DS: neplatná číselná hodnota.');
       payload = Buffer.alloc(entry.length);
       values.forEach((v, i) => {
-        if (entry.kind === 'u8' || entry.kind === 'u16') {
-          const max = entry.kind === 'u8' ? 255 : 65535;
+        if (entry.kind === 'u8' || entry.kind === 'u16' || entry.kind === 'u32') {
+          const max = entry.kind === 'u8' ? 255 : entry.kind === 'u16' ? 65535 : 4294967295;
           if (!Number.isInteger(v) || v < 0 || v > max || (id.endsWith('/parent') && v > parsed.meshes.length)) throw new Error('4DS: neplatný index nebo příznaky.');
-          entry.kind === 'u8' ? payload.writeUInt8(v) : payload.writeUInt16LE(v);
+          if (entry.kind === 'u8') payload.writeUInt8(v);
+          else if (entry.kind === 'u16') payload.writeUInt16LE(v);
+          else payload.writeUInt32LE(v, i * 4);
         } else payload.writeFloatLE(v, i * 4);
       });
     }
