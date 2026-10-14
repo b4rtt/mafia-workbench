@@ -12,7 +12,7 @@ import { inspectCache, editCache } from './cache.js';
 import { parseItems, editItems } from './items.js';
 import { pickupParameters } from '../shared/pickups.js';
 import { resolveMissionFlow } from '../shared/mission-flow.js';
-import { missionTaskScript } from '../shared/mission-task.js';
+import { missionTaskScript, missionTaskVehicles } from '../shared/mission-task.js';
 import { inspectMissionDestination } from './mission-destination.js';
 import { createTerrain } from './terrain.js';
 import { missionDialogueScript, dialogueSpeakers } from '../shared/mission-dialogue.js';
@@ -469,6 +469,14 @@ export class ModProject {
       if(task.checkpointId!=null && !texts.slice(0,-1).some(entry=>entry.id===task.checkpointId && entry.text.trim()))throw new Error('Úkol: checkpoint potřebuje existující neprázdný název v jazykové tabulce. Vytvořte text s ID 5000–5599.');
       const targets=[...inspectScene(before).objects,...geometry.meshes].filter(object=>key(object.name)===key(task.targetName));
       if(targets.length!==1 || key(task.targetName)===key('Tommy'))throw new Error('Úkol: vyberte jednoznačný cílový objekt odlišný od hráče.');
+      let vehicle=task.vehicle??null;
+      if(vehicle){
+        const scene={...inspectScene(before),geometry},car=missionTaskVehicles(scene).find(actor=>key(actor.name)===key(vehicle.name));
+        if(!car)throw new Error('Úkol: vyberte jednoznačné auto s aktérem typu Vozidlo, nikoli samotný model.');
+        if(!dialogueSpeakers(scene).some(actor=>actor.kind===2&&key(actor.name)==='tommy'))throw new Error('Úkol: převoz potřebuje jednoznačného hráče Tommy typu Player.');
+        vehicle={...vehicle,name:car.name};
+        dependencies.push({path:geometryPath,data:geometryBytes,expectedHash:hash(geometryBytes)});
+      }
       let failure=task.failure??null;
       if(failure){
         if(!texts.slice(0,-1).some(entry=>entry.id===failure.textId&&entry.text.trim()))throw new Error('Úkol: neúspěch potřebuje existující neprázdný text.');
@@ -482,7 +490,7 @@ export class ModProject {
         for(const file of destination.files)if(task.nextMissionHashes?.[file.path]!==file.expectedHash)throw new Error('Další mise: data se od výběru změnila. Vyberte misi znovu.');
         dependencies.push(...destination.files);nextMission=destination.name;
       }
-      request={...operation,mask:1,code:missionTaskScript({...task,nextMission,failure,flow:resolveMissionFlow({...inspectScene(before),geometry},task.flow,operation.name)})};
+      request={...operation,mask:1,code:missionTaskScript({...task,nextMission,failure,vehicle,flow:resolveMissionFlow({...inspectScene(before),geometry},task.flow,operation.name)})};
     }
     if(operation?.kind==='add-sound'){
       const soundPath=relativeAssetPath(operation.sound);

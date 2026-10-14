@@ -2,6 +2,14 @@
 
 Aktualizace: 14. října 2026. Vývoj pokračuje; komplexní editor není dokončený. Implementace, datové testy, ověření UI a ověření ve hře jsou různé úrovně dokončení; neoznačovat jednu za druhou. Podrobnosti existujících funkcí a jejich omezení jsou v README.md a research/formats.md. Původní hra se nemění, úpravy mají kontrolu verze, zálohu, export a undo. Herní data a soukromé reference nepatří do veřejného repozitáře.
 
+## Ruční kolize NPC a úkol převozu (2026-10-14)
+
+- Uživatel ve stejné oddělené bojové misi potvrdil, že obě živé NPC blokují hráče a jedna po zastřelení spadne. Přesný zdroj/herní hash a historie 12 zachované, běh ukončený. Tím se uzavírá omezení předchozích testů pro tyto dvě postavy; celý bojový úkol, mrtvé tělo, další modely a checkpoint tím ověřené nejsou. Dřívější příčina byla vlastní pomocný program end, nikoli výchozí vložení NPC.
+- Úkolový bod nově nabízí převoz konkrétního auta: hráč v daném vozidle, volitelně na místě řidiče, auto uvnitř poloměru jiného cíle. Jednoznačný aktér Vozidlo a Player, regenerace zdroje, geometrická závislost, starý pěší program zachovaný; návaznosti, limit, ochrana NPC a checkpoint mají vlastní registry. Auto/NPC programy se nemění.
+- Native GOG 1.2/Wine: produkční varianty řidič/libovolné sedadlo a koncové signály. Pěšky 0/0, jiné auto 0/0, správné auto spolujezdec 0/1, správné auto řidič 1/1; registry a stav programu doložené plnými save. Skriptovaná aktivace a obsazení airflFor00, nikoli ruční řízení ani load. Podrobnosti v research/vehicle-tasks.md.
+- Electron: neplatný vlastní cíl disabled, změna sedadla správně přegenerovala program, přepnutí způsobu zachovalo draft, jedno uložení, přesný export a UI undo. Testovací auto vrácené na historii 25, navigace a chráněné hashe zachované, vlastní herní kopie obnovena. Další ověření: ruční jízdní úkol a obnovení této varianty z checkpointu.
+- Závěrečná sada 427/427 testů, check a build prošly; veřejné změny obsahují jen editor, testy a dokumentaci. Plnohodnotná vlastní mise stále není uzavřená a navazující AI městský plugin zůstává odložený.
+
 ## Současná priorita: ovládání editoru
 
 - Implementováno: společné rozložení prostorových editorů s velkým 3D pohledem, přehledem objektů vlevo a inspektorem vpravo; nastavitelné šířky, skrytí panelů a režim Jen 3D.
