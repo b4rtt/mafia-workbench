@@ -12,10 +12,13 @@ export function missionTaskVehicles(scene) {
 
 // A linear task uses one detector program. Each stage removes only its own
 // objective; other mission scripts retain their objectives and state.
-export function missionTaskScript({objectiveId, interactionId, nextObjectiveId, completeId, targetName, targetRadius = 3, exitToMenu = false, nextMission = null, checkpointId = null, failure = null, flow = null, vehicle = null} = {}) {
+export function missionTaskScript({objectiveId, interactionId, nextObjectiveId, completeId, targetName, targetRadius = 3, exitToMenu = false, nextMission = null, checkpointId = null, failure = null, flow = null, vehicle = null, inventory = null} = {}) {
   for (const id of [objectiveId, interactionId, nextObjectiveId, completeId]) if (!Number.isSafeInteger(id) || id < 0 || id > 0xffffffff) throw new Error('Úkol: ID textů musí být celá čísla 0–4294967295.');
-  if (typeof targetName !== 'string' || !targetName.trim() || targetName.length > 255 || /["\x00-\x1f]/.test(targetName)) throw new Error('Úkol: neplatný název cílového objektu.');
-  if (typeof targetRadius !== 'number' || !Number.isFinite(targetRadius) || targetRadius <= 0 || !Number.isFinite(Math.fround(targetRadius)) || Math.fround(targetRadius) <= 0) throw new Error('Úkol: poloměr cíle musí být kladné konečné číslo.');
+  if (inventory !== null && (typeof inventory !== 'object' || Array.isArray(inventory) || !Number.isSafeInteger(inventory.itemId) || inventory.itemId < 2 || inventory.itemId > 65535 || typeof inventory.atTarget !== 'boolean' || typeof inventory.consume !== 'boolean' || vehicle !== null)) throw new Error('Úkol: vyberte platný předmět, způsob získání a odevzdání; nelze jej kombinovat s převozem autem.');
+  const spatial = inventory === null || inventory.atTarget;
+  if (spatial && (typeof targetName !== 'string' || !targetName.trim() || targetName.length > 255 || /["\x00-\x1f]/.test(targetName))) throw new Error('Úkol: neplatný název cílového objektu.');
+  if (spatial && (typeof targetRadius !== 'number' || !Number.isFinite(targetRadius) || targetRadius <= 0 || !Number.isFinite(Math.fround(targetRadius)) || Math.fround(targetRadius) <= 0)) throw new Error('Úkol: poloměr cíle musí být kladné konečné číslo.');
+  if (!spatial && (targetName != null || targetRadius !== null)) throw new Error('Úkol: samotné získání předmětu nemá cílový objekt ani poloměr.');
   if (typeof exitToMenu !== 'boolean') throw new Error('Úkol: neplatná volba návratu do menu.');
   if(nextMission!==null&&!validMissionDestination(nextMission))throw new Error('Úkol: neplatný název další mise.');
   if(nextMission!==null&&(exitToMenu||flow?.onComplete!=null))throw new Error('Úkol: další misi nelze kombinovat s návratem do menu nebo signálem dokončení.');
@@ -31,14 +34,18 @@ export function missionTaskScript({objectiveId, interactionId, nextObjectiveId, 
     if(!Number.isSafeInteger(failure.textId)||failure.textId<0||failure.textId>0x7fffffff)throw new Error('Úkol: ID neúspěchu musí být celé číslo 0–2147483647.');
     if(failure.endMission!==undefined&&typeof failure.endMission!=='boolean')throw new Error('Úkol: neplatná volba konce mise při neúspěchu.');
   }
-  const player=human===null?0:1,car=player+1,owner=player+2,offset=player+(vehicle===null?0:3);
+  const player=human===null?0:1,car=player+1,owner=player+2,offset=player+(vehicle!==null?3:inventory!==null?1:0);
   const link=missionFlow(flow,{actorOffset:offset,allowFailure:failure!==null,exitOnComplete:exitToMenu,endOnFailure:Boolean(failure?.endMission)}),actors=offset+link.actors;
-  const start=(human===null?'':`findactor 0, "${human}"\n`)+(vehicle===null?'':`findactor ${player}, "Tommy"\nfindactor ${car}, "${vehicle.name}"\n`)+(timeout===null?'':'getgametime 8\n');
+  const start=(human===null?'':`findactor 0, "${human}"\n`)+(vehicle!==null?`findactor ${player}, "Tommy"\nfindactor ${car}, "${vehicle.name}"\n`:inventory!==null?`findactor ${player}, "Tommy"\n`:'')+(timeout===null?'':'getgametime 8\n');
   const poll=(human===null?'':'human_getproperty 0, 7, Energy\nif flt[7] > 0, -1, 30\n')+(timeout===null?'':`getgametime 9\nlet flt[9] = flt[9] - flt[8]\nif flt[9] > ${timeout*1000}, 30, -1\n`);
   const occupancy=vehicle===null?'':`setnullactor ${owner}\nhuman_getowner ${player}, ${owner}\ncompareactors ${car}, ${owner}, 10\nif flt[10] = 1, -1, 15\n${vehicle.driverOnly?`human_getseatidx ${player}, 11\nif flt[11] = 0, -1, 15\n`:''}`;
   const failed=failure===null?'':`\nlabel 30\nmission_objectivesremove ${nextObjectiveId}\nsubtitle_add ${failure.textId}\nconsole_addtext ${failure.textId}\nwait 4000\n${link.failure}${failure.endMission?`endofmission 0, ${failure.textId}\n`:''}end`;
   const transition=nextMission===null?'':`change_mission "${nextMission}", "", -1\n`;
-  return `dim_frm 2\ndim_flt ${vehicle!==null?12:timeout!==null?10:human!==null?8:7}\n${actors?`dim_act ${actors}\n`:''}wait 2000\n${link.gate}${link.start}findframe 0, "${targetName}"\nfindframe 1, "${vehicle?.name??'Tommy'}"\nmission_objectives ${objectiveId}\nsubtitle_add ${objectiveId}\ndetector_waitforuse ${interactionId}\nmission_objectivesremove ${objectiveId}\nmission_objectives ${nextObjectiveId}\nsubtitle_add ${nextObjectiveId}\n${start}${checkpointId === null ? '' : `autosavegamefull ${checkpointId}, 1\n`}label 10\n${poll}${occupancy}frm_getworldpos 0, 0\nfrm_getworldpos 1, 3\nvect_sub_vect 0, 3\nvect_magnitude 0, 6\nif flt[6] < ${targetRadius}, 20, -1\n${vehicle===null?'':'label 15\n'}wait 100\ngoto 10\nlabel 20\nmission_objectivesremove ${nextObjectiveId}\nsubtitle_add ${completeId}\nconsole_addtext ${completeId}\nwait 4000\n${link.complete}${transition}${exitToMenu ? `endofmission 1, ${completeId}\n` : ''}end${failed}`;
+  const membership=inventory===null?'':`human_isweapon ${player}, 6, ${inventory.itemId}\nif flt[6] = 1, ${spatial?-1:20}, 15\n`;
+  const frames=spatial?`findframe 0, "${targetName}"\nfindframe 1, "${vehicle?.name??'Tommy'}"\n`:'';
+  const distance=spatial?`frm_getworldpos 0, 0\nfrm_getworldpos 1, 3\nvect_sub_vect 0, 3\nvect_magnitude 0, 6\nif flt[6] < ${targetRadius}, 20, -1\n`:'';
+  const consume=inventory?.consume?`human_delweapon ${player}, ${inventory.itemId}\n`:'';
+  return `${spatial?'dim_frm 2\n':''}dim_flt ${vehicle!==null?12:timeout!==null?10:human!==null?8:7}\n${actors?`dim_act ${actors}\n`:''}wait 2000\n${link.gate}${link.start}${frames}mission_objectives ${objectiveId}\nsubtitle_add ${objectiveId}\ndetector_waitforuse ${interactionId}\nmission_objectivesremove ${objectiveId}\nmission_objectives ${nextObjectiveId}\nsubtitle_add ${nextObjectiveId}\n${start}${checkpointId === null ? '' : `autosavegamefull ${checkpointId}, 1\n`}label 10\n${poll}${occupancy}${membership}${distance}${vehicle===null&&inventory===null?'':'label 15\n'}wait 100\ngoto 10\nlabel 20\n${consume}mission_objectivesremove ${nextObjectiveId}\nsubtitle_add ${completeId}\nconsole_addtext ${completeId}\nwait 4000\n${link.complete}${transition}${exitToMenu ? `endofmission 1, ${completeId}\n` : ''}end${failed}`;
 }
 
 // Recovery is read-only until the entire source round trips through the wizard.
@@ -46,14 +53,15 @@ export function missionTaskScript({objectiveId, interactionId, nextObjectiveId, 
 export function inspectMissionTask(code) {
   if(typeof code!=='string'||code.length>1000000)return null;
   const source=code.replaceAll('\r\n','\n'),bindings=new Map([...source.matchAll(/^findactor (\d+), "([^"\x00-\x1f]+)"$/gm)].map(match=>[Number(match[1]),match[2]]));
-  const objective=/^mission_objectives (\d+)$/m.exec(source),use=/^detector_waitforuse (\d+)$/m.exec(source),next=/^mission_objectivesremove \d+\nmission_objectives (\d+)$/m.exec(source),complete=/^label 20\nmission_objectivesremove \d+\nsubtitle_add (\d+)$/m.exec(source);
+  const objective=/^mission_objectives (\d+)$/m.exec(source),use=/^detector_waitforuse (\d+)$/m.exec(source),next=/^mission_objectivesremove \d+\nmission_objectives (\d+)$/m.exec(source),complete=/^label 20\n(?:human_delweapon \d+, \d+\n)?mission_objectivesremove \d+\nsubtitle_add (\d+)$/m.exec(source);
   const target=/^findframe 0, "([^"\x00-\x1f]+)"$/m.exec(source),radius=/^if flt\[6\] < ([\d.e+-]+), 20, -1$/m.exec(source),checkpoint=/^autosavegamefull (\d+), 1$/m.exec(source),transition=/^change_mission "([^"]+)", "", -1$/m.exec(source);
   const guard=/^human_getproperty (\d+), 7, Energy$/m.exec(source),timeout=/^if flt\[9\] > ([\d.e+-]+), 30, -1$/m.exec(source),failureText=/^label 30\nmission_objectivesremove \d+\nsubtitle_add (\d+)$/m.exec(source),parts=source.split('\nlabel 30\n');
   const occupancy=/^compareactors (\d+), \d+, 10$/m.exec(source),signal=part=>{const match=/^detector_setsignal (\d+), 1$/m.exec(part??'');return match?bindings.get(Number(match[1])):null;};
   const flow={waitForSignal:source.includes('label 1\ndetector_issignal -1, 2, -1\n'),onComplete:signal(parts[0]),onFailure:signal(parts[1])};
-  const task={objectiveId:Number(objective?.[1]),interactionId:Number(use?.[1]),nextObjectiveId:Number(next?.[1]),completeId:Number(complete?.[1]),targetName:target?.[1],targetRadius:Number(radius?.[1]),checkpointId:checkpoint?Number(checkpoint[1]):null,nextMission:transition?.[1]??null,exitToMenu:/^endofmission 1, \d+$/m.test(parts[0]),
+  const item=/^human_isweapon \d+, 6, (\d+)$/m.exec(source),inventory=item?{itemId:Number(item[1]),atTarget:Boolean(target),consume:/^human_delweapon \d+, \d+$/m.test(parts[0])}:null;
+  const task={objectiveId:Number(objective?.[1]),interactionId:Number(use?.[1]),nextObjectiveId:Number(next?.[1]),completeId:Number(complete?.[1]),targetName:target?.[1]??(inventory?null:undefined),targetRadius:radius?Number(radius[1]):inventory?null:NaN,checkpointId:checkpoint?Number(checkpoint[1]):null,nextMission:transition?.[1]??null,exitToMenu:/^endofmission 1, \d+$/m.test(parts[0]),
     vehicle:occupancy?{name:bindings.get(Number(occupancy[1])),driverOnly:/^human_getseatidx \d+, 11$/m.test(source)}:null,
-    failure:failureText?{timeoutSeconds:timeout?Number(timeout[1])/1000:null,humanName:guard?bindings.get(Number(guard[1])):null,textId:Number(failureText[1]),endMission:/^endofmission 0, \d+$/m.test(parts[1]??'')}:null,flow:flow.waitForSignal||flow.onComplete||flow.onFailure?flow:null};
+    failure:failureText?{timeoutSeconds:timeout?Number(timeout[1])/1000:null,humanName:guard?bindings.get(Number(guard[1])):null,textId:Number(failureText[1]),endMission:/^endofmission 0, \d+$/m.test(parts[1]??'')}:null,flow:flow.waitForSignal||flow.onComplete||flow.onFailure?flow:null,...(inventory?{inventory}:{})};
   try{if(missionTaskScript(task)===source)return task;}catch{/* Do not replace unrecognized source. */}
   return null;
 }

@@ -489,8 +489,20 @@ export class ModProject {
       const texts=parseTextDb(bytes,asset.path).entries,ids=new Set(texts.map(entry=>entry.id));
       if([task.objectiveId,task.interactionId,task.nextObjectiveId,task.completeId].some(id=>!ids.has(id)))throw new Error('Úkol: některé ID v jazykové tabulce neexistuje. Nejprve vytvořte vlastní texty.');
       if(task.checkpointId!=null && !texts.slice(0,-1).some(entry=>entry.id===task.checkpointId && entry.text.trim()))throw new Error('Úkol: checkpoint potřebuje existující neprázdný název v jazykové tabulce. Vytvořte text s ID 5000–5599.');
-      const targets=[...inspectScene(before).objects,...geometry.meshes].filter(object=>key(object.name)===key(task.targetName));
-      if(targets.length!==1 || key(task.targetName)===key('Tommy'))throw new Error('Úkol: vyberte jednoznačný cílový objekt odlišný od hráče.');
+      if(!task.inventory || task.inventory.atTarget){
+        const targets=[...inspectScene(before).objects,...geometry.meshes].filter(object=>key(object.name)===key(task.targetName));
+        if(targets.length!==1 || key(task.targetName)===key('Tommy'))throw new Error('Úkol: vyberte jednoznačný cílový objekt odlišný od hráče.');
+      }
+      let inventory=task.inventory??null;
+      if(inventory){
+        if(!dialogueSpeakers({...inspectScene(before),geometry}).some(actor=>actor.kind===2&&key(actor.name)==='tommy'))throw new Error('Úkol: předmět potřebuje jednoznačného hráče Tommy typu Player.');
+        const asset=this.asset('tables/predmety.def'),bytes=await this.read(asset.path);
+        if(hash(bytes)!==inventory.tableHash)throw new Error('Úkol: tabulka předmětů se od otevření změnila. Otevřete dialog znovu.');
+        const item=parseItems(bytes).records[inventory.itemId];
+        if(!item?.name.trim())throw new Error('Úkol: vyberte existující pojmenovaný předmět z tables/predmety.def.');
+        inventory={itemId:item.index,atTarget:inventory.atTarget,consume:inventory.consume};
+        dependencies.push({path:asset.path,data:bytes,expectedHash:task.inventory.tableHash},{path:geometryPath,data:geometryBytes,expectedHash:hash(geometryBytes)});
+      }
       let vehicle=task.vehicle??null;
       if(vehicle){
         const scene={...inspectScene(before),geometry},car=missionTaskVehicles(scene).find(actor=>key(actor.name)===key(vehicle.name));
@@ -512,7 +524,7 @@ export class ModProject {
         for(const file of destination.files)if(task.nextMissionHashes?.[file.path]!==file.expectedHash)throw new Error('Další mise: data se od výběru změnila. Vyberte misi znovu.');
         dependencies.push(...destination.files);nextMission=destination.name;
       }
-      const code=missionTaskScript({...task,nextMission,failure,vehicle,flow:resolveMissionFlow({...inspectScene(before),geometry},task.flow,current?.entry.value.name??operation.name)});
+      const code=missionTaskScript({...task,nextMission,failure,vehicle,inventory,flow:resolveMissionFlow({...inspectScene(before),geometry},task.flow,current?.entry.value.name??operation.name)});
       if(current){choiceScene=editScene(before,current.entry.id,{...current.entry.value,code});dependencies.push({path:geometryPath,data:geometryBytes,expectedHash:hash(geometryBytes)});}
       else request={...operation,mask:1,code};
     }
