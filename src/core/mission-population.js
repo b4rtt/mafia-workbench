@@ -1,8 +1,8 @@
 import { inspectScene } from './scene.js';
 
 // Empty Mission uses C_traffic_car v5 and the pedestrian generator v1.
-// Preserve model names and opaque data. At zero also disable pedestrian slots:
-// GameInit otherwise clamps the global pedestrian budget back up to one.
+// Preserve model names and opaque data. At zero also disable slots/weights:
+// GameInit otherwise clamps a global population budget back up to one.
 export function configureMissionPopulation(source, { trafficCars, pedestrians } = {}) {
   const settings = [{ name: 'traffic', kind: 12, value: trafficCars, offset: 16 }, { name: 'pedestrians', kind: 18, value: pedestrians, offset: 25 }].filter(row => row.value !== undefined);
   for (const row of settings) if (!Number.isInteger(row.value) || row.value < 0 || row.value > 100) throw new Error('Okolní auta a chodci: zadejte celé číslo 0–100.');
@@ -31,6 +31,9 @@ export function configureMissionPopulation(source, { trafficCars, pedestrians } 
       : bytes.length >= 33 && bytes.readUInt32LE(0) === 1 && bytes.length === 33 + bytes.readUInt32LE(29) * 21;
     if (!supported) throw new Error(`Šablona má nepodporovanou verzi generátoru ${setting.name}.`);
     result.writeUInt32LE(setting.value, row.start + setting.offset);
+    if (setting.kind === 12 && setting.value === 0) {
+      for (let i = 0; i < bytes.readUInt32LE(20); i++) result.writeFloatLE(0, row.start + 24 + i * 32 + 20);
+    }
     if (setting.kind === 18 && setting.value === 0) {
       const count = bytes.readUInt32LE(29), start = 33 + count * 17;
       for (let i = 0; i < count; i++) result.writeUInt32LE(0, row.start + start + i * 4);

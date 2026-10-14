@@ -29,6 +29,7 @@ import { sectorCreateDialog } from './sector-create.js';
 import { sectorLinkDialog } from './sector-link.js';
 import { sectorGeometryDialog } from './sector-geometry.js';
 import { sceneSectorsDialog } from './scene-sectors.js';
+import { populationControl } from './population.js';
 import { EffectsViewport } from './effects.js';
 import { renderEffectDefinitions } from './effect-types.js';
 import { AnimationPreview } from './animation.js';
@@ -777,6 +778,14 @@ function renderProperties(main, file, saveAPI, onEdit = () => {}, onPick = () =>
     state.texts.clear(); await refresh(); renderDetail(); status('Změny uložené do modu se zálohou.');
   });
   function renderField(entry,target) {
+    if(entry.populationParameter){
+      const draft=state.texts.get(entry.id),original=draft?.invalid?draft.populationDraft??entry.value:draft??entry.value;
+      const population=populationControl(entry,original,{element,assets:state.project.assets,api,onChange:()=>{
+        try{const value=population.value();if(JSON.stringify(value)===JSON.stringify(entry.value))state.texts.delete(entry.id);else state.texts.set(entry.id,value);status('Rozepsaná úprava generátoru.');}
+        catch{state.texts.set(entry.id,{invalid:true,populationDraft:population.draft()});status('Vyplňte název modelu a platné hodnoty generátoru.',true);}
+        save.disabled=!state.texts.size||[...state.texts.values()].some(value=>value?.invalid);save.textContent=`Uložit změny (${state.texts.size})`;
+      }});target.append(element('h4',entry.label),population.control);return;
+    }
     const label = element('label', objectMode ? entry.label : main.classList.contains('model-inspector') ? `${entry.context.split(' / ').at(-1)} · ${entry.label}` : `${entry.context} / ${entry.label}`); label.title=`${entry.context} / ${entry.label}`; label.htmlFor = 'scene-value';
     const isString = ['string', 'string8'].includes(entry.kind);
     const input = element(isString || entry.doorParameter || entry.soundParameter || entry.physicalParameter || entry.detectorParameter ? 'input' : 'textarea'); input.id = 'scene-value-'+file.entries.indexOf(entry);label.htmlFor=input.id;
@@ -823,7 +832,7 @@ function renderProperties(main, file, saveAPI, onEdit = () => {}, onPick = () =>
       }
       if(help.size){const details=element('details',undefined,'property-help');details.append(element('summary','Význam nastavení'));for(const text of help)details.append(element('p',text));form.append(details);}
     }else renderField(entry,form);
-    form.append(save);save.disabled=!state.texts.size;save.textContent=`Uložit změny (${state.texts.size})`;
+    form.append(save);save.disabled=!state.texts.size||[...state.texts.values()].some(value=>value?.invalid&&value.populationDraft);save.textContent=`Uložit změny (${state.texts.size})`;
   }
   function fill() {
     const query = search.value.toLowerCase(), fragment = document.createDocumentFragment();

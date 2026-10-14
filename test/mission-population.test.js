@@ -17,12 +17,13 @@ test('new-mission population settings change only requested budgets, preserve op
   assert.deepEqual(configureMissionPopulation(source), source);
   for (const [trafficCars, pedestrians] of [[0, 0], [1, 100], [100, 7], [100, 100]]) {
     const a = Buffer.from(cars), b = Buffer.from(people); a.writeUInt32LE(trafficCars, 16); b.writeUInt32LE(pedestrians, 25);
+    if (trafficCars === 0) { a.writeFloatLE(0, 44); a.writeFloatLE(0, 76); }
     if (pedestrians === 0) { b.writeUInt32LE(0, 67); b.writeUInt32LE(0, 71); }
     const expected = scene([actor('traffic', 12, a), actor('pedestrians', 18, b), actor('Other', 35, Buffer.from([0, 1, 2]))]);
     assert.deepEqual(configureMissionPopulation(source, { trafficCars, pedestrians }), expected);
     assert.deepEqual(source, before); assert.equal(inspectScene(expected).actors.length, 3);
   }
-  const carsOnly = Buffer.from(cars); carsOnly.writeUInt32LE(0, 16);
+  const carsOnly = Buffer.from(cars); carsOnly.writeUInt32LE(0, 16); carsOnly.writeFloatLE(0, 44); carsOnly.writeFloatLE(0, 76);
   assert.deepEqual(configureMissionPopulation(source, { trafficCars: 0 }), scene([actor('traffic', 12, carsOnly), actor('pedestrians', 18, people), actor('Other', 35, Buffer.from([0, 1, 2]))]));
 });
 test('population configuration refuses invalid counts and ambiguous, missing or unsupported generators', () => {
@@ -37,5 +38,5 @@ test('population configuration refuses invalid counts and ambiguous, missing or 
     [[actor('pedestrians', 18, malformedTable)], { pedestrians: 0 }],
     [[actor('traffic', 12, cars)], { pedestrians: 0 }],
   ]) assert.throws(() => configureMissionPopulation(scene(actors), options), /generátor/);
-  assert.deepEqual(configureMissionPopulation(scene([actor('traffic', 12, cars)]), { trafficCars: 0 }), scene([actor('traffic', 12, (() => { const b = Buffer.from(cars); b.writeUInt32LE(0, 16); return b; })())]));
+  assert.deepEqual(configureMissionPopulation(scene([actor('traffic', 12, cars)]), { trafficCars: 0 }), scene([actor('traffic', 12, (() => { const b = Buffer.from(cars); b.writeUInt32LE(0, 16); b.writeFloatLE(0, 44); b.writeFloatLE(0, 76); return b; })())]));
 });

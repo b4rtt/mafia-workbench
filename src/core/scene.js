@@ -6,6 +6,7 @@ import { validateNewSound } from '../shared/sounds.js';
 import { inspectPhysical, editPhysical, createPhysical } from './physical.js';
 import { detectorScriptLayout, editDetectorMask, createDetector } from './detectors.js';
 import { pickupScript, parsePickupScript } from '../shared/pickups.js';
+import { inspectPopulation, editPopulation } from './population.js';
 const containers = new Set([0x4c53, 0x4000, 0x4010, 0x4020, 0x4040, 0x4060, 0xae20, 0xae21, 0xae50]);
 const names = new Map([[0x4c53, 'Scéna'], [0x4000, 'Objekty'], [0x4010, 'Objekt'], [0x4020, 'Rodič'], [0x4040, 'Světlo'], [0x4060, 'Zvuk'], [0xae20, 'Aktéři'], [0xae21, 'Aktér'], [0xae50, 'Skripty'], [0xae51, 'Skript']]);
 const fields = new Map([
@@ -115,6 +116,8 @@ export function inspectScene(source) {
         const name = node.children.find(n => n.type === 0xae23)?.payload;
         const actorKind = kind?.length >= 4 ? kind.readUInt32LE(0) : null;
         if(name)actors.push({id:node.id,name:string(name),kind:actorKind});
+        const population=name&&inspectPopulation(actorKind,data);
+        if(population){const nodeId=node.children.find(n=>n.type===0xae24).id;entries.push({id:`${nodeId}:population`,nodeId,label:actorKind===12?'Generátor dopravy':'Generátor chodců',kind:'population',value:population,populationParameter:true,actorKind,context:`${context} / ${string(name)}`.replace(/^ \/ /,''),bytes:data.length});}
         if(name&&actorKind===5&&detectorScriptLayout(data)){
           const nodeId=node.children.find(n=>n.type===0xae24).id;
           entries.push({id:`${nodeId}:detector.mask`,nodeId,label:'Maska typů postav (detector_inrange)',kind:'uint',value:data.readUInt32LE(1),detectorParameter:true,actorKind,context:`${context} / ${string(name)}`.replace(/^ \/ /,''),bytes:4,min:0,max:4294967295});
@@ -175,6 +178,7 @@ export function editScene(source, id, value) {
   const soundParameter=scene.entries.find(entry=>entry.id===id&&entry.soundParameter);
   const physicalParameter=scene.entries.find(entry=>entry.id===id&&entry.physicalParameter);
   const detectorParameter=scene.entries.find(entry=>entry.id===id&&entry.detectorParameter);
+  const populationParameter=scene.entries.find(entry=>entry.id===id&&entry.populationParameter);
   let found = false;
   function write(node) {
     let payload;
@@ -188,6 +192,7 @@ export function editScene(source, id, value) {
     else if(detectorParameter&&node.id===detectorParameter.nodeId){
       found=true;payload=editDetectorMask(node.payload,value);
     }
+    else if(populationParameter&&node.id===populationParameter.nodeId){found=true;payload=editPopulation(populationParameter.actorKind,node.payload,value);}
     else if(physicalParameter&&node.id===physicalParameter.nodeId){
       found=true;payload=editPhysical(node.payload,physicalParameter.key,value);
     }

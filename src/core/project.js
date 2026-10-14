@@ -309,12 +309,27 @@ export class ModProject {
     // structural loop toggles after all fields referenced by the original IDs.
     const ordered=changes.filter(change=>!change.id?.endsWith(':sound.loop')).concat(changes.filter(change=>change.id?.endsWith(':sound.loop')));
     const before=await this.read(name);if(hash(before)!==expectedHash)throw new Error('Soubor se od otevření změnil. Otevřete jej znovu.');
-    const pickups=inspectScene(before).objects.filter(object=>object.pickup && ordered.some(change=>change.id===object.fields.name && change.value!==object.name));
-    if(collisionOwnership(this.manifest,name).length || pickups.length){
+    const originalScene=inspectScene(before),populationChanges=ordered.filter(change=>originalScene.entries.some(entry=>entry.populationParameter&&entry.id===change.id));
+    const populationDependencies=[];
+    for(const change of populationChanges){
+      // Validate the writer before resolving untrusted model table rows.
+      editScene(before,change.id,change.value);
+      const entry=originalScene.entries.find(entry=>entry.id===change.id),cars=entry.actorKind===12;
+      for(const row of change.value.models){
+        const old=entry.value.models[row.sourceIndex];
+        if(old&&row.model===old.model&&(cars?row.colors===old.colors&&Object.is(row.weight,old.weight):row.capacity===old.capacity))continue;
+        const modelPath=this.asset(cars?`models/${row.model}10.4ds`:`models/${row.model.replace(/\.(?:i3d|4ds)$/i,'.4ds')}`).path,bytes=await this.read(modelPath),model=parseFourDs(bytes,true);
+        if(cars){const tablePath=this.asset('tables/vehicles.bin').path,tableBytes=await this.read(tablePath);if(!vehicleModelDefinition(parseVehicleTable(tableBytes),modelPath))throw new Error('Doprava: rodina auta nemá fyzikální tabulku.');validateVehicleModel(model);populationDependencies.push({path:tablePath,data:tableBytes,expectedHash:hash(tableBytes)});}
+        else if(!/\.i3d$/i.test(row.model)||!model.meshes.some(mesh=>mesh.joint))throw new Error('Chodci: vyberte model postavy s kostrou s názvem .i3d.');
+        populationDependencies.push({path:modelPath,data:bytes,expectedHash:hash(bytes)});
+      }
+    }
+    const pickups=originalScene.objects.filter(object=>object.pickup && ordered.some(change=>change.id===object.fields.name && change.value!==object.name));
+    if(collisionOwnership(this.manifest,name).length || pickups.length || populationChanges.length){
       let after=before;for(const {id,value} of ordered)after=editScene(after,id,value);
       const oldScene=inspectScene(before),newScene=inspectScene(after),renames=new Map();
       for(const object of oldScene.objects){const current=newScene.objects.find(o=>o.id===object.id);if(current&&current.name!==object.name)renames.set(object.name,current.name);}
-      const dependencies=[];
+      const dependencies=[...populationDependencies];
       if(pickups.length){
         const geometryPath=name.slice(0,name.lastIndexOf('/'))+'/scene.4ds',bytes=await this.read(geometryPath),geometry=parseFourDs(bytes);
         for(const object of pickups)if(geometry.meshes.some(mesh=>key(mesh.name)===key(renames.get(object.name))))throw new Error('Předmět: název již existuje v geometrii mise.');
@@ -806,18 +821,23 @@ export class ModProject {
     const entry = this.manifest.history.at(-1);
     if (!entry) return;
     if (entry.kind === 'create') return this.undoCreation(entry);
-    if(entry.kind==='batch'||this.asset(entry.path).overlay)return this.undoBatch(entry);
+    if(entry.kind==='batch')return this.undoBatch(entry);
     if (!/^history\/[a-f0-9-]+\.snapshot$/.test(entry.backup)) throw new Error('Neplatná záloha historie.');
     const before = await readSafe(this.root, entry.backup);
     const after = await this.read(entry.path);
     if (hash(before) !== entry.sha256 || hash(after) !== entry.after) throw new Error('Historie neodpovídá aktuálním datům; soubor mohl být změněn mimo editor.');
+    const asset=this.asset(entry.path),previousOverlay=asset.overlay;
+    // Later batch edits may leave a restored immutable layer above this old
+    // single-file edit. Restore its base too, without ignoring external writes.
+    if(previousOverlay&&hash(await readSafe(this.root,`mods/${asset.path}`))!==entry.after)throw new Error('Historie neodpovídá skryté vrstvě souboru; soubor mohl být změněn mimo editor.');
     if (this.busy) throw new Error('Probíhá jiné ukládání.');
     this.busy = true;
     try {
       await writeSafe(this.root, `mods/${this.asset(entry.path).path}`, before);
+      delete asset.overlay;
       this.manifest.history.pop();
       try { await this.saveManifest(); }
-      catch (error) { this.manifest.history.push(entry); await writeSafe(this.root, `mods/${this.asset(entry.path).path}`, after); throw error; }
+      catch (error) { this.manifest.history.push(entry);if(previousOverlay!==undefined)asset.overlay=previousOverlay;await writeSafe(this.root, `mods/${this.asset(entry.path).path}`, after); throw error; }
     } finally { this.busy = false; }
   }
   async undoBatch(entry) {
