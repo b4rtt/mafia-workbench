@@ -33,6 +33,7 @@ import { parseEffectDefinitions, editEffectDefinitions } from './effect-types.js
 import { parseBmp, editBmp } from './bmp.js';
 import { inspectModelGeometry, editModelGeometry } from './model-geometry.js';
 import { inspectProjectCollision, saveProjectCollision } from './collision-project.js';
+import { modelImportPlan, importModel } from './model-import.js';
 
 const MANIFEST = 'workbench.json';
 const key = p => relativeAssetPath(p).normalize('NFC').toLowerCase();
@@ -223,6 +224,8 @@ export class ModProject {
     await this.createFiles([...files].map(([file, data]) => ({ path: folder + file, data })), `Nová mise ${name}`);
     return folder + 'scene2.bin';
   }
+  async previewModelImport(files, name) { return modelImportPlan(this, files, name); }
+  async importModel(files, name, expected) { return importModel(this, files, name, expected); }
   async importLoose(progress = () => {}) {
     if (this.busy) throw new Error('Probíhá jiné ukládání.');
     if (!this.manifest.gameRoot) throw new Error('Projekt nemá zadaný zdroj hry.');

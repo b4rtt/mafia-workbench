@@ -21,6 +21,7 @@ import { Viewport } from './viewport.js';
 import { actionMenu, initializeWorkspace, spatialWorkspace } from './workspace.js';
 import { renderBitmap } from './bitmap.js';
 import { geometryDialog } from './model-geometry.js';
+import { modelImportDialog } from './model-import.js';
 import { EffectsViewport } from './effects.js';
 import { renderEffectDefinitions } from './effect-types.js';
 import { AnimationPreview } from './animation.js';
@@ -52,6 +53,8 @@ function buttons() {
   $('undo').disabled = state.busy || !state.project?.history;
   $('export').disabled = state.busy || !state.project;
   $('new-mission').disabled = state.busy || !state.project;
+  $('import-model').disabled = state.busy || !state.project || Boolean(state.texts.size);
+  $('import-model').title = state.texts.size ? 'Nejdřív uložte rozepsané změny.' : 'Importovat vlastní 4DS a BMP textury do projektu.';
   $('stop-level').disabled = state.busy;
   for (const part of document.querySelectorAll('[data-mission-part]')) part.disabled = state.busy;
   for (const link of document.querySelectorAll('[data-vehicle-link]')) {
@@ -80,6 +83,7 @@ async function refresh(project) {
   renderCategories(); renderFiles(); buttons();
 }
 function renderCategories() {
+  $('import-model').hidden = state.category !== 'models';
   const scroll = $('categories').scrollLeft;
   const counts = new Map(categories.map(([id]) => [id, 0]));
   for (const file of state.project.assets) { counts.set(file.category, (counts.get(file.category) ?? 0) + 1); if (file.modified) counts.set('changed', counts.get('changed') + 1); }
@@ -1552,6 +1556,12 @@ $('new-mission').onclick = () => run(async () => {
 $('export').onclick = () => run(async () => {
   if (state.texts.size) throw new Error('Před exportem uložte rozepsané změny.');
   const result = await api.export(); if (result) status(`Export: ${result.files} souborů → ${result.destination}`);
+});
+$('import-model').onclick = () => run(async () => {
+  if(state.texts.size)throw new Error('Před importem uložte rozepsané změny.');
+  await modelImportDialog({api,element,run,onImported:async result=>{
+    state.category='models';$('filter').value=result.path.slice(7);await refresh(result.project);await openFile(result.path);status('Vlastní model a textury přidané s jedním undo. V misi je vložte přes Přidat → Vložit model…');
+  }});
 });
 api.onProgress(p => status(p.phase === 'playtest' ? `Synchronizuji test: ${p.current}/${p.total} · ${p.files} změněných souborů` : `Rozbaluji ${p.archive}: ${p.current}/${p.total} · ${p.files} souborů v projektu`));
 api.onPlaytest(test => { $('stop-level').hidden = !test.running; if (test.error || test.code) status(`Test skončil chybou. ${test.error ?? `Kód ${test.code}; viz playtest/game.log.`}`, true); else if (!test.running) status('Test levelu ukončen.'); });

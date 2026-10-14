@@ -6,6 +6,7 @@ import { Worker } from 'node:worker_threads';
 import { ModProject } from '../core/project.js';
 import { parseTextDb } from '../core/textdb.js';
 import { prepareDialogueWav } from '../core/dialogue-audio.js';
+import { prepareModelImport } from '../core/model-import.js';
 import { randomUUID } from 'node:crypto';
 import { Playtest } from '../core/playtest.js';
 import { readEmptyMissionZip } from '../core/mission.js';
@@ -17,7 +18,7 @@ await fs.mkdir(profileRoot, { recursive: true });
 app.setPath('userData', profileRoot);
 app.setPath('sessionData', profileRoot);
 protocol.registerSchemesAsPrivileged([{ scheme: 'workbench', privileges: { standard: true, secure: true, supportFetchAPI: true } }]);
-let window, project, missionTemplate, voiceImport, busy = false;
+let window, project, missionTemplate, voiceImport, modelImport, busy = false;
 // The user's verified runtime stays local, outside the public repository.
 const runtimeRoot = path.resolve(directory, '../../../.runtime');
 const playtest = new Playtest({ wine: path.join(runtimeRoot, 'wine-cx/wswine.bundle/bin/wine'), server: path.join(runtimeRoot, 'wine-cx/wswine.bundle/bin/wineserver'), dependencies: path.join(runtimeRoot, 'wine-cx/dependencies'), prefixTemplate: path.join(runtimeRoot, 'prefix-cx') });
@@ -136,6 +137,36 @@ app.whenReady().then(async () => {
   handle('voice:import', (token,name,id,textHash,soundHash) => operation(async () => {
     if(!voiceImport||voiceImport.project!==current()||voiceImport.token!==token)throw new Error('Nejdřív vyberte hlasovou nahrávku pro tento projekt.');
     const result=await current().importDialogue(name,id,voiceImport.bytes,textHash,soundHash);voiceImport=null;return result;
+  }));
+  async function importFile(filename) {
+    const stat=await fs.stat(filename);
+    if(!stat.isFile()||stat.size>64*1024*1024)throw new Error('Import: soubor je příliš velký (maximum 64 MiB).');
+    return {name:path.basename(filename),data:await fs.readFile(filename)};
+  }
+  function pendingModel(token) {
+    if(!modelImport||modelImport.project!==current()||modelImport.token!==token)throw new Error('Nejdřív vyberte model pro tento projekt.');
+    return modelImport;
+  }
+  handle('model-import:choose',()=>operation(async()=>{
+    const active=current();modelImport=null;
+    const result=await dialog.showOpenDialog(window,{title:'Vyberte vlastní model 4DS',properties:['openFile'],filters:[{name:'Model Mafia 1',extensions:['4ds']}]});
+    if(result.canceled)return null;
+    const file=await importFile(result.filePaths[0]);prepareModelImport([file]);
+    const token=randomUUID();modelImport={project:active,files:[file],token};return {token,name:file.name};
+  }));
+  handle('model-import:textures',token=>operation(async()=>{
+    const pending=pendingModel(token);
+    const result=await dialog.showOpenDialog(window,{title:'Vyberte BMP textury modelu (všechny potřebné soubory)',properties:['openFile','multiSelections'],filters:[{name:'Textury Mafia 1',extensions:['bmp']}]});
+    if(result.canceled)return false;
+    if(result.filePaths.length>63)throw new Error('Import: nejvýše 63 textur.');
+    const files=[pending.files[0]];let total=files[0].data.length;
+    for(const filename of result.filePaths){const file=await importFile(filename);total+=file.data.length;if(total>64*1024*1024)throw new Error('Import: soubory přesahují 64 MiB.');files.push(file);}
+    prepareModelImport(files);pending.files=files;return true;
+  }));
+  handle('model-import:plan',(token,name)=>{const pending=pendingModel(token);return current().previewModelImport(pending.files,name);});
+  handle('model-import:cancel',token=>{if(modelImport?.token===token)modelImport=null;});
+  handle('model-import:save',(token,name,expected)=>operation(async()=>{
+    const pending=pendingModel(token),active=current();const imported=await active.importModel(pending.files,name,expected);modelImport=null;return {path:imported,project:await active.list()};
   }));
   handle('asset:scene', (name, changes, expectedHash) => operation(async () => { await current().saveScene(name, changes, expectedHash); return current().inspect(name); }));
   handle('asset:scene-object', (name, request, expectedHash) => operation(async () => { await current().changeSceneObject(name, request, expectedHash); return current().inspectMap(name); }));
