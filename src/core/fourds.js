@@ -86,24 +86,26 @@ function triangleMesh(reader, sector = false) {
 }
 function sectorMesh(reader, base, geometry) {
   const flags = reader.field(`${base}/sector/flags`, 'Sektor · příznaky 1/2 (raw)', 'u32', 2);
+  const geometryOffset = reader.pos;
   const vertices = reader.u32(), faces = reader.u32(), start = reader.pos;
   reader.skip(vertices * 12 + faces * 6);
   const positions = geometry ? Array.from({ length: vertices * 3 }, (_, i) => reader.bytes.readFloatLE(start + i * 4)) : [];
   const indices = geometry ? Array.from({ length: faces * 3 }, (_, i) => reader.bytes.readUInt16LE(start + vertices * 12 + i * 2)) : [];
-  const bounds = Array.from({ length: 6 }, () => reader.number('readFloatLE', 4));
+  const boundsOffset = reader.pos, bounds = Array.from({ length: 6 }, () => reader.number('readFloatLE', 4));
+  const portalsOffset = reader.pos;
   const count = reader.u8(), portals = [];
   for (let i = 0; i < count; i++) {
-    const points = reader.u8(), prefix = `${base}/sector/portals/${i}`;
+    const offset = reader.pos, points = reader.u8(), prefix = `${base}/sector/portals/${i}`;
     // Mafia v29 is flags, two raw float parameters, plane, vertices. The
     // RoadTrain template puts the plane first; original files contradict it.
     const flags = reader.field(`${prefix}/flags`, `Portál ${i + 1} · příznaky (raw)`, 'u32');
     const parameters = reader.field(`${prefix}/parameters`, `Portál ${i + 1} · parametry 1/2 (raw)`, 'float', 2, true);
-    const plane = Array.from({ length: 4 }, () => reader.number('readFloatLE', 4));
+    const planeOffset = reader.pos, plane = Array.from({ length: 4 }, () => reader.number('readFloatLE', 4));
     const start = reader.pos; reader.skip(points * 12);
     const positions = geometry ? Array.from({ length: points * 3 }, (_, j) => reader.bytes.readFloatLE(start + j * 4)) : [];
-    portals.push({ flags, parameters, plane, points, positions });
+    portals.push({ flags, parameters, plane, points, positions, offset, planeOffset, vertexOffset: start, endOffset: reader.pos });
   }
-  return { flags, vertices, faces, positions, indices, bounds, portals };
+  return { flags, vertices, faces, positions, indices, bounds, portals, geometryOffset, vertexOffset: start, boundsOffset, portalsOffset, endOffset: reader.pos };
 }
 export function parseFourDs(source, geometry = false) {
   const reader = new Reader(source);

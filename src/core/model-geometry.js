@@ -1,5 +1,6 @@
 import {parseFourDs} from './fourds.js';
 import {geometryPreview,topologyPreview,validateTopology} from '../shared/geometry-draft.js';
+import {editSectorGeometry} from './sector-geometry.js';
 
 function resolve(parsed,id){
   if(!Number.isInteger(id)||!parsed.meshes[id-1])throw new Error('4DS: neplatný objekt geometrie.');
@@ -8,13 +9,16 @@ function resolve(parsed,id){
   if(mesh.type!==1||!mesh.lods?.length)throw new Error('4DS: objekt nemá editovatelnou geometrii.');return mesh;
 }
 export function inspectModelGeometry(source,id){
-  const parsed=parseFourDs(source,'all'),mesh=resolve(parsed,id),instances=[];
+  const parsed=parseFourDs(source,'all');
+  if(Number.isInteger(id)&&parsed.meshes[id-1]?.sector){const mesh=parsed.meshes[id-1];return {mesh,sector:true,instances:[{id,name:mesh.name}],materials:parsed.materials};}
+  const mesh=resolve(parsed,id),instances=[];
   for(const candidate of parsed.meshes){if(candidate.type!==1||(!candidate.instance&&!candidate.lods?.length))continue;try{if(resolve(parsed,candidate.id).id===mesh.id)instances.push({id:candidate.id,name:candidate.name});}catch{/* Unrelated unsupported instances are not edited. */}}
   return {mesh,instances,materials:parsed.materials,editShape:[0,1].includes(mesh.visual)};
 }
 export function editModelGeometry(source,request){
   source=Buffer.from(source);
   const context=inspectModelGeometry(source,request?.mesh);
+  if(context.sector)return editSectorGeometry(source,request);
   if(!Array.isArray(request.levels)||request.levels.length>context.mesh.lods.length)throw new Error('4DS: neplatný seznam LOD.');
   let result=Buffer.from(source);const seen=new Set();
   for(const level of request.levels){if(!level||!Number.isInteger(level.lod)||!context.mesh.lods[level.lod]||seen.has(level.lod))throw new Error('4DS: neplatný nebo opakovaný LOD.');seen.add(level.lod);}

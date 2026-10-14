@@ -954,7 +954,7 @@ function renderModel(main, file, previous = null) {
   for (const mesh of file.meshes) { const option = element('option', `${mesh.id} · ${mesh.name}`); option.value = String(mesh.id); objects.append(option); }
   center.append(tools, objects, selected, viewport);
   let properties;
-  const view = new Viewport(viewport, frame => { view.selectedId = frame.id; view.showSectors(view.sectorsVisible, frame.id); selected.textContent = `Objekt ${frame.sourceId}: ${frame.name}`; objects.value = String(frame.sourceId); properties?.select(`meshes/${frame.sourceId - 1}/position`); }, (frame, values, mode) => {
+  const view = new Viewport(viewport, frame => { view.selectedId = frame.id; view.showSectors(view.sectorsVisible, frame.id); geometry.textContent=frame.type===5?'Sektor a portály…':'Vrcholy, plochy a UV…'; selected.textContent = `Objekt ${frame.sourceId}: ${frame.name}`; objects.value = String(frame.sourceId); properties?.select(`meshes/${frame.sourceId - 1}/position`); }, (frame, values, mode) => {
     const field = { translate: 'position', rotate: 'rotation', scale: 'scale' }[mode], id = `meshes/${frame.sourceId - 1}/${field}`;
     state.texts.set(id, values[field]); state.selectedProperty = id; properties?.select(id); status('3D úprava je rozepsaná; uložte změny v inspektoru.');
   });

@@ -3,8 +3,10 @@ import {Viewport} from './viewport.js';
 import {geometryPreview,geometryNormals,geometryTopology,topologyPreview,removeTopologyVertex,validateTopology} from '../shared/geometry-draft.js';
 import {terrainBrush,terrainNeighbors} from '../shared/terrain-brush.js';
 import {geometryBrush} from './geometry-brush.js';
+import {sectorGeometryDialog} from './sector-geometry.js';
 
 export function geometryDialog(file,context,{run,status,save,resolveTexture}){
+  if(context.sector)return sectorGeometryDialog(file,context,{run,status,save});
   const make=(tag,text)=>{const node=document.createElement(tag);if(text!==undefined)node.textContent=text;return node;};
   const dialog=make('dialog'),tools=make('div'),area=make('div'),fields=make('div'),note=make('p'),message=make('p'),cancel=make('button','Zrušit'),submit=make('button','Uložit geometrii');
   dialog.className='geometry-dialog';tools.className='tools';area.className='viewport';fields.className='geometry-fields';note.className=message.className='notice';submit.className='primary';
