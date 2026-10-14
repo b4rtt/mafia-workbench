@@ -127,6 +127,9 @@ app.whenReady().then(async () => {
   });
   handle('asset:texts', (name, changes, expectedHash) => operation(async () => { await current().saveTexts(name, changes, expectedHash); return current().inspect(name); }));
   handle('asset:text-add', (name, entry, expectedHash) => operation(async () => { await current().addText(name, entry, expectedHash); return current().inspect(name); }));
+  handle('lip:dialogue', (name,id,expectedHash)=>current().dialogueLip(name,id,expectedHash));
+  handle('lip:estimate', (name,expectedHash)=>current().estimateLip(name,expectedHash));
+  handle('lip:save', (name,frames,expectedHash,dependencies)=>operation(async()=>{await current().saveLip(name,frames,expectedHash,dependencies);return current().inspect(name);}));
   handle('voice:choose', () => operation(async () => {
     const active=current();voiceImport=null;
     const result=await dialog.showOpenDialog(window,{title:'Vyberte hlasovou nahrávku WAV',properties:['openFile'],filters:[{name:'Hlasová nahrávka',extensions:['wav']}]});

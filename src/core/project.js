@@ -18,6 +18,7 @@ import { createTerrain } from './terrain.js';
 import { missionDialogueScript, dialogueSpeakers } from '../shared/mission-dialogue.js';
 import { prepareMissionChoice } from './mission-choice.js';
 import { dialogueSoundPath, prepareDialogueWav } from './dialogue-audio.js';
+import { dialogueLipPath, parseLip, editLip, createLip, lipFromVoice } from './lip.js';
 import { parseNavigation, prepareNavigationEdits, changeNavigationConnection, changeNavigationPoint } from './navigation.js';
 import { remapSegments } from './segments.js';
 import { parseRoads, prepareRoadEdits, changeRoadPoint } from './roads.js';
@@ -303,6 +304,32 @@ export class ModProject {
     }
     return {path:existing?.path??soundPath,...info};
   }
+  async dialogueLip(name,id,expectedHash) {
+    if(!/^tables\/textdb_[a-z]{2}\.def$/i.test(name))throw Error('Pohyb úst: vyberte TextDB.');
+    const text=await this.read(name);if(hash(text)!==expectedHash)throw Error('Texty se od otevření změnily.');
+    if(!parseTextDb(text,name).entries.slice(0,-1).some(entry=>entry.id===id))throw Error('Pohyb úst: ID textu neexistuje.');
+    const nameLip=dialogueLipPath(id),existing=this.index.get(key(nameLip));
+    if(existing)return this.inspect(existing.path);
+    const voicePath=this.asset(dialogueSoundPath(id)).path,voice=await this.read(voicePath),suggested=lipFromVoice(voice);
+    return {type:'lip',path:nameLip,sha256:null,created:false,step:40,frames:suggested.frames,duration:suggested.frames.length*40,voicePath,voiceHash:hash(voice),voiceDuration:suggested.duration,textPath:this.asset(name).path,textHash:expectedHash};
+  }
+  async saveLip(name,frames,expectedHash,dependencies={}) {
+    if(!/^tables\/dat\/\d{8,10}\.dat$/i.test(name))throw Error('Pohyb úst: neplatná cesta tabulky dialogu.');
+    const id=Number(name.split('/').at(-1).slice(0,-4));if(key(name)!==key(dialogueLipPath(id)))throw Error('Pohyb úst: neplatný název ID.');
+    const existing=this.index.get(key(name));
+    if(existing){
+      const before=await this.read(existing.path);if(hash(before)!==expectedHash)throw Error('Tabulka pohybu úst se od otevření změnila.');
+      return this.changeBatch([{path:existing.path,data:editLip(before,frames),expectedHash},...(dependencies.voiceHash?[{path:this.asset(name.replace(/^tables\/dat\//i,'sounds/').replace(/\.dat$/i,'.wav')).path,data:await this.read(name.replace(/^tables\/dat\//i,'sounds/').replace(/\.dat$/i,'.wav')),expectedHash:dependencies.voiceHash}]:[])],'Úprava pohybu úst');
+    }
+    if(expectedHash!==null)throw Error('Tabulka pohybu úst se od otevření změnila.');
+    const context=await this.dialogueLip(dependencies.textPath,id,dependencies.textHash);
+    if(context.sha256!==null||context.voiceHash!==dependencies.voiceHash)throw Error('Dabing nebo pohyb úst se od otevření změnil.');
+    return this.createFiles([{path:name,data:createLip(frames)}],`Pohyb úst ${id}`,[{path:context.textPath,expectedHash:context.textHash},{path:context.voicePath,expectedHash:context.voiceHash}],'Vlastní dialog');
+  }
+  async estimateLip(name,expectedHash) {
+    if(!/^sounds\/\d{8,10}\.wav$/i.test(name))throw Error('Pohyb úst: vyberte hlasový WAV dialogu.');
+    const bytes=await this.read(name);if(hash(bytes)!==expectedHash)throw Error('Dabing se od otevření změnil.');return lipFromVoice(bytes);
+  }
   async saveScene(name, changes, expectedHash) {
     if (!/scene2\.bin$/i.test(name) || !Array.isArray(changes) || changes.length > 1024) throw new Error('Neplatná úprava scény.');
     // Removing a loop chunk shifts the IDs of later sound properties. Apply
@@ -525,6 +552,10 @@ export class ModProject {
     if (/textdb_[a-z]{2}\.def$/i.test(name)) return { type: 'textdb', ...parseTextDb(bytes, name), path: asset.path, size: bytes.length, sha256: hash(bytes) };
     if (/scene2\.bin$/i.test(name)) return { type: 'scene', ...inspectScene(bytes), path: asset.path, size: bytes.length, sha256: hash(bytes) };
     let warning;
+    if (/^tables\/dat\/\d{8,10}\.dat$/i.test(name)) {
+      try {const lip=parseLip(bytes),voice=this.index.get(key(name.replace(/^tables\/dat\//i,'sounds/').replace(/\.dat$/i,'.wav')));let audio={};if(voice){const sound=await this.read(voice.path);audio={voicePath:voice.path,voiceHash:hash(sound)};try{audio.voiceDuration=prepareDialogueWav(sound).info.duration;}catch{}}return {type:'lip',...common,...lip,...audio};}
+      catch(error){warning=error.message;}
+    }
     if (/^tables\/effects\.tbl$/i.test(name)) {
       try { return { type:'effect-types', ...common, ...parseEffectDefinitions(bytes) }; }
       catch (error) { warning = error.message; }

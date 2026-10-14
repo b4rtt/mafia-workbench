@@ -30,6 +30,7 @@ import { sectorLinkDialog } from './sector-link.js';
 import { sectorGeometryDialog } from './sector-geometry.js';
 import { sceneSectorsDialog } from './scene-sectors.js';
 import { populationControl } from './population.js';
+import { renderLip } from './lip.js';
 import { EffectsViewport } from './effects.js';
 import { renderEffectDefinitions } from './effect-types.js';
 import { AnimationPreview } from './animation.js';
@@ -211,6 +212,7 @@ function renderDetail() {
   badges.effects = 'EFEKTY · UMÍSTĚNÍ ČÁSTIC';
   badges['effect-types'] = 'EFEKTY · EMITORY A FÁZE';
   badges.collision = 'KLZ · 3D KOLIZE';
+  badges.lip = 'LIP DAT · POHYB ÚST';
   if(file.bitmap)badges.image='BMP · EDITACE TEXTURY';
   const head = element('div', undefined, 'file-header'); head.append(element('h2', file.path), element('span', badges[file.type] ?? 'BINÁRNÍ SOUBOR', 'badge')); main.append(head);
   renderMissionParts(main, file);
@@ -253,6 +255,7 @@ function renderDetail() {
     const map = element('button', 'Otevřít 3D mapu'); map.onclick = () => run(async () => { if (!await discard()) return; state.texts.clear(); status('Načítám geometrii mapy…'); state.file = await api.map(file.path); renderDetail(); status('3D mapa načtená.'); }); toolbar.append(map);
   }
   if (file.type === 'textdb') renderTexts(main, file);
+  else if(file.type==='lip')renderLip(main,file,{element,state,api,run,status,onSaved:async saved=>{state.file=saved;await refresh();renderDetail();}});
   else if (file.type === 'items') renderItems(main, file);
   else if (file.type === 'vehicles') renderVehicles(main, file);
   else if (file.type === 'effects') renderEffects(main, file, effectsView);
@@ -727,7 +730,9 @@ function renderTexts(main, file) {
     voice.onclick=()=>run(async()=>{if(state.texts.size){status('Před importem dabingu uložte nebo vraťte rozepsané texty.');return;}await dialogueImportDialog(file,entry);});
     const voicePath=`sounds/${String(entry.id).padStart(8,'0')}.wav`,existing=state.project.assets.find(asset=>asset.path.toLowerCase()===voicePath);
     const voiceInfo=element('p',voice.disabled?'Tento záznam není podporované ID dabingu.':existing?`Dabing: ${existing.path} · sdílený všemi jazyky.`:'Dabing zatím chybí. Nová nahrávka bude sdílená všemi jazyky.','muted');
-    form.append(label, textarea, element('p', `Kódování: ${file.encoding}. ID a nerozpoznané části souboru zůstávají zachované.`), save,voiceInfo,voice);
+    const lip=element('button','Pohyb úst…');lip.disabled=voice.disabled;
+    lip.onclick=()=>run(async()=>{if(state.texts.size){status('Nejdřív uložte nebo vraťte rozepsané změny.');return;}const context=await api.dialogueLip(file.path,entry.id,file.sha256);if(context.sha256){state.file=context;renderDetail();return;}const dialog=element('dialog',undefined,'lip-dialog'),body=element('div'),cancel=element('button','Zrušit návrh');dialog.append(element('h2',`Pohyb úst · dialog ${entry.id}`),body,cancel);document.body.append(dialog);cancel.onclick=()=>{if(state.busy)return;state.texts.clear();dialog.close();};dialog.addEventListener('cancel',event=>{if(state.busy)event.preventDefault();else state.texts.clear();});dialog.addEventListener('close',()=>dialog.remove(),{once:true});dialog.showModal();renderLip(body,context,{element,state,api,run,status,onSaved:async saved=>{dialog.close();state.file=saved;await refresh();renderDetail();}});});
+    form.append(label, textarea, element('p', `Kódování: ${file.encoding}. ID a nerozpoznané části souboru zůstávají zachované.`), save,voiceInfo,voice,lip);
     if(existing){const audio=element('audio');audio.controls=true;audio.preload='metadata';api.media(existing.path).then(url=>{if(audio.isConnected)audio.src=url;}).catch(error=>status(error.message,true));form.append(audio);}
 
     for (const button of list.children) button.classList.toggle('active', Number(button.dataset.index) === entry.index);

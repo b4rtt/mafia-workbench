@@ -1,0 +1,37 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import os from 'node:os';
+import {parseLip,editLip,createLip,lipFromVoice,dialogueLipPath} from '../src/core/lip.js';
+import {ModProject} from '../src/core/project.js';
+import {hash,writeSafe} from '../src/core/files.js';
+
+const rows=()=>Array.from({length:4},(_,i)=>({sourceIndex:null,values:[i*60,117,135,28,255,153]}));
+function voice(){const b=Buffer.alloc(44+3*320*2);b.write('RIFF');b.writeUInt32LE(b.length-8,4);b.write('WAVEfmt ',8);b.writeUInt32LE(16,16);b.writeUInt16LE(1,20);b.writeUInt16LE(1,22);b.writeUInt32LE(8000,24);b.writeUInt32LE(16000,28);b.writeUInt16LE(2,32);b.writeUInt16LE(16,34);b.write('data',36);b.writeUInt32LE(b.length-44,40);for(let i=320;i<640;i++)b.writeInt16LE(i%2?16384:-16384,44+i*2);return b;}
+test('LIP layout and structural row edits preserve unknown row bytes, version and source',()=>{
+  const source=createLip(rows());source[14]=67;source[15]=201;source[22]=0;source[23]=5;const before=Buffer.from(source),parsed=parseLip(source);assert.equal(parsed.step,40);assert.equal(parsed.duration,160);assert.deepEqual(editLip(source,parsed.frames),source);
+  const request=[parsed.frames[1],{sourceIndex:null,values:[7,8,9,10,11,12]},parsed.frames[0],parsed.frames[1]],changed=editLip(source,request);assert.equal(changed.readUInt32LE(0),4);assert.deepEqual(changed.subarray(8,16),source.subarray(16,24));assert.deepEqual(changed.subarray(22,24),Buffer.from([1,1]));assert.deepEqual(changed.subarray(24,32),source.subarray(8,16));assert.deepEqual(parseLip(changed).frames.map(f=>f.values),request.map(f=>f.values));assert.deepEqual(source,before);
+  const values=structuredClone(parsed.frames);values[0].values[0]=255;const edited=editLip(source,values);assert.equal(edited[8],255);assert.deepEqual(edited.subarray(9),source.subarray(9));
+});
+test('LIP refuses unsafe counts, unsupported versions, truncated/trailing data and invalid row values',()=>{
+  const source=createLip(rows());for(const bad of [Buffer.alloc(0),Buffer.alloc(8),source.subarray(0,source.length-1),Buffer.concat([source,Buffer.from([0])]),Buffer.from(source)]){if(bad.length===source.length)bad.writeUInt32LE(2,4);assert.throws(()=>parseLip(bad),/Pohyb úst/);}
+  for(const modify of [r=>r.length=1,r=>r[0].values[0]=NaN,r=>r[0].values[0]=256,r=>r[0].values[0]=-.1,r=>r[0].sourceIndex=4,r=>r[0].sourceIndex=-1,r=>r[0].extra=1,r=>r[0].values.pop()]){const request=parseLip(source).frames;modify(request);assert.throws(()=>editLip(source,request),/Pohyb úst/);}
+  assert.throws(()=>createLip(parseLip(source).frames),/Pohyb úst/);assert.equal(dialogueLipPath(90001),'tables/dat/00090001.dat');for(const id of [-1,NaN,2147483648])assert.throws(()=>dialogueLipPath(id),/ID/);
+});
+test('amplitude estimate follows 40 ms source samples, silence, clipping and neutral release rows without editing WAV',()=>{
+  const source=voice(),before=Buffer.from(source),guess=lipFromVoice(source);assert.equal(guess.duration,.12);assert.equal(guess.frames.length,5);assert.deepEqual(guess.frames.map(r=>r.values[0]),[0,255,0,0,0]);assert(guess.frames.every(r=>r.sourceIndex===null));assert.deepEqual(guess.frames.at(-1).values,[0,117,135,28,255,153]);assert.deepEqual(source,before);assert.throws(()=>lipFromVoice(Buffer.alloc(44)),/Dabing/);
+});
+async function setup(t){const root=await fs.mkdtemp(path.join(os.tmpdir(),'mafia-lip-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));await writeSafe(root,'workbench.json',JSON.stringify({format:'mafia-workbench',version:1,name:'Lip',assets:[],history:[]}));const p=await ModProject.open(root),textPath='tables/textdb_cz.def',soundPath='sounds/00090001.wav',text=Buffer.alloc(26);text.writeUInt32LE(2);text.writeUInt32LE(0xabc,4);text.writeUInt32LE(90001,8);text.writeUInt32LE(24,12);text.writeUInt32LE(99999999,16);text.writeUInt32LE(25,20);await p.createFiles([{path:textPath,data:text},{path:soundPath,data:voice()}]);return{root,p,textPath,soundPath,text};}
+test('own dialogue table creation validates text/voice, guards changed dependencies, exports and undoes exactly',async t=>{
+  const {root,p,textPath,soundPath,text}=await setup(t),context=await p.dialogueLip(textPath,90001,hash(text));assert.equal(context.sha256,null);assert.equal(context.frames.length,5);await assert.rejects(p.dialogueLip(textPath,90001,'stale'),/změnil/);await assert.rejects(p.dialogueLip(textPath,90002,hash(text)),/ID/);
+  const dependencies={voiceHash:context.voiceHash,textHash:context.textHash,textPath};await assert.rejects(p.saveLip(context.path,context.frames,null,{...dependencies,voiceHash:'stale'}),/změnil/);await assert.rejects(p.saveLip('tables/dat/000090001.dat',context.frames,null,dependencies),/název/);assert.equal(p.manifest.history.length,1);
+  await p.saveLip(context.path,context.frames,null,dependencies);const actual=await p.inspect(context.path);assert.equal(actual.type,'lip');assert.equal(actual.voicePath,soundPath);const expected=createLip(context.frames);assert.deepEqual(await p.read(context.path),expected);assert.equal(p.manifest.history.length,2);const opened=await ModProject.open(root);assert.deepEqual(await opened.read(context.path),expected);const output=path.join(root,'export');await opened.export(output);assert.deepEqual(await fs.readFile(path.join(output,context.path)),expected);await opened.undo();assert.throws(()=>opened.asset(context.path));assert.deepEqual(await opened.read(soundPath),voice());assert.deepEqual(await opened.read(textPath),text);assert.equal(opened.manifest.history.length,1);
+});
+test('table edits reject stale voice and concurrent publication, with rollback, source preservation and single undo',async t=>{
+  const {root,p,textPath,soundPath,text}=await setup(t),context=await p.dialogueLip(textPath,90001,hash(text));await p.saveLip(context.path,context.frames,null,{voiceHash:context.voiceHash,textPath,textHash:context.textHash});const file=await p.inspect(context.path),request=file.frames;request[0].values[0]=155;const original=await p.read(context.path);
+  await assert.rejects(p.saveLip(file.path,request,'stale',{voiceHash:file.voiceHash}),/změnil/);await assert.rejects(p.saveLip(file.path,request,file.sha256,{voiceHash:'stale'}),/změnil/);
+  const saveManifest=p.saveManifest.bind(p);p.saveManifest=async()=>{throw Error('Failed publish');};await assert.rejects(p.saveLip(file.path,request,file.sha256,{voiceHash:file.voiceHash}),/Failed publish/);p.saveManifest=saveManifest;assert.deepEqual(await p.read(file.path),original);assert.equal(p.manifest.history.length,2);
+  await p.saveLip(file.path,request,file.sha256,{voiceHash:file.voiceHash});assert.equal((await p.read(file.path))[8],155);assert.deepEqual(p.manifest.history.at(-1).files.map(f=>f.path),[file.path]);assert.deepEqual(await fs.readFile(path.join(root,p.asset(file.path).original)),original);await p.undo();assert.deepEqual(await p.read(file.path),original);
+  const publish=p.changeBatch.bind(p);p.changeBatch=async(...args)=>{p.changeBatch=publish;await p.change(soundPath,before=>{const b=Buffer.from(before);b[44]=1;return b;});return publish(...args);};await assert.rejects(p.saveLip(file.path,request,file.sha256,{voiceHash:file.voiceHash}),/změnil/);assert.deepEqual(await p.read(file.path),original);assert.equal(p.manifest.history.length,3);await p.undo();assert.deepEqual(await p.read(soundPath),voice());
+});
