@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { bindSkin } from './animation.js';
+import { bindMorph } from './morph.js';
 import { fromLs3dRotation, toLs3dRotation } from './transforms.js';
 import { materialTransparency, bmpTransparency, textureWithMask } from './materials.js';
 import { createSoundExtent } from './sound-extent.js';
@@ -102,10 +103,10 @@ export class Viewport {
     const resolve = (frame, visited = new Set()) => {
       if (visited.has(frame.id)) throw new Error('4DS: cyklická instance geometrie.'); visited.add(frame.id);
       if (frame.instance) { const source = model.meshes[frame.instance - 1]; if (!source) throw new Error('4DS: chybějící instance geometrie.'); return resolve(source, visited); }
-      return frame.lods?.[0];
+      return frame;
     };
     for (const frame of model.meshes) {
-      const object = frames.get(frame.id), lod = resolve(frame);
+      const object = frames.get(frame.id), sourceFrame=resolve(frame),lod = sourceFrame.lods?.[0];
       if (lod?.positions.length) {
         let base = geometry.get(lod);
         if (!base) {
@@ -130,6 +131,7 @@ export class Viewport {
         }
         const cached = geometry.get(lod), skin = frame.skin?.[0];
         const mesh = skin ? new THREE.SkinnedMesh(cached.base, cached.materials) : new THREE.Mesh(cached.base, cached.materials);
+        if(sourceFrame.morph?.targets){object.userData.morph=bindMorph(mesh,sourceFrame.morph);if(!object.userData.morph)(this.morphWarnings??=[]).push(object.name);}
         // RF_HIDEMESH hides this visual only; its child frames stay enabled.
         // Legacy maps also encode sector volumes as visual meshes with the
         // SECT property. Hide their surfaces, retaining their visible children.

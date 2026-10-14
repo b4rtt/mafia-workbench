@@ -91,6 +91,19 @@ export function cutsceneAudioEvents(replay, objects, assets, texts = new Map()) 
   return events;
 }
 
+// REP command 1 binds the named actor to a speech channel. Regular IDs use
+// that binding; their name field is not an alternative speaker lookup.
+export function cutsceneLipEvents(replay, assets) {
+  const bindings=new Map(),events=[],records=replay.events.dialogues;
+  for(const event of records){
+    if(event.textId===1){bindings.set(event.character,event.name||null);continue;}
+    if(event.command||!bindings.get(event.character))continue;
+    const next=records.find(e=>e.index>event.index&&e.character===event.character&&(e.textId===1||!e.command));
+    events.push({start:event.time,end:next?.time??replay.duration,speaker:bindings.get(event.character),path:cutsceneResource(assets,String(event.textId).padStart(8,'0')+'.dat','tables/dat'),textId:event.textId});
+  }
+  return events;
+}
+
 // Interpret only straight-line frame visibility commands, never execute script
 // code. Reject the entire fragment if control flow or another command appears.
 export function cutsceneVisibilityEvents(replay, scripts) {
@@ -154,5 +167,6 @@ export async function loadCutsceneContext(project, replayName, sceneName, differ
   const missingAudio = audio.filter(e=>!e.path).length;
   if (missingAudio) warnings.push(`${missingAudio} zvukových událostí nemá dostupný zdroj.`);
   const visibility=cutsceneVisibilityEvents(replay,scripts);warnings.push(...visibility.warnings);
-  return { scenePath:scene.path,differencePath:differenceName,geometry:scene.geometry,objects,animations,audio,visibility:[...(initial?.length?[{time:0,index:-1,changes:initial}]:[]),...visibility.events],warnings };
+  const lips=cutsceneLipEvents(replay,assets);
+  return { scenePath:scene.path,differencePath:differenceName,geometry:scene.geometry,objects,animations,audio,lips,visibility:[...(initial?.length?[{time:0,index:-1,changes:initial}]:[]),...visibility.events],warnings };
 }

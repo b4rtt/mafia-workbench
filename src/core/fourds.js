@@ -69,15 +69,24 @@ function skin(reader, lods) {
   }
   return result;
 }
-function morph(reader) {
-  const targets = reader.u8(); if (!targets) return;
-  const channels = reader.u8(), lods = reader.u8();
-  for (let lod = 0; lod < lods; lod++) for (let channel = 0; channel < channels; channel++) {
-    const vertices = reader.u16(); if (!vertices) continue;
-    reader.skip(vertices * targets * 24);
-    const indices = reader.u8(); if (indices) reader.skip(vertices * 2);
+function morph(reader, geometry, meshes) {
+  const targets = reader.u8(); if (!targets) return {targets:0,lods:[]};
+  const channels = reader.u8(), count = reader.u8(), lods=[];
+  for (let lod = 0; lod < count; lod++) {
+    const regions=[];
+    for (let channel = 0; channel < channels; channel++) {
+      const vertices=reader.u16(),start=reader.pos,read=geometry&&(geometry==='all'||lod===0);
+      if(!vertices){regions.push({indices:[],targets:[]});continue;}
+      reader.skip(vertices*targets*24);
+      const explicit=reader.u8(),indexOffset=reader.pos;if(explicit)reader.skip(vertices*2);
+      const indices=read?Array.from({length:vertices},(_,i)=>explicit?reader.bytes.readUInt16LE(indexOffset+i*2):i):[];
+      const values=read?Array.from({length:targets},(_,target)=>({positions:Array.from({length:vertices*3},(_,i)=>reader.bytes.readFloatLE(start+(Math.floor(i/3)*targets+target)*24+i%3*4)),normals:Array.from({length:vertices*3},(_,i)=>reader.bytes.readFloatLE(start+(Math.floor(i/3)*targets+target)*24+12+i%3*4))})):[];
+      const valid=!read||indices.every(i=>i<(meshes[lod]?.vertices??0))&&values.every(t=>[...t.positions,...t.normals].every(Number.isFinite));
+      regions.push({indices,targets:values,valid});
+    }
+    lods.push(regions);
   }
-  reader.skip(40);
+  reader.skip(40);return {targets,channels,lods};
 }
 function triangleMesh(reader, sector = false) {
   if (sector) reader.skip(8);
@@ -138,7 +147,7 @@ export function parseFourDs(source, geometry = false) {
       if ([0, 1, 2, 3, 4, 5].includes(visual)) {
         const data = object(reader, geometry); Object.assign(mesh, data);
         if (visual === 2 || visual === 3) mesh.skin = skin(reader, data.lods);
-        if ((visual === 3 || visual === 5) && !data.instance) morph(reader);
+        if ((visual === 3 || visual === 5) && !data.instance) mesh.morph=morph(reader,geometry,data.lods);
         // A billboard instance shares its vertex buffer, but still stores its
         // own axis/mode payload. Skipping it misaligns the next frame (airport).
         if (visual === 4) reader.skip(5);

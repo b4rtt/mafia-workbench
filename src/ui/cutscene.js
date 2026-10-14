@@ -3,6 +3,7 @@ import { ReplayViewport, replayPathSegments, sampleReplayPath } from './replay.j
 import { AnimationPreview } from './animation.js';
 import { fromLs3dRotation } from './transforms.js';
 import { sampleTrack } from './track.js';
+import { applyLip, sampleLip } from './morph.js';
 
 const nameKey = value => value.normalize('NFC').toLowerCase();
 export function sampleReplayActor(track, time) {
@@ -141,10 +142,21 @@ export class CutsceneViewport extends ReplayViewport {
       const rest=new Map([...frames.values()].map(frame=>[frame,{position:frame.position.clone(),quaternion:frame.quaternion.clone(),scale:frame.scale.clone()}]));
       this.actors.push({object,track,previews,animations,motions,rest});
     }
+    this.lips=[];this.lipSpeakers=new Set();const tables=new Map();
+    for(const event of context.lips??[]){
+      if(this.disposed)return;
+      const object=names.get(nameKey(event.speaker));if(!object){this.contextWarnings.push('Pohyb úst: chybí jednoznačný mluvčí '+event.speaker);continue;}
+      if(!event.path){this.contextWarnings.push('Chybí pohyb úst pro dialog '+event.textId);continue;}
+      if(!tables.has(event.path))tables.set(event.path,resolveAsset(event.path).catch(()=>null));
+      const table=await tables.get(event.path);if(this.disposed)return;
+      if(table?.type!=='lip'){this.contextWarnings.push('Nepodporovaný pohyb úst: '+event.path);continue;}
+      if(!applyLip(object,null)){this.contextWarnings.push('Mluvčí nemá podporovaný morf obličeje: '+event.speaker);continue;}
+      this.lipSpeakers.add(object);this.lips.push({...event,object,frames:table.frames,end:Math.min(event.end,event.start+(table.voiceDuration??table.duration/1000)*1000)});
+    }
     this.contextReady=true;await this.loadTextures(resolveTexture);if(this.disposed)return;
     this.contextWarnings.push(...(this.textureWarnings??[]));
     this.seek(this.time);this.fitShot();
-    return {actors:this.actors.length,tracks:this.file.tracks.length,animations:animations.size,motions:motions.size,warnings:this.contextWarnings};
+    return {actors:this.actors.length,tracks:this.file.tracks.length,animations:animations.size,motions:motions.size,lips:this.lips.length,warnings:this.contextWarnings};
   }
   cameraMode(value) {
     this.filmCamera=value;this.controls.enabled=!value;this.grid.visible=!value;
@@ -164,6 +176,8 @@ export class CutsceneViewport extends ReplayViewport {
     }
     // Child tracks (hands, doors, wheels) are applied after the skeleton poses.
     for(const actor of this.actors??[]){const sample=sampleReplayActor(actor.track,time);if(sample){const pose=replayActorPlacement(sample,actor.motions.get(sample.animationId),actor.animations.get(sample.animationId));actor.object.position.fromArray(pose.position);actor.object.quaternion.copy(pose.rotation);}}
+    for(const object of this.lipSpeakers??[])applyLip(object,null);
+    for(const event of this.lips??[])if(time>=event.start&&time<event.end)applyLip(event.object,sampleLip(event.frames,time-event.start));
     if(this.filmCamera) {
       this.paths.visible=false;for(const {marker}of this.markers)marker.visible=false;
       const position=sampleReplayPath(this.replay.cameras,time),focus=sampleReplayPath(this.replay.focus,time);if(!position||!focus)return;
