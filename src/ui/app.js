@@ -1573,15 +1573,16 @@ $('new-mission').onclick = () => run(async () => {
   const x = number('Start X', 11), y = number('Start Y (výška)', 10), z = number('Start Z', 6), heading = number('Natočení ve stupních kolem Y', 0);
   const sun = number('Síla slunečního světla', 2, { min: '0', max: '10' }), ambient = number('Síla okolního světla', .4, { min: '0', max: '10' });
   const police = element('input'); police.type = 'checkbox'; police.checked = true; field('Inicializovat policii jako v šabloně', police);
+  const trafficCars = number('Okolní auta (0 = vypnuto)', 0, { min: '0', max: '100', step: '1' }), pedestrians = number('Okolní chodci (0 = vypnuto)', 0, { min: '0', max: '100', step: '1' });
   const message = element('p', '', 'notice'), actions = element('div', undefined, 'tools'), cancel = element('button', 'Zrušit'), create = element('button', 'Vytvořit misi', 'primary');
   cancel.type = 'button'; cancel.onclick = () => dialog.close(); create.type = 'submit'; actions.append(cancel, create);
-  form.append(fields, element('p', 'Šablona obsahuje rovnou plochu 500 × 500 m. Doprava, chodci a vybavení hráče se nyní převezmou ze šablony. Vypnutí volby policie vynechá její inicializační skript.'), message, actions);
+  form.append(fields, element('p', 'Šablona obsahuje rovnou plochu 500 × 500 m. Okolní auta a chodci jsou ve výchozím nastavení vypnutí; hodnota 100 převezme hustotu šablony. Vybavení hráče zůstane ze šablony. Vypnutí volby policie vynechá její inicializační skript.'), message, actions);
   form.onsubmit = event => {
     event.preventDefault(); if (!form.reportValidity() || state.busy) return;
     run(async () => {
       create.disabled = true; cancel.disabled = true; message.textContent = 'Vytvářím soubory nové mise…';
       try {
-        const result = await api.createMission({ name: name.value, model: model.value, position: [x,y,z].map(input => Number(input.value)), heading: Number(heading.value), sun: Number(sun.value), ambient: Number(ambient.value), initializePolice: police.checked });
+        const result = await api.createMission({ name: name.value, model: model.value, position: [x,y,z].map(input => Number(input.value)), heading: Number(heading.value), sun: Number(sun.value), ambient: Number(ambient.value), initializePolice: police.checked, trafficCars: Number(trafficCars.value), pedestrians: Number(pedestrians.value) });
         dialog.close(); state.category = 'levels'; $('filter').value = `missions/${name.value}/`; await refresh(result.project); await openFile(result.path);
         status(`Nová mise ${name.value} vytvořena. Otevřete 3D mapu nebo spusťte level; vytvoření lze vrátit.`);
       } catch (error) { message.textContent = error.message; throw error; }

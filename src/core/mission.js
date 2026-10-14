@@ -3,6 +3,7 @@ import { hash } from './files.js';
 import { inspectScene, editScene } from './scene.js';
 import { parseFourDs } from './fourds.js';
 import { inspectCache } from './cache.js';
+import { configureMissionPopulation } from './mission-population.js';
 
 export const EMPTY_MISSION_SHA256 = '30e85b0f896de45945b445d83fe02a8f8405f832f4764c3cbb449ebe10e85e2e';
 const filenames = ['cache.bin', 'car_table.dat', 'check.bin', 'effects.bin', 'road.bin', 'scene.4ds', 'scene2.bin', 'tree.klz'];
@@ -68,5 +69,5 @@ export function configureEmptyMission(template, options) {
     changes.push([scripts[0].id, { ...scripts[0].value, code: '' }]);
   }
   let data = files.get('scene2.bin'); for (const [id, value] of changes) data = editScene(data, id, value);
-  files.set('scene2.bin', data); return files;
+  files.set('scene2.bin', configureMissionPopulation(data, options)); return files;
 }
