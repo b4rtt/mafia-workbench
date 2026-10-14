@@ -503,7 +503,10 @@ export class ModProject {
     if (['add-model','add-human','add-car'].includes(operation?.kind)) {
       if (typeof operation.model !== 'string' || !/^models\/[^/\\]+\.4ds$/i.test(operation.model)) throw new Error('Vyberte model z hlavní složky models.');
       const modelBytes=await this.read(operation.model),model=parseFourDs(modelBytes, true);
-      if(operation.kind==='add-human'&&!model.meshes.some(mesh=>mesh.joint))throw new Error('Vyberte model postavy s kostrou.');
+      if(operation.kind==='add-human'){
+        if(!model.meshes.some(mesh=>mesh.joint))throw new Error('Vyberte model postavy s kostrou.');
+        if(!model.meshes.some(mesh=>mesh.name.toLowerCase()==='base'))throw new Error('Model postavy musí obsahovat rám base; bez něj hra nevytvoří dynamické kolize postavy.');
+      }
       if(operation.kind==='add-car'){
         const tablePath=this.asset('tables/vehicles.bin').path,tableBytes=await this.read(tablePath);
         if(operation.vehicleTableHash!==undefined&&operation.vehicleTableHash!==hash(tableBytes))throw new Error('Tabulka aut se od otevření změnila. Otevřete dialog znovu.');

@@ -2,6 +2,7 @@ import { categories, groupAssets } from '../shared/categories.js';
 import { groupSceneProperties } from '../shared/scene-properties.js';
 import { sceneVehicleFamily, vehicleDefinition } from '../shared/vehicle-links.js';
 import { humanFields } from '../shared/human-parameters.js';
+import { HUMAN_IDLE_SCRIPT, isBareHumanEnd } from '../shared/human-program.js';
 import { doorFields } from '../shared/door-parameters.js';
 import { physicalFields } from '../shared/physical-parameters.js';
 import { detectorMasks, proximityDetectorScript } from '../shared/detectors.js';
@@ -814,6 +815,13 @@ function renderProperties(main, file, saveAPI, onEdit = () => {}, onPick = () =>
       catch { state.texts.set(entry.id, { invalid: true, raw: numberInputs?numberInputs.map(node=>node.value).join(', '):input.value, ...(numberInputs?{components:numberInputs.map(node=>node.value)}:{}) }); for(const node of numberInputs??[])node.setAttribute('aria-invalid',String(node.value.trim()===''||!Number.isFinite(Number(node.value)))); save.disabled = false; save.textContent=`Uložit změny (${state.texts.size})`; status(numberInputs?'Vyplňte každou složku platným číslem.':'Číselné hodnoty zapisujte jako číslo nebo pole, např. [1, 2, 3].', true); }
     }
     input.oninput = track; name.oninput = track;
+    if(entry.actorScript&&entry.actorKind===27){
+      const notice=element('div',undefined,'notice'),repair=element('button','Použít čekací smyčku');repair.type='button';
+      notice.append(element('p','Program obsahuje jen end. Hra tím vypne aktéra včetně dynamických kolizí a aktualizace animací; model může zůstat stát. Pro stojící živou postavu použijte čekací smyčku.'),repair);
+      const refresh=()=>{notice.hidden=!isBareHumanEnd(input.value);};
+      repair.onclick=()=>{if(state.busy)return;input.value=HUMAN_IDLE_SCRIPT;track();refresh();input.focus();};
+      input.oninput=()=>{track();refresh();};refresh();target.append(notice);
+    }
     let control=input;
     if((!draft?.invalid||draft.components)&&['vec2','vec3','vec4','quat','float','uint','int','byte','u8','u16','u32'].includes(entry.kind)){
       control=element('div',undefined,'numeric-fields');numberInputs=[];const values=draft?.invalid?draft.components:Array.isArray(draft)?draft:[draft],labels=entry.componentLabels??(entry.kind==='quat'||/WXYZ/.test(entry.label)?['W','X','Y','Z']:/RGB$/.test(entry.label)?['R','G','B']:entry.label==='Dosah zvuku'?['Vnitřní poloměr','Vnější poloměr','Vnitřní útlum','Vnější útlum']:values.length===1?['Hodnota']:['X','Y','Z','W']);
@@ -1522,8 +1530,8 @@ function sceneObjectDialog(file, kind, object, cars = null) {
     if(kind==='add-human'){
       const settings=element('details'),settingsFields=element('div',undefined,'mission-fields');settings.append(element('summary','Parametry postavy'),settingsFields);
       for(const field of humanFields){const input=element('input');input.type='number';input.step=field.kind==='byte'?'1':'any';if(field.kind==='byte'){input.min='0';input.max='255';}input.value=String(field.default);input.required=true;input.setAttribute('aria-label',field.label);const row=element('label',field.label);row.append(input);settingsFields.append(row);parameters.set(field.key,input);}
-      code=element('textarea');code.rows=8;code.value='label 1\r\nwait 1000\r\ngoto 1\r\n';code.setAttribute('aria-label','Skript nové postavy');
-      form.append(settings,element('label','Skript postavy'),code,element('p','Parametry jsou uložená maxima; human_getproperty a human_setproperty používají procenta. Výchozí skript čeká. Vlastní kód se vykoná při startu mise.','notice'));
+      code=element('textarea');code.rows=8;code.value=HUMAN_IDLE_SCRIPT;code.setAttribute('aria-label','Skript nové postavy');
+      form.append(settings,element('label','Skript postavy'),code,element('p','Parametry jsou uložená maxima; human_getproperty a human_setproperty používají procenta. Výchozí čekací smyčka udržuje postavu aktivní. Příkaz end vypne jejího aktéra, kolize i aktualizaci animací. Model musí mít kostru a rám base; dynamické kolize vytváří hra. Vlastní kód se vykoná při startu mise.','notice'));
     }
   } else { if(kind==='collision')collisionFields();form.append(fields, element('p', kind==='collision'?`${object.name}: přesný povrch zachová geometrické otvory; box vyplní celý obal. Povrch používá viditelné trojúhelníky prvního LOD, nikoli průhlednost textur. Odstranění se týká jen kolize vytvořené editorem.`:kind === 'duplicate' ? 'Kopie zachová model, rodiče a transformace a získá vlastní generovanou kolizi, pokud ji má původní objekt.' : 'Skripty, aktéři a původní geometrie se automaticky nepřepisují. Objekty s rozpoznanými vazbami nelze odstranit.')); }
   const message = element('p', '', 'notice'), actions = element('div', undefined, 'tools'), cancel = element('button', 'Zrušit'), submit = element('button', kind==='collision'?'Uložit kolizi':kind === 'delete' ? 'Odstranit z mise' : kind === 'duplicate' ? 'Duplikovat do modu' : 'Vložit do modu', 'primary');
