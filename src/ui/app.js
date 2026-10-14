@@ -23,6 +23,7 @@ import { actionMenu, initializeWorkspace, spatialWorkspace } from './workspace.j
 import { renderBitmap } from './bitmap.js';
 import { geometryDialog } from './model-geometry.js';
 import { modelImportDialog } from './model-import.js';
+import { terrainDialog } from './terrain.js';
 import { EffectsViewport } from './effects.js';
 import { renderEffectDefinitions } from './effect-types.js';
 import { AnimationPreview } from './animation.js';
@@ -55,6 +56,7 @@ function buttons() {
   $('export').disabled = state.busy || !state.project;
   $('new-mission').disabled = state.busy || !state.project;
   $('import-model').disabled = state.busy || !state.project || Boolean(state.texts.size);
+  $('create-terrain').disabled = state.busy || !state.project || Boolean(state.texts.size);
   $('import-model').title = state.texts.size ? 'Nejdřív uložte rozepsané změny.' : 'Importovat vlastní 4DS a BMP textury do projektu.';
   $('stop-level').disabled = state.busy;
   for (const part of document.querySelectorAll('[data-mission-part]')) part.disabled = state.busy;
@@ -85,6 +87,7 @@ async function refresh(project) {
 }
 function renderCategories() {
   $('import-model').hidden = state.category !== 'models';
+  $('create-terrain').hidden = state.category !== 'models';
   const scroll = $('categories').scrollLeft;
   const counts = new Map(categories.map(([id]) => [id, 0]));
   for (const file of state.project.assets) { counts.set(file.category, (counts.get(file.category) ?? 0) + 1); if (file.modified) counts.set('changed', counts.get('changed') + 1); }
@@ -1567,6 +1570,10 @@ $('import-model').onclick = () => run(async () => {
     state.category='models';$('filter').value=result.path.slice(7);await refresh(result.project);await openFile(result.path);status('Vlastní model a textury přidané s jedním undo. V misi je vložte přes Přidat → Vložit model…');
   }});
 });
+$('create-terrain').onclick=()=>{
+  if(state.busy||state.texts.size||!state.project)return;
+  terrainDialog({api,assets:state.project.assets,element,run,onCreated:async result=>{state.category='models';$('filter').value=result.path.slice(7);await refresh(result.project);await openFile(result.path);status('Vlastní terén vytvořen. Do mise jej vložte jako model s přesnou kolizí.');}});
+};
 api.onProgress(p => status(p.phase === 'playtest' ? `Synchronizuji test: ${p.current}/${p.total} · ${p.files} změněných souborů` : `Rozbaluji ${p.archive}: ${p.current}/${p.total} · ${p.files} souborů v projektu`));
 api.onPlaytest(test => { $('stop-level').hidden = !test.running; if (test.error || test.code) status(`Test skončil chybou. ${test.error ?? `Kód ${test.code}; viz playtest/game.log.`}`, true); else if (!test.running) status('Test levelu ukončen.'); });
 $('stop-level').onclick = () => run(async () => { await api.stopLevel(); $('stop-level').hidden = true; status('Test levelu ukončen; původní hra zůstala zachovaná.'); });

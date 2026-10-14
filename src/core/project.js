@@ -14,6 +14,7 @@ import { pickupParameters } from '../shared/pickups.js';
 import { resolveMissionFlow } from '../shared/mission-flow.js';
 import { missionTaskScript } from '../shared/mission-task.js';
 import { inspectMissionDestination } from './mission-destination.js';
+import { createTerrain } from './terrain.js';
 import { missionDialogueScript, dialogueSpeakers } from '../shared/mission-dialogue.js';
 import { dialogueSoundPath, prepareDialogueWav } from './dialogue-audio.js';
 import { parseNavigation, prepareNavigationEdits, changeNavigationConnection, changeNavigationPoint } from './navigation.js';
@@ -226,6 +227,7 @@ export class ModProject {
     return folder + 'scene2.bin';
   }
   async previewModelImport(files, name) { return modelImportPlan(this, files, name); }
+  async createTerrain(options,textureHash){return createTerrain(this,options,textureHash);}
   async importModel(files, name, expected) { return importModel(this, files, name, expected); }
   async importLoose(progress = () => {}) {
     if (this.busy) throw new Error('Probíhá jiné ukládání.');
