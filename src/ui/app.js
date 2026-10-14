@@ -12,6 +12,7 @@ import { missionDestinations } from '../shared/mission-destinations.js';
 import { missionDialogueScript, dialogueSpeakers } from '../shared/mission-dialogue.js';
 import { missionChoiceDialog } from './mission-choice.js';
 import { missionCombatDialog } from './mission-combat.js';
+import { humanBehaviorDialog, humanBehaviorFields } from './human-behavior.js';
 import { materialFlags, materialAlphaModes, materialAlphaMode, withMaterialAlphaMode, materialDraft } from '../shared/material-settings.js';
 import { lightTypes, lightDefaults, sceneSectors } from '../shared/lights.js';
 import { soundTypes, soundDefaults } from '../shared/sounds.js';
@@ -1140,6 +1141,7 @@ function renderMap(main, file, previous = null) {
   const addPickup=element('button','Přidat předmět k sebrání…'),configurePickup=element('button','Nastavit předmět…');configurePickup.disabled=true;
   const addDoor=element('button','Vytvořit dveře…'),addPhysical=element('button','Vytvořit fyzikální předmět…'),addLight=element('button','Přidat světlo…'),addSound=element('button','Přidat zvuk…'),addDetector=element('button','Přidat skriptový bod…'),addDialogue=element('button','Přidat rozhovor…'),addChoice=element('button','Přidat volbu odpovědi…'),addCombat=element('button','Přidat bojový úkol…');addDoor.disabled=addPhysical.disabled=true;
   const vehiclePhysics = element('button', 'Fyzika auta…');
+  const configureHuman = element('button', 'Chování postavy…'); configureHuman.disabled = true;
   const vehicleTable = state.project.assets.find(asset => asset.path.normalize('NFC').toLowerCase() === 'tables/vehicles.bin');
   vehiclePhysics.dataset.vehicleLink = ''; vehiclePhysics.hidden = true;
   vehiclePhysics.onclick = () => run(async () => {
@@ -1158,6 +1160,7 @@ function renderMap(main, file, previous = null) {
     selectedObject = object;
     assignSector.disabled=!object||![1,2,4,6,9].includes(object.frameType??frame.type);
     selectedFrame=frame;
+    configureHuman.disabled = file.entries.filter(entry => entry.actorScript && entry.actorKind === 27 && entry.value.name.toLowerCase() === (object?.name ?? frame.name).toLowerCase()).length !== 1;
     selectedId = frame.id;
     vehiclePhysics.hidden = file.cacheSource || !vehicleTable || !sceneVehicleFamily(file, object);
     vehiclePhysics.disabled = state.busy || Boolean(state.texts.size);
@@ -1261,8 +1264,16 @@ function renderMap(main, file, previous = null) {
     for (const [button, kind] of [[add, 'add-model'], [addHuman,'add-human'], [addCar,'add-car'], [duplicate, 'duplicate'], [remove, 'delete'],[collision,'collision']]) button.onclick = () => run(async () => {
       if (state.texts.size) throw new Error('Před změnou seznamu objektů uložte rozepsané vlastnosti.');
       const cars=kind==='add-car'?await api.carModels():null;
+      const weapons=kind==='add-human'?await api.pickupItems().catch(error=>({items:[],warning:error.message})):null;
       if(cars&&!cars.models.length)throw new Error('Projekt nemá dostupný automobilový model s fyzikální tabulkou a potřebnými částmi.');
-      sceneObjectDialog(file, kind, selectedObject,cars);
+      sceneObjectDialog(file, kind, selectedObject,cars,weapons);
+    });
+    configureHuman.onclick=()=>run(async()=>{
+      if(state.texts.size)throw new Error('Nejdřív uložte rozepsané vlastnosti.');
+      const name=selectedObject?.name??selectedFrame?.name,entry=file.entries.find(entry=>entry.actorScript&&entry.actorKind===27&&entry.value.name.toLowerCase()===name?.toLowerCase());
+      if(!entry)throw new Error('Nejdřív vyberte NPC postavu.');
+      const catalog=await api.pickupItems().catch(error=>({items:[],warning:error.message}));
+      humanBehaviorDialog({element,file,catalog,target:entry.value.name,run,save:async request=>{state.file=await api.changeSceneObject(file.path,request,file.sha256);state.selectSceneName=entry.value.name;await refresh();renderDetail();status('Chování postavy uložené v modu se zálohou a jedním undo. Spusťte misi znovu.');}});
     });
     addDoor.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před vytvořením dveří uložte rozepsané vlastnosti.');if(!selectedFrame)throw new Error('Nejdřív vyberte křídlo dveří.');doorActorDialog(file,selectedFrame);});
     addPhysical.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před vytvořením fyzikálního předmětu uložte rozepsané vlastnosti.');if(!selectedObject)throw new Error('Nejdřív vyberte model.');physicalActorDialog(file,selectedObject);});
@@ -1273,7 +1284,7 @@ function renderMap(main, file, previous = null) {
     addChoice.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před vytvořením volby uložte rozepsané vlastnosti.');missionChoiceDialog({api,assets:state.project.assets,file,position:selectedObject?.position,element,run,onCreated:async(result,name)=>{state.file=result;state.selectSceneName=name;await refresh();renderDetail();status('Volba odpovědi vytvořená se zálohou a jedním společným undo.');}});});
     addCombat.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před vytvořením bojového úkolu uložte rozepsané vlastnosti.');missionCombatDialog({api,assets:state.project.assets,file,position:selectedObject?.position,element,run,flowFields:missionFlowFields,onCreated:async(result,name)=>{state.file=result;state.selectSceneName=name;await refresh();renderDetail();status('Bojový úkol vytvořený se zálohou a jedním undo.');}});});
     for(const [button,configure] of [[addPickup,false],[configurePickup,true]])button.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před vložením nebo nastavením předmětu uložte rozepsané vlastnosti.');const catalog=await api.pickupItems();if(!catalog.items.length)throw new Error('Tabulka neobsahuje předměty s dostupným podporovaným modelem.');pickupDialog(file,catalog,configure?selectedObject:null,selectedObject?.position);});
-    tools.append(actionMenu('Přidat',[add,addHuman,addCar,addPickup,addLight,addSound,addDetector,addDialogue,addChoice,addCombat]),actionMenu('Objekt',[duplicate,remove,collision,assignSector,configurePickup,addDoor,addPhysical]));
+    tools.append(actionMenu('Přidat',[add,addHuman,addCar,addPickup,addLight,addSound,addDetector,addDialogue,addChoice,addCombat]),actionMenu('Objekt',[duplicate,remove,collision,assignSector,configureHuman,configurePickup,addDoor,addPhysical]));
   }
   tools.append(actionMenu('Zobrazení',displayActions));
   if(collisionActions.length)tools.append(actionMenu('Kolize',collisionActions));
@@ -1498,10 +1509,11 @@ function detectorDialog(file,position=[0,0,0]){
   }catch(error){message.textContent=error.message;throw error;}finally{submit.disabled=cancel.disabled=false;}});};
   dialog.addEventListener('cancel',event=>{if(state.busy)event.preventDefault();});dialog.addEventListener('close',()=>{closed=true;destinationRevision++;dialog.remove();},{once:true});document.body.append(dialog);update();dialog.showModal();name.select();
 }
-function sceneObjectDialog(file, kind, object, cars = null) {
+function sceneObjectDialog(file, kind, object, cars = null, weapons = null) {
   const adding=['add-model','add-human','add-car'].includes(kind);
   if (!adding && !object) throw new Error('Nejdřív vyberte samostatný objekt mapy.');
   const dialog = element('dialog'), form = element('form', undefined, 'mission-form'), fields = element('div', undefined, 'mission-fields');
+  if(kind==='add-human')dialog.classList.add('mission-dialogue-dialog');
   const labels = { 'add-model': 'Vložit model do mise', 'add-human':'Přidat postavu do mise','add-car':'Přidat auto do mise', duplicate: 'Duplikovat objekt', delete: 'Odstranit objekt',collision:'Kolize modelu' };
   dialog.append(element('h2', labels[kind]), element('p', kind === 'delete' ? `Odstranit ${object.name}? Změnu lze vrátit tlačítkem Vrátit změnu.` : 'Objekt se uloží do samostatného modu. Uložení lze vrátit jedním krokem.'), form);
   function field(label, input) { const row = element('label', label); row.append(input); fields.append(row); return input; }
@@ -1509,7 +1521,7 @@ function sceneObjectDialog(file, kind, object, cars = null) {
   const name = element('input'); name.required = true; name.maxLength = 63;
   name.value = kind === 'duplicate' ? `${object.name.slice(0,55)}_copy` : kind==='add-human'?'WB_CHARACTER':kind==='add-car'?'WB_CAR':'WB_MODEL';
   if (!['delete','collision'].includes(kind)) field('Jedinečný název objektu', name);
-  let model, position, heading, scale, code, collisionMode, collisionMaterial, collisionSides;const parameters=new Map();
+  let model, position, heading, scale, behavior, collisionMode, collisionMaterial, collisionSides, submitButton, behaviorValid=true;const parameters=new Map();
   function collisionFields(){
     const existing=[...(file.collision?.boxes??[]).map(box=>({...box,kind:'aabb'})),...(file.collision?.surfaces??[])].find(box=>box.name===object?.name);collisionMode=element('select');collisionMode.setAttribute('aria-label','Způsob kolize');
     for(const [value,label] of [['none',kind==='collision'?'Odstranit generovanou kolizi':'Bez generované kolize'],['aabb','Automatický box kolem modelu'],['mesh','Přesný povrch modelu (trojúhelníky)']]){const option=element('option',label);option.value=value;collisionMode.append(option);}collisionMode.value=existing?.kind??'none';field('Kolize',collisionMode);
@@ -1530,14 +1542,15 @@ function sceneObjectDialog(file, kind, object, cars = null) {
     if(kind==='add-human'){
       const settings=element('details'),settingsFields=element('div',undefined,'mission-fields');settings.append(element('summary','Parametry postavy'),settingsFields);
       for(const field of humanFields){const input=element('input');input.type='number';input.step=field.kind==='byte'?'1':'any';if(field.kind==='byte'){input.min='0';input.max='255';}input.value=String(field.default);input.required=true;input.setAttribute('aria-label',field.label);const row=element('label',field.label);row.append(input);settingsFields.append(row);parameters.set(field.key,input);}
-      code=element('textarea');code.rows=8;code.value=HUMAN_IDLE_SCRIPT;code.setAttribute('aria-label','Skript nové postavy');
-      form.append(settings,element('label','Skript postavy'),code,element('p','Parametry jsou uložená maxima; human_getproperty a human_setproperty používají procenta. Výchozí čekací smyčka udržuje postavu aktivní. Příkaz end vypne jejího aktéra, kolize i aktualizaci animací. Model musí mít kostru a rám base; dynamické kolize vytváří hra. Vlastní kód se vykoná při startu mise.','notice'));
+      behavior=humanBehaviorFields({element,file,catalog:weapons,owner:()=>name.value,onChange:result=>{behaviorValid=result.valid;if(submitButton)submitButton.disabled=!behaviorValid;}});name.addEventListener('input',()=>behavior.update());
+      form.append(settings,behavior.root,element('p','Parametry jsou uložená maxima; human_getproperty a human_setproperty používají procenta. Model musí mít kostru a rám base; dynamické kolize vytváří hra. Vlastní kód se vykoná při startu mise.','notice'));
     }
   } else { if(kind==='collision')collisionFields();form.append(fields, element('p', kind==='collision'?`${object.name}: přesný povrch zachová geometrické otvory; box vyplní celý obal. Povrch používá viditelné trojúhelníky prvního LOD, nikoli průhlednost textur. Odstranění se týká jen kolize vytvořené editorem.`:kind === 'duplicate' ? 'Kopie zachová model, rodiče a transformace a získá vlastní generovanou kolizi, pokud ji má původní objekt.' : 'Skripty, aktéři a původní geometrie se automaticky nepřepisují. Objekty s rozpoznanými vazbami nelze odstranit.')); }
   const message = element('p', '', 'notice'), actions = element('div', undefined, 'tools'), cancel = element('button', 'Zrušit'), submit = element('button', kind==='collision'?'Uložit kolizi':kind === 'delete' ? 'Odstranit z mise' : kind === 'duplicate' ? 'Duplikovat do modu' : 'Vložit do modu', 'primary');
+  submitButton=submit;submit.disabled=!behaviorValid;
   cancel.type = 'button'; cancel.onclick = () => dialog.close(); submit.type = 'submit'; actions.append(cancel, submit); form.append(message, actions);
   form.onsubmit = event => {
-    event.preventDefault(); if (!form.reportValidity() || state.busy) return;
+    event.preventDefault(); if (!behaviorValid || !form.reportValidity() || state.busy) return;
     run(async () => {
       submit.disabled = cancel.disabled = true;
       try {
@@ -1546,14 +1559,14 @@ function sceneObjectDialog(file, kind, object, cars = null) {
           const radians = Number(heading.value) % 360 * Math.PI / 180;
           request = { kind, name: name.value, model: model.value, position: position.map(input => Number(input.value)), rotation: [Math.cos(radians/2),0,Math.sin(radians/2),0], scale: scale?.map(input => Number(input.value))??[1,1,1] };
           if(cars)request.vehicleTableHash=cars.sha256;
-          if(kind==='add-human'){request.parameters=Object.fromEntries([...parameters].map(([key,input])=>[key,Number(input.value)]));request.code=code.value;}
+          if(kind==='add-human'){request.parameters=Object.fromEntries([...parameters].map(([key,input])=>[key,Number(input.value)]));request.behavior=behavior.options();}
         }
         if(collisionMode)request.collision={kind:collisionMode.value,material:Number(collisionMaterial.value),doubleSided:collisionSides.checked};
         request.collisionHash=file.collision?.sha256;
         state.file = await api.changeSceneObject(file.path, request, file.sha256); state.selectSceneName = kind === 'delete' ? null : kind==='collision'?object.name:name.value;
         dialog.close(); await refresh(); renderDetail(); status(`${labels[kind]}: uloženo do modu se zálohou.`);
       } catch (error) { message.textContent = error.message; throw error; }
-      finally { submit.disabled = cancel.disabled = false; }
+      finally { submit.disabled = !behaviorValid; cancel.disabled = false; }
     });
   };
   dialog.addEventListener('cancel', event => { if (state.busy) event.preventDefault(); }); dialog.addEventListener('close', () => dialog.remove(), { once: true });
