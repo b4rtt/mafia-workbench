@@ -1,5 +1,5 @@
 import {Matrix4,Vector3} from 'three';
-import {sectorVolume,portalPolygon} from './sector-geometry.js';
+import {sectorVolume,portalPolygon,sameSectorValues} from './sector-geometry.js';
 
 const fail=message=>{throw new Error(`Spojení sektorů: ${message}`);};
 const points=p=>Array.from({length:p.length/3},(_,i)=>p.slice(i*3,i*3+3));
@@ -49,4 +49,21 @@ export function sectorLinkPlan(context,request){
   const inverse=transform(target).invert(),local=portalPolygon(points(reversed.positions).flatMap(p=>new Vector3(...p).applyMatrix4(inverse).toArray()));
   if(!sameOpening(sectorWorldPoints(local.positions,target.worldMatrix),reversed.positions,epsilon))fail('protikus nelze přesně uložit v souřadnicích sousedního sektoru.');
   return {target:target.id,targetPortal:target.sector.portals.length,positions:local.positions,worldPositions:reversed.positions,already:false};
+}
+
+// Resolve the old pair before modifying either side, then validate the new
+// opening against both volumes and every other portal in world coordinates.
+export function sectorPortalPairPlan(context,request){
+  if(!request||Object.keys(request).some(k=>!['kind','mesh','portal','target','positions'].includes(k))||!['update','remove'].includes(request.kind)||(request.kind==='remove'&&Object.hasOwn(request,'positions')))fail('neplatná úprava dvojice.');
+  const selection={mesh:request.mesh,portal:request.portal,target:request.target},old=sectorLinkPlan(context,selection);
+  if(!old.already)fail('otvor nemá jednoznačný existující protikus. Nejprve jej propojte.');
+  if(request.kind==='remove')return {target:old.target,targetPortal:old.targetPortal};
+  const source=context.sectors.find(s=>s.id===request.mesh);
+  if(sameSectorValues(request.positions,source.sector.portals[request.portal].positions))return {...old,unchanged:true};
+  const positions=portalPolygon(request.positions).positions;
+  if(sameSectorValues(positions,source.sector.portals[request.portal].positions))return {...old,unchanged:true};
+  const sectors=context.sectors.map(s=>({...s,sector:{...s.sector,portals:s.sector.portals.flatMap((p,index)=>s.id===old.target&&index===old.targetPortal?[]:[s.id===source.id&&index===request.portal?{...p,positions}:p])}}));
+  const next=sectorLinkPlan({...context,sectors},selection);
+  if(next.already)fail('nový otvor se střetává s jiným protikusem.');
+  return {target:old.target,targetPortal:old.targetPortal,sourcePositions:positions,positions:next.positions,worldPositions:next.worldPositions,unchanged:false};
 }

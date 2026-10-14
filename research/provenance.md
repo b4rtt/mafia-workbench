@@ -40,3 +40,5 @@ Konstrukce konvexního povrchu používá MIT Three.js addon [ConvexHull](https:
 
 
 Vazby scene2 rodiče a opakované light/sound sector seznamy byly porovnány s load/save v Richard01CZ/mEdit SceneEditor.cpp a konstantami mLib Datablock.h. Vlastní structural writer, world-preserving TRS převod, ochrana dependency hashů, dialog a testy jsou implementace tohoto projektu; žádný kód referenčních editorů nebyl zkopírovaný. Syntetické public testy neobsahují původní assets; reálné auditní, UI a native soubory zůstávají ignored local.
+
+Společné úpravy dvojice portálů používají vlastní existující geometrické párování a writer tohoto projektu. Nový plán obou změn, zachování raw hlaviček obou stran, společný dialog a syntetické testy jsou původní implementace. Herní/UI evidence a audit původních misí zůstávají mimo veřejné repo v ignored local/.
