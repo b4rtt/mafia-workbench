@@ -190,3 +190,11 @@ Uživatel požaduje oddělený AI plugin pro generování propracovaného živé
 - Hra a UI: úplný slot 599 se automaticky zaevidoval po produkčním startu. Produkční načtení i tlačítko editoru obnovily zdraví 21, pozici a pokračující program, následoval přesun k cíli, dokončení úkolu a HUD 61. Samotný load save nezměnil. Vrácení TextDB přes UI zablokovalo starší checkpoint. Časový limit/signály/dialogy po načtení a ruční průchod zůstávají samostatnými kontrolami; camera_lock se neobnovil.
 - Obnova: obě pomocné operace vráceny přes UI na historii 38; scéna/TextDB/model/geometrie/KLZ mají výchozí hashe. Předchozí soukromý save obnoven ze zálohy; ostatní chráněné projekty a originální EXE shodné. Hra i Audit editor ukončené. Herní data, save, disassembly a snímky zůstávají soukromé.
 - Kontroly: 327 testů, check a build. Kompletní mise a celý editor stále aktivní; uložený AI městský plugin začne samostatným goalem až po splnění tohoto předpokladu.
+
+
+## Obnovení časových podmínek a signálů mise
+
+- Ověřeno ve hře: tři páry nový start → produkční načtení checkpointu. Limit 8 sekund vypršel a spustil jen větev neúspěchu (HUD 81); úkol s limitem 25 sekund dosáhl cíle a spustil jen úspěch (HUD 31). Samostatný časný signál byl v save již 1, příjemce ještě čekal a po load jej zpracoval bez dalšího odesílatele (31).
+- Nativní evidence: uložený herní čas 8150 ms a pokračující měřicí HUD potvrzují obnovení globálního času; getter +0x2b0c a loader offset 1 to podpírají. Floaty, pokračující programy a signal byte v detector záznamu se zachovaly. Pomocný výraz se dvěma operátory byl opraven na dva příkazy let a časové běhy zopakovány; produkční šablony změnu nepotřebovaly. Podrobnosti v research/checkpoint-load.md.
+- Všech šest finálních běhů ukončených, při load save hashově stejný, po každém páru undo obou pomocných změn a obnova soukromého save. Historie 38, scéna/TextDB/model/geometrie/KLZ přesné, ostatní projekty a originální EXE nezměněné. Herní data a pomocné skripty zůstávají místní.
+- Zůstává: ruční průchod, dialogový kanál a smrt hlídané postavy po načtení, restart/menu, další typy úkolů, lip synchronizace a ostatní formátový/UX backlog. Tento blok přidává runtime důkazy k existujícím 327 testům; kompletní editor a vlastní mise zůstávají aktivním goalem.

@@ -28,4 +28,25 @@ Kontroly omezují velikost souboru na 64 MiB, všechny bloky na zbývající dé
 - Pomocné změny TextDB a scény byly vráceny přes UI na historii 38; pět kontrolovaných assetů odpovídá výchozím hashům. Předchozí soukromý save byl obnoven ze zálohy. Chráněné ostatní projekty a původní EXE se nezměnily; hra i Audit aplikace byly ukončené.
 - Prošlo 327 testů, statická kontrola a build. Testy zahrnují per-block cipher, poškozené bloky, provenance, stale/replaced save, odkazy a sběr po opětovném připojení včetně selhání indexu.
 
-Tento průchod neprokazuje obnovení časového limitu, návazných signálů, dialogů, všech stavů AI ani ruční aktivaci hráčem. Pomocný `camera_lock` se po načtení neobnovil; kamera přešla k hráči. Restart přes herní menu a ostatní profily zatím nejsou podporou tohoto tlačítka doložené. Kompletní vlastní mise a celý editor zůstávají otevřeným goalem.
+Tento první průchod sám neprokazuje obnovení časového limitu a návazných signálů; ty ověřuje následující blok. Dialogy, všechny stavy AI a ruční aktivace hráčem zůstávají neověřené. Pomocný `camera_lock` se po načtení neobnovil; kamera přešla k hráči. Restart přes herní menu a ostatní profily zatím nejsou podporou tohoto tlačítka doložené. Kompletní vlastní mise a celý editor zůstávají otevřeným goalem.
+
+
+## Časový limit a signály po načtení
+
+Navazující ověření 14. října 2026 používá stejnou produkční cestu Playtest.start/checkpoints, skutečný GOG 1.2 a oddělený projekt. Tři scénáře mají vždy nový start a potom nový proces hry načítající evidovaný checkpoint stejné verze. Testovací úkol přebírá kontrolní NPC přibližně v osmé sekundě herního času; save obsahuje jedenáct aktérů.
+
+| Scénář | Nová mise | Načtený checkpoint |
+| --- | --- | --- |
+| Limit 8 sekund, bez přesunu k cíli | Vypršení limitu, signál pouze do větve neúspěchu, HUD 81 | Stejné vypršení a větev, HUD 81 |
+| Limit 25 sekund, přesun hráče k cíli | Dokončení úkolu, signál pouze do větve úspěchu, HUD 31 | Obnovený přesun, dokončení a větev úspěchu, HUD 31 |
+| Signál odeslaný před save, příjemce nejprve čeká 20 sekund | Příjemce zachová časný signál a po čekání pokračuje, HUD 31 | Stejný příjemce pokračuje po zbývajícím čekání, HUD 31 |
+
+Poslední scénář nemá úkolové odkazy onComplete/onFailure. Jediný odesílatel po šestisekundovém čekání odešle signál, počká další dvě sekundy a převezme úkol s checkpointem; jeho program už další odeslání neobsahuje. Rozbor uložených souborů ukazuje nulový signal byte v běžných čekajících příjemcích a hodnotu 1 v časném příjemci. Byte 5 koncového 12bajtového detector save záznamu tedy odpovídá skutečnému byte +0xdc v getteru/setteru i writeru/readeru. Komentáře k save ve zdrojovém exportu označují některá pole nepřesně; rozhodující jsou těla funkcí a tento průchod.
+
+Časový test má oddělený měřicí skript: getgametime, dělení 1000 a přičtení 20 ve dvou příkazech let, výsledek na HUD. Save s tagem herního bloku 0x0a obsahuje čas 8150 ms; po načtení HUD pokračuje hodnotami 31 a 36 před následným 81. Čas nezačíná znovu od nuly. Primární podklad je game_get_frame_time_ms (C_game +0x2b0c), game_save_game_load obnovující tento dword z offsetu 1 a uložení float registrů programu. Wall-clock snímky nejsou přesným stopováním příkazů: inicializace a jednotlivé instrukce spotřebují herní framy.
+
+První pomocné měření použilo nepodporovaný výraz se dvěma operátory v jednom let a ukazovalo neplatné hodnoty energie. Nešlo o chybu produkční šablony. Podklad program_decode_let/dispatcher case 8 dovoluje pouze dva operandy, bez precedence; měření bylo opraveno a oba časové běhy opakovány. Tyto první snímky se nepoužívají jako důkaz číselného času.
+
+Všech šest finálních běhů skončilo přes vlastní wineserver. Při načtení se hash save nezměnil. Po každém scénáři byly obě pomocné operace přes undo vráceny na historii 38 a předchozí soukromý save obnoven. Pět kontrolovaných projektových assetů, ostatní chráněné projekty a původní EXE jsou stejné. Herní soubory, save, snímky a pomocné testovací skripty se nepublikují. Produkční kód nebylo pro tyto průchody nutné měnit.
+
+Zbývá ruční převzetí a pohyb hráče, dialog po načtení, smrt hlídané postavy po načtení, restart přes menu a širší kombinace úkolů; tento audit neprokazuje všechny herní stavy ani dokončení celého editoru.
