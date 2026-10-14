@@ -427,3 +427,29 @@ export function changeSceneObject(source, operation, geometryNames = [], geometr
   }
   const result = Buffer.concat(roots.map(write)); inspectScene(result); return result;
 }
+
+// Structural deletion is reserved for a wholly generated unused answer node.
+// Unknown payloads, children and outside references must not be discarded.
+export function removeChoiceDetector(source, name, expectedCode) {
+  const scene = inspectScene(source), roots = tree(source), all = [];
+  function collect(nodes) { for (const node of nodes) { all.push(node); if (node.children) collect(node.children); } }
+  collect(roots);
+  const key = value => value.normalize('NFC').toLowerCase();
+  const objects = scene.objects.filter(object => key(object.name) === key(name)), actors = scene.actors.filter(actor => key(actor.name) === key(name));
+  const script = scene.entries.find(entry => entry.actorScript && entry.actorKind === 5 && key(entry.value.name) === key(name));
+  if (!/^[A-Za-z_][A-Za-z0-9_]*_ANSWER[1-4]$/.test(name) || objects.length !== 1 || actors.length !== 1 || actors[0].kind !== 5 || objects[0].frameType !== 6 || !script || script.value.code.replaceAll('\r\n', '\n') !== expectedCode.replaceAll('\r\n', '\n')) throw new Error('Volba: odpověď není jednoznačný vygenerovaný bod.');
+  const object = all.find(node => node.id === objects[0].id), actor = all.find(node => node.id === actors[0].id);
+  const frameTypes = [0x4011, 0x10, 0x20, 0x2c, 0x22, 0x2d, 0x4020];
+  const exactString = node => node && node.payload.indexOf(0) === node.payload.length - 1;
+  if (object.children.length !== frameTypes.length || object.children.some((child, index) => child.type !== frameTypes[index]) || !exactString(object.children[1]) || object.children[0].payload.length !== 4 || [2, 3, 5].some(index => object.children[index].payload.length !== 12) || object.children[4].payload.length !== 16 || object.children[6].children.length !== 1 || object.children[6].children[0].type !== 0x10 || !exactString(object.children[6].children[0]) || actor.children.length !== 3 || actor.children.some((child, index) => child.type !== [0xae23, 0xae22, 0xae24][index]) || !exactString(actor.children[0]) || actor.children[1].payload.length !== 4 || !actor.children[2].payload.equals(createDetector(script.value.code, 0))) throw new Error('Volba: odebraná odpověď má další nebo neznámá data. Zachovejte ji a upravte zdroj.');
+  function references(nodes) { for (const node of nodes) { if (node === object || node === actor) continue; if (node.children ? references(node.children) : node.payload.toString('latin1').toLowerCase().includes(key(name))) return true; } return false; }
+  if (references(roots)) throw new Error(`Volba: na odebíranou odpověď ${name} odkazuje jiný objekt, skript nebo neznámý blok. Nejdřív upravte odkaz.`);
+  function write(node) {
+    if (!node.children) return node.raw;
+    const payload = Buffer.concat(node.children.filter(child => child !== object && child !== actor).map(write));
+    if (payload.equals(node.payload)) return node.raw;
+    const header = Buffer.alloc(6); header.writeUInt16LE(node.type); header.writeUInt32LE(payload.length + 6, 2);
+    return Buffer.concat([header, payload]);
+  }
+  const result = Buffer.concat(roots.map(write)); inspectScene(result); return result;
+}

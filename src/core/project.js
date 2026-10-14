@@ -158,11 +158,14 @@ export class ModProject {
     } finally { this.busy = false; }
   }
   async saveManifest() { await writeSafe(this.root, MANIFEST, JSON.stringify(this.manifest, null, 2)); }
-  async changeBatch(files, label, collisionSnapshot) {
+  async changeBatch(files, label, collisionSnapshot, readDependencies = []) {
     if(this.busy)throw new Error('Probíhá jiné ukládání.');
     if(!Array.isArray(files)||!files.length||files.length>64)throw new Error('Neplatná skupina úprav.');
+    if(!Array.isArray(readDependencies)||readDependencies.length>10000)throw new Error('Neplatné závislosti skupiny úprav.');
     this.busy=true;
     try{
+      const checkReads=async()=>{for(const file of readDependencies)if(typeof file.expectedHash!=='string'||hash(await this.read(file.path))!==file.expectedHash)throw new Error('Závislý soubor se během ukládání změnil. Otevřete dialog znovu.');};
+      await checkReads();
       const rows=[],seen=new Set();let size=0;
       for(const file of files){
         const asset=this.asset(file.path),canonical=key(asset.path);if(seen.has(canonical))throw new Error('Soubor je ve skupině vícekrát.');seen.add(canonical);
@@ -183,6 +186,7 @@ export class ModProject {
       await writeSafe(this.root,`history/${id}.json`,JSON.stringify(entry),true);
       // Nothing staged is visible until the single atomic manifest replacement.
       for(const row of rows)if(hash(await this.read(row.asset.path))!==row.sha256)throw new Error('Soubor se během ukládání změnil mimo editor.');
+      await checkReads();
       const previousVersion=this.manifest.version;this.manifest.version=2;
       for(const row of changed)row.asset.overlay=row.overlay;this.manifest.history.push(entry);
       try{await this.saveManifest();}
@@ -411,7 +415,7 @@ export class ModProject {
     if (expectedHash !== hash(before)) throw new Error('Soubor se od otevření změnil. Otevřete jej znovu.');
     const folder = this.asset(name).path.slice(0, this.asset(name).path.lastIndexOf('/'));
     const geometryPath=`${folder}/scene.4ds`,geometryBytes=await this.read(geometryPath),geometry = parseFourDs(geometryBytes);
-    let request = operation,choiceScene=null;const dependencies=[];
+    let request = operation,choiceScene=null;const dependencies=[],readDependencies=[];
     if(operation?.behavior||operation?.kind==='configure-human'){
       if(!['add-human','configure-human'].includes(operation?.kind))throw new Error('Chování lze nastavit pouze NPC postavě.');
       const behavior=await prepareHumanBehavior(this,before,geometry,operation,this.asset(name).path);
@@ -432,8 +436,8 @@ export class ModProject {
       choiceScene=editScene(before,current.entry.id,{...current.entry.value,code:combat.code});
       dependencies.push(...combat.dependencies,{path:geometryPath,data:geometryBytes,expectedHash:hash(geometryBytes)});
     }
-    if(operation?.kind==='add-choice'){
-      const choice=await prepareMissionChoice(this,before,geometry,operation);choiceScene=choice.data;
+    if(['add-choice','configure-choice'].includes(operation?.kind)){
+      const choice=await prepareMissionChoice(this,before,geometry,{...operation,scenePath:name});choiceScene=choice.data;readDependencies.push(...choice.readDependencies);
       dependencies.push(...choice.dependencies,{path:geometryPath,data:geometryBytes,expectedHash:hash(geometryBytes)});
     }
     if(['add-pickup','configure-pickup'].includes(operation?.kind)){
@@ -566,9 +570,9 @@ export class ModProject {
       if(owned){const klz=parseCollision(await this.read(`${folder}/tree.klz`)),record=ownedCollisionRecords(klz,[owned])[0];requests.push({name:operation.name,kind:owned.kind,material:record.material,doubleSided:owned.doubleSided});}
     }
     const collision=await prepareSceneCollision(this,name,before,after,{requests,expectedHash:operation?.collisionHash});
-    const label={ 'add-model': 'Vložení modelu do mise', 'add-human':'Vložení postavy a jejího skriptu','configure-human':'Nastavení chování postavy','configure-combat':'Nastavení bojového úkolu','configure-dialogue':'Nastavení rozhovoru','configure-task':'Nastavení úkolu','add-car':'Vložení automobilu a jeho aktéra','add-light':'Vložení světla do mise','add-sound':'Vložení prostorového zvuku do mise','add-detector':'Vložení skriptového bodu','add-choice':'Vložení volby odpovědi','add-pickup':'Vložení předmětu k sebrání','configure-pickup':'Nastavení předmětu k sebrání','attach-door':'Vytvoření dveřního aktéra','attach-physical':'Vytvoření fyzikálního předmětu', duplicate: 'Duplikace objektu mise', delete: 'Odstranění objektu mise',collision:'Generování kolize modelu' }[operation?.kind]??'Úprava objektů mise';
+    const label={ 'add-model': 'Vložení modelu do mise', 'add-human':'Vložení postavy a jejího skriptu','configure-human':'Nastavení chování postavy','configure-combat':'Nastavení bojového úkolu','configure-dialogue':'Nastavení rozhovoru','configure-task':'Nastavení úkolu','add-car':'Vložení automobilu a jeho aktéra','add-light':'Vložení světla do mise','add-sound':'Vložení prostorového zvuku do mise','add-detector':'Vložení skriptového bodu','add-choice':'Vložení volby odpovědi','configure-choice':'Nastavení volby odpovědi','add-pickup':'Vložení předmětu k sebrání','configure-pickup':'Nastavení předmětu k sebrání','attach-door':'Vytvoření dveřního aktéra','attach-physical':'Vytvoření fyzikálního předmětu', duplicate: 'Duplikace objektu mise', delete: 'Odstranění objektu mise',collision:'Generování kolize modelu' }[operation?.kind]??'Úprava objektů mise';
     const files=new Map([{path:name,data:after,expectedHash},...dependencies,...(collision?.files??[])].map(file=>[key(file.path),file]));
-    await this.changeBatch([...files.values()],label,collision?.ownership);
+    await this.changeBatch([...files.values()],label,collision?.ownership,readDependencies);
   }
   async carModels(){
     const bytes=await this.read('tables/vehicles.bin'),table=parseVehicleTable(bytes),models=[];let rejected=0;

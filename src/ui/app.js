@@ -11,6 +11,7 @@ import { missionTaskScript, missionTaskVehicles, editableMissionTask } from '../
 import { missionDestinations } from '../shared/mission-destinations.js';
 import { missionDialogueScript, dialogueSpeakers, editableMissionDialogue } from '../shared/mission-dialogue.js';
 import { missionChoiceDialog } from './mission-choice.js';
+import { editableMissionChoice } from '../shared/mission-choice.js';
 import { missionCombatDialog } from './mission-combat.js';
 import { editableMissionCombat } from '../shared/mission-combat.js';
 import { humanBehaviorDialog, humanBehaviorFields } from './human-behavior.js';
@@ -1151,6 +1152,7 @@ function renderMap(main, file, previous = null) {
   const configureHuman = element('button', 'Chování postavy…'); configureHuman.disabled = true;
   const configureCombat = element('button', 'Nastavit bojový úkol…'); configureCombat.disabled = true; configureCombat.title = 'Pouze přesně rozpoznaná šablona s maskou 1; vlastní program upravte v inspektoru.';
   const configureTask = element('button', 'Nastavit úkol…'); configureTask.disabled = true; configureTask.title = 'Pouze přesně rozpoznaná šablona s maskou 1; vlastní program upravte v inspektoru.';
+  const configureChoice = element('button', 'Nastavit volbu odpovědí…'); configureChoice.disabled = true; configureChoice.title = 'Pouze úplná nezměněná skupina odpovědí a řídicí program NPC.';
   const configureDialogue = element('button', 'Nastavit rozhovor…'); configureDialogue.disabled = true; configureDialogue.title = 'Pouze přesně rozpoznaná šablona s maskou 1; vlastní program upravte v inspektoru.';
   const vehicleTable = state.project.assets.find(asset => asset.path.normalize('NFC').toLowerCase() === 'tables/vehicles.bin');
   vehiclePhysics.dataset.vehicleLink = ''; vehiclePhysics.hidden = true;
@@ -1173,6 +1175,7 @@ function renderMap(main, file, previous = null) {
     configureHuman.disabled = file.entries.filter(entry => entry.actorScript && entry.actorKind === 27 && entry.value.name.toLowerCase() === (object?.name ?? frame.name).toLowerCase()).length !== 1;
     configureCombat.disabled = !editableMissionCombat(file, object?.name ?? frame.name);
     configureTask.disabled = !editableMissionTask(file, object?.name ?? frame.name);
+    configureChoice.disabled = !editableMissionChoice(file, object?.name ?? frame.name);
     configureDialogue.disabled = !editableMissionDialogue(file, object?.name ?? frame.name);
     selectedId = frame.id;
     vehiclePhysics.hidden = file.cacheSource || !vehicleTable || !sceneVehicleFamily(file, object);
@@ -1294,6 +1297,7 @@ function renderMap(main, file, previous = null) {
       missionCombatDialog({api,assets:state.project.assets,file,target,element,run,flowFields:missionFlowFields,onCreated:async(result,name)=>{state.file=result;state.selectSceneName=name;await refresh();renderDetail();status('Bojový úkol uložený se zálohou a jedním undo. Spusťte misi znovu.');}});
     });
     configureTask.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Nejdřív uložte rozepsané vlastnosti.');detectorDialog(file,undefined,selectedObject?.name??selectedFrame?.name);});
+    configureChoice.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Nejdřív uložte rozepsané vlastnosti.');missionChoiceDialog({api,assets:state.project.assets,file,target:selectedObject?.name??selectedFrame?.name,element,run,onCreated:async(result,name)=>{state.file=result;state.selectSceneName=name;await refresh();renderDetail();status('Volba odpovědí uložená se zálohou a jedním společným undo. Spusťte misi znovu.');}});});
     configureDialogue.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Nejdřív uložte rozepsané vlastnosti.');dialogueDialog(file,undefined,selectedObject?.name??selectedFrame?.name);});
     addDoor.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před vytvořením dveří uložte rozepsané vlastnosti.');if(!selectedFrame)throw new Error('Nejdřív vyberte křídlo dveří.');doorActorDialog(file,selectedFrame);});
     addPhysical.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před vytvořením fyzikálního předmětu uložte rozepsané vlastnosti.');if(!selectedObject)throw new Error('Nejdřív vyberte model.');physicalActorDialog(file,selectedObject);});
@@ -1304,7 +1308,7 @@ function renderMap(main, file, previous = null) {
     addChoice.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před vytvořením volby uložte rozepsané vlastnosti.');missionChoiceDialog({api,assets:state.project.assets,file,position:selectedObject?.position,element,run,onCreated:async(result,name)=>{state.file=result;state.selectSceneName=name;await refresh();renderDetail();status('Volba odpovědi vytvořená se zálohou a jedním společným undo.');}});});
     addCombat.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před vytvořením bojového úkolu uložte rozepsané vlastnosti.');missionCombatDialog({api,assets:state.project.assets,file,position:selectedObject?.position,element,run,flowFields:missionFlowFields,onCreated:async(result,name)=>{state.file=result;state.selectSceneName=name;await refresh();renderDetail();status('Bojový úkol vytvořený se zálohou a jedním undo.');}});});
     for(const [button,configure] of [[addPickup,false],[configurePickup,true]])button.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před vložením nebo nastavením předmětu uložte rozepsané vlastnosti.');const catalog=await api.pickupItems();if(!catalog.items.length)throw new Error('Tabulka neobsahuje předměty s dostupným podporovaným modelem.');pickupDialog(file,catalog,configure?selectedObject:null,selectedObject?.position);});
-    tools.append(actionMenu('Přidat',[add,addHuman,addCar,addPickup,addLight,addSound,addDetector,addDialogue,addChoice,addCombat]),actionMenu('Objekt',[duplicate,remove,collision,assignSector,configureHuman,configureCombat,configureTask,configureDialogue,configurePickup,addDoor,addPhysical]));
+    tools.append(actionMenu('Přidat',[add,addHuman,addCar,addPickup,addLight,addSound,addDetector,addDialogue,addChoice,addCombat]),actionMenu('Objekt',[duplicate,remove,collision,assignSector,configureHuman,configureCombat,configureTask,configureDialogue,configureChoice,configurePickup,addDoor,addPhysical]));
   }
   tools.append(actionMenu('Zobrazení',displayActions));
   if(collisionActions.length)tools.append(actionMenu('Kolize',collisionActions));

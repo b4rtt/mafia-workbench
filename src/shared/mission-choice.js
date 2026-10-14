@@ -10,7 +10,7 @@ const eventId = index => 1000 + index;
 
 function controllerProgram(groups) {
   const names = groups.flatMap(group => group.names);
-  const code = [`dim_act ${names.length}`, ...names.map((name, index) => `findactor ${index}, "${name}"`), 'label 1', 'wait 1000', 'goto 1'];
+  const code = [...(names.length ? [`dim_act ${names.length}`] : []), ...names.map((name, index) => `findactor ${index}, "${name}"`), 'label 1', 'wait 1000', 'goto 1'];
   let offset = 0;
   for (const [index, group] of groups.entries()) {
     code.push(`event ${eventId(index)}`, ...group.names.map((_, i) => `enemy_use_detector ${offset + i}`), 'return');
@@ -24,7 +24,7 @@ function controllerProgram(groups) {
 export function choiceControllerGroups(source) {
   if (typeof source !== 'string') return null;
   const code = source.replaceAll('\r\n', '\n').trim();
-  if (code === '' || code === 'end') return [];
+  if (code === '' || code === 'end' || code === controllerProgram([])) return [];
   const lines = code.split('\n'), count = /^dim_act (\d+)$/.exec(lines.shift());
   if (!count || Number(count[1]) < 2 || Number(count[1]) > 64) return null;
   const names = [];
@@ -49,13 +49,13 @@ export function choiceControllerGroups(source) {
   return controllerProgram(groups) === code ? groups : null;
 }
 
-export function choiceControllers(scene) {
+export function choiceControllers(scene, { includeFull = false } = {}) {
   const targets = new Set(missionFlowTargets(scene).map(actor => key(actor.name)));
   return dialogueSpeakers(scene).filter(actor => actor.kind === 27).flatMap(actor => {
     const scripts = (scene.entries ?? []).filter(entry => entry.actorScript && entry.actorKind === 27 && key(entry.value.name) === key(actor.name));
     if (scripts.length !== 1) return [];
     const groups = choiceControllerGroups(scripts[0].value.code);
-    if (!groups || groups.length >= 16 || groups.some(group => [group.owner, `${group.owner}_CLAIM`, ...group.names].some(name => !targets.has(key(name))))) return [];
+    if (!groups || (!includeFull && groups.length >= 16) || groups.some(group => [group.owner, `${group.owner}_CLAIM`, ...group.names].some(name => !targets.has(key(name))))) return [];
     return [{ name: actor.name, scriptId: scripts[0].id, groups }];
   });
 }
@@ -99,4 +99,75 @@ export function resolveMissionChoice(scene, options) {
   const existing = new Set([...(scene.actors ?? []), ...(scene.objects ?? []), ...(scene.geometry?.meshes ?? [])].filter(object => typeof object.name === 'string').map(object => key(object.name)));
   if (plan.nodes.some(node => existing.has(key(node.name)))) throw new Error('Volba: název volby nebo některého pomocného bodu již existuje.');
   return { ...plan, scriptId: controller.scriptId };
+}
+
+// A complete group must match all generated programs, not just its owner name.
+function inspectChoiceGroup(scene, controller, index) {
+  const group = controller.groups[index];
+  if (!group) return null;
+  const nodes = [group.owner, `${group.owner}_CLAIM`, ...group.names].map(name => {
+    const actors = (scene.actors ?? []).filter(actor => key(actor.name) === key(name));
+    const objects = (scene.objects ?? []).filter(object => key(object.name) === key(name));
+    const scripts = (scene.entries ?? []).filter(entry => entry.actorScript && entry.actorKind === 5 && key(entry.value.name) === key(name));
+    if (actors.length !== 1 || actors[0].kind !== 5 || objects.length !== 1 || objects[0].frameType !== 6 || scripts.length !== 1 || (scene.geometry?.meshes ?? []).some(mesh => key(mesh.name) === key(name))) return null;
+    const masks = scene.entries.filter(entry => entry.detectorParameter && entry.id.startsWith(actors[0].id + '/'));
+    return masks.length === 1 && masks[0].value === 0 ? { name, entry: scripts[0], object: objects[0] } : null;
+  });
+  if (nodes.some(node => !node)) return null;
+  const answers = nodes.slice(2).map(node => {
+    const code = node.entry.value.code.replaceAll('\r\n', '\n');
+    const id = /^detector_waitforuse (\d+)$/m.exec(code), target = /^findactor 2, "([^"\x00-\x1f]+)"$/m.exec(code);
+    return { textId: Number(id?.[1]), target: target?.[1] };
+  });
+  const choice = { name: group.owner, controller: controller.name, waitForSignal: nodes[0].entry.value.code.replaceAll('\r\n', '\n').includes('label 1\ndetector_issignal -1, 2, -1\n'), answers };
+  try {
+    const expected = missionChoicePrograms(choice, controller.groups.slice(0, index));
+    if (expected.nodes.some((node, i) => node.code !== nodes[i].entry.value.code.replaceAll('\r\n', '\n'))) return null;
+    return { choice, nodes, controller, index };
+  } catch { return null; }
+}
+export function editableMissionChoice(scene, selected) {
+  if (typeof selected !== 'string') return null;
+  const matches = choiceControllers(scene, { includeFull: true }).flatMap(controller => controller.groups.flatMap((group, index) =>
+    [group.owner, `${group.owner}_CLAIM`, ...group.names].some(name => key(name) === key(selected)) ? [{ controller, index }] : []));
+  return matches.length === 1 ? inspectChoiceGroup(scene, matches[0].controller, matches[0].index) : null;
+}
+export function resolveMissionChoiceEdit(scene, selected, options) {
+  const current = editableMissionChoice(scene, selected);
+  if (!current) throw new Error('Volba: vyberte úplnou nezměněnou skupinu volby odpovědí. Vlastní program upravte v inspektoru.');
+  const controllers = choiceControllers(scene, { includeFull: true });
+  const nextController = typeof options?.controller === 'string' ? controllers.find(actor => key(actor.name) === key(options.controller)) : null;
+  if (!nextController) throw new Error('Volba: vyberte jednoznačnou NPC s prázdným nebo řídicím programem voleb.');
+  const same = key(nextController.name) === key(current.controller.name);
+  if (!same && nextController.groups.length >= 16) throw new Error('Volba: řídicí postava už obsluhuje 16 sad.');
+  const owned = new Set(current.nodes.map(node => key(node.name))), targets = new Map(missionFlowTargets(scene).map(actor => [key(actor.name), actor.name]));
+  if (!Array.isArray(options.answers)) throw new Error('Volba: chybí odpovědi.');
+  const answers = options.answers.map(answer => {
+    const target = typeof answer?.target === 'string' ? targets.get(key(answer.target)) : null;
+    if (!target || owned.has(key(target))) throw new Error('Volba: cílem musí být jiný jednoznačný skriptový bod této mise.');
+    return { ...answer, target };
+  });
+  const choice = { ...options, name: current.choice.name, controller: nextController.name, answers };
+  const controllerPlans = [], nodes = [];
+  for (const controller of same ? [current.controller] : [current.controller, nextController]) {
+    const recipes = controller.groups.map(group => editableMissionChoice(scene, group.owner));
+    if (recipes.some(recipe => !recipe)) throw new Error('Volba: jiná skupina řídicí postavy má vlastní nebo neúplný program. Nejdřív opravte její vazby v inspektoru.');
+    const list = recipes.map(recipe => recipe.choice);
+    if (key(controller.name) === key(current.controller.name)) {
+      if (same) list[current.index] = choice; else list.splice(current.index, 1);
+    } else list.push(choice);
+    const groups = [];
+    for (const recipe of list) {
+      const plan = missionChoicePrograms(recipe, groups);
+      nodes.push(...plan.nodes);
+      groups.push({ owner: recipe.name, names: plan.nodes.slice(2).map(node => node.name) });
+    }
+    controllerPlans.push({ scriptId: controller.scriptId, name: controller.name, code: controllerProgram(groups) });
+  }
+  const existing = new Set([...(scene.actors ?? []), ...(scene.objects ?? []), ...(scene.geometry?.meshes ?? [])].map(object => key(object.name)));
+  const additions = nodes.filter(node => !existing.has(key(node.name)));
+  const selectedNodes = nodes.filter(node => node.name === choice.name || node.name === `${choice.name}_CLAIM` || answers.some((_, index) => node.name === answerName(choice.name, index)));
+  if (selectedNodes.some(node => existing.has(key(node.name)) && !owned.has(key(node.name)))) throw new Error('Volba: název nové odpovědi již existuje.');
+  const keep = new Set(selectedNodes.map(node => key(node.name))), removed = current.nodes.filter(node => !keep.has(key(node.name)));
+  return { choice, current, nodes, additions, removed, controllers: controllerPlans };
 }

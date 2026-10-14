@@ -55,6 +55,20 @@ Produkční generátor byl spuštěn v oddělené GOG 1.2 misi se dvěma sadami 
 
 Samostatné okno Electronu ověřilo prázdné výchozí cíle, deaktivované potvrzení pro chybějící cíl, neexistující či duplicitní text, přidání/odebrání odpovědi a limit čtyř odpovědí. Vytvořilo tři odpovědi s přesnými pozicemi/zdroji, pět nových bodů a jediný krok historie. Nový formulář nabídl stejného NPC s evidencí jedné sady; zrušení nic nezapsalo. Reopen a export odpovídaly skutečným bajtům, UI undo obnovilo původní scénu a historii 1. Všech ostatních 12 assetů soukromého UI projektu, chráněné projekty a původní EXE zůstaly shodné. Nativní projekt byl vrácen na historii 38, všech pět kontrolovaných assetů a save/index profilu obnovené. Soukromé pomocné programy a data zůstávají v ignorovaném local/.
 
+## Nastavení existující volby
+
+**Objekt → Nastavit volbu odpovědí…** přijímá aktivaci, pojistku nebo některou odpověď celé rozpoznané skupiny. Obnoví 2–4 textová ID, pořadí, cíle, čekání na signál a řídicí NPC. Rozpoznání kontroluje všechny zdroje, jednoznačné detektory s maskou 0 i řídicí program, bez závislosti na dodatečných metadatech; CRLF podporované. Jazyk není uložený v programu, pro ověření textů se volí TextDB. Nezměněný recept neukládá nový krok historie. Vlastní programy se dál upravují v inspektoru.
+
+Při změně počtu nebo přesunu k jiné NPC se znovu sestaví číselné události všech dotčených skupin; jejich vlastní konfigurace, polohy a ostatní data se zachovají. Přesun poslední skupiny ponechá původní NPC aktivní v čekací smyčce, kterou lze znovu použít. Řídicí NPC s 16 skupinami lze nastavit, ale další skupinu k ní přesunout nelze. Nová odpověď vznikne ve světové poloze aktivace, i když je aktivace pod jiným rodičem. Existující odpovědi se nepřemísťují.
+
+Odebrání je vyhrazené přesnému vygenerovanému pomocnému bodu bez dalších dat. Konzervativní kontrola odmítne zmínku jeho ASCII názvu v jiné části scény, souborech stejné mise a REP/CHG. Kontrolované soubory se nezapisují; jejich hashe se ověří před přípravou i před publikací. Skutečná hra má stovky REP/CHG, proto jsou tyto kontroly oddělené od maximálně 64 zapisovaných souborů transakce. Scéna, TextDB a geometrie zůstávají chráněné, jedna změna má jedno undo. Tato kontrola není obecným parserem všech možných skriptových odkazů.
+
+Samostatný Electron upravil tříodpověďovou skupinu uprostřed tří skupin postavy First na dvě odpovědi v obráceném pořadí, vypnul čekání na signál a přesunul ji k Second s již existující skupinou. Save/reopen obnovily přesné hodnoty, nezměněný formulář měl deaktivované uložení; export a skutečné UI undo zachovaly přesné bajty i historii. První pokus o uložení narazil na limit 64 souborů a nic nezapsal; prošlo až uložení s oddělenými kontrolami závislostí.
+
+Native GOG 1.2/Wine spustilo přesně scénu uloženou přes UI a stejný TextDB. Dva samostatné běhy zvolily novou odpověď 1/2 a změnily kontrolní energii 21 → 61/85. Úplné save kolem 12 a 22 herních sekund obsahovaly společný signál 1 a čekací příznaky obou odpovědí 0; nucené pozdější použití druhé odpovědi větev neopakovalo. Třetí běh aktivoval pozdější skupinu původní postavy First, nově s událostí 1001: její druhá odpověď vedla na 71, všechny tři akce se uklidily, přesunutá skupina Second zůstala současně čekající a nezvolené skupiny neaktivní. Vstupy provedl diagnostický NPC, nikoli hráč.
+
+První pomocný běh A skončil kontrolou dříve, než vznikl poslední checkpoint; platný opakovaný běh čekal na skutečně nový save. První pokus aktivace pozdější skupiny poslal signál před inicializací příjemce a zůstal na 21; úspěšný opakovaný pokus poslal signál po třech sekundách. Tyto neúspěšné diagnostické pokusy nejsou důkazem checkpointu ani časného signálu. Všechny diagnostické změny, save a evidence byly vrácené; vlastní projekt je zpět na historii 12 s výchozími hashi a stagingem. Původní EXE a chráněné projekty se nezměnily. Ruční výběr, načtení checkpointu této upravené varianty a obecný životní cyklus dialogové kamery zůstávají neověřené.
+
 ## Další herní ověření
 
 - V izolované misi zobrazit dvě skutečné odpovědi a zvolit každou v samostatném běhu.
