@@ -48,7 +48,7 @@ export function spatialWorkspace(main,file,view) {
   const center=layout.querySelector('.model-center'),inspector=layout.querySelector('.model-inspector'),viewport=center.querySelector(':scope>.viewport');if(!viewport)return false;
   const header=main.querySelector('.file-header'),fileTools=main.querySelector(':scope>.tools'),meta=main.querySelector(':scope>.file-meta');
   header.title=file.path;meta.hidden=true;
-  const documentActions=[...fileTools.children].filter(node=>!node.classList.contains('primary'));
+  const documentActions=[...fileTools.children].filter(node=>!node.classList.contains('primary')&&!node.hasAttribute('data-play-level'));
   fileTools.prepend(actionMenu('Soubor',documentActions));header.append(fileTools);fileTools.classList.add('file-actions');
   const notes=make('div',undefined,'workspace-help');
   for(const node of [...main.children])if(node.matches('p'))notes.append(node);

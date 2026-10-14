@@ -213,6 +213,23 @@ function renderDetail() {
       const test = await api.startLevel(file.path); $('stop-level').hidden = !test.running;
       status(`Spouštím: ${test.level} · bez videí a menu · oddělené ukládání.`);
     }); toolbar.append(launch);
+    const load = element('button', 'Načíst checkpoint…'); load.dataset.playLevel='';
+    load.onclick = () => run(async () => {
+      if (state.texts.size) throw new Error('Před načtením checkpointu uložte rozepsané změny.');
+      const checkpoints = await api.listCheckpoints(file.path), dialog = element('dialog', undefined, 'new-text-dialog'), select = element('select'), message = element('p', '', 'notice'), cancel = element('button', 'Zrušit'), start = element('button', 'Načíst', 'primary'), actions = element('div', undefined, 'tools');
+      dialog.append(element('h2', 'Checkpointy této mise'), element('p', 'Zobrazené jsou úplné checkpointy vytvořené v odděleném testu. Změna projektu je zneplatní; přesné undo obnoví shodu. Původní uložené hry se nemění.'));
+      for (const saved of checkpoints) {
+        const option = element('option', `ID ${saved.id} · zdraví ${saved.energy} · ${new Date(saved.recorded).toLocaleString('cs')}${saved.compatible ? '' : ' · jiná verze projektu'}`);
+        option.value=String(saved.slot); option.disabled=!saved.compatible; select.append(option);
+      }
+      const compatible=checkpoints.find(saved=>saved.compatible); if(compatible)select.value=String(compatible.slot);
+      start.disabled=!compatible;
+      if(!checkpoints.length)message.textContent='Zatím není uložený úplný checkpoint. Zapněte jej v průvodci úkolu, přejděte ve hře k převzetí zadání a potom ukončete test.';
+      else if(!compatible)message.textContent='Checkpointy patří ke starší verzi. Spusťte novou misi a vytvořte nový checkpoint, nebo vraťte změny přes undo.';
+      const label=element('label','Uložený stav');label.append(select);cancel.onclick=()=>dialog.close();actions.append(cancel,start);dialog.append(label,message,actions);document.body.append(dialog);
+      start.onclick=()=>run(async()=>{start.disabled=cancel.disabled=true;try{const saved=checkpoints.find(saved=>saved.compatible&&saved.slot===Number(select.value));if(!saved)throw new Error('Vyberte kompatibilní checkpoint.');status('Připravuji obnovení checkpointu…');const test=await api.startLevel(file.path,{slot:saved.slot,sha256:saved.sha256});$('stop-level').hidden=!test.running;dialog.close();status(`Načítám checkpoint ${saved.id}: ${test.level} · oddělené ukládání.`);}catch(error){message.textContent=error.message;}finally{start.disabled=!compatible;cancel.disabled=false;}});
+      dialog.addEventListener('cancel',event=>{if(state.busy)event.preventDefault();});dialog.addEventListener('close',()=>dialog.remove(),{once:true});dialog.showModal();(compatible?start:cancel).focus();
+    }); toolbar.append(load);
   }
   if (file.type === 'scene') {
     const map = element('button', 'Otevřít 3D mapu'); map.onclick = () => run(async () => { if (!await discard()) return; state.texts.clear(); status('Načítám geometrii mapy…'); state.file = await api.map(file.path); renderDetail(); status('3D mapa načtená.'); }); toolbar.append(map);

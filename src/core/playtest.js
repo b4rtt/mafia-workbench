@@ -4,6 +4,7 @@ import { constants } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { hash, safePath, readSafe, writeSafe } from './files.js';
 import { relativeAssetPath } from './dta.js';
+import { availableCheckpoints, checkpointFile, checkpointInventory, collectCheckpoints, playtestRevision, projectCheckpointState } from './checkpoints.js';
 
 export const SUPPORTED_GAME_HASH = '303eb95ee2de3433511ce0cb518921dcb96b62b0f64ebfcc436723ff5083f298';
 // GOG 1.2 only. Addresses were verified in this exact executable, not borrowed
@@ -16,7 +17,8 @@ const patches = [
   [0x1bee17, '6a30c684248800000001', 'b811000000e95e000000'], // Directly select the mission-loading branch.
   [0x1bf213, 'e9bd010000', 'e9da010000'], // Leaving the level exits instead of returning to the menu.
 ];
-export function patchDirectLevelExe(source) {
+export function patchDirectLevelExe(source, checkpointSlot = null) {
+  if (checkpointSlot !== null) checkpointFile(checkpointSlot);
   if (hash(source) !== SUPPORTED_GAME_HASH) throw new Error('Přímé spuštění zatím podporuje pouze ověřené GOG Game.exe 1.2. Původní EXE nebylo změněno.');
   const bytes = Buffer.from(source);
   for (const [offset, expected, replacement] of patches) {
@@ -27,6 +29,18 @@ export function patchDirectLevelExe(source) {
     const original = Buffer.from(expected + '\0');
     if (!bytes.subarray(offset, offset + original.length).equals(original)) throw new Error('Cesta mise v EXE neodpovídá ověřené verzi.');
     bytes.fill(0, offset, offset + original.length); bytes.write(value, offset, 'ascii');
+  }
+  if (checkpointSlot !== null) {
+    // Open wbtest first: the native loader compares against the live mission
+    // name and cannot run before a scene exists. Then load instead of NewGame,
+    // bypassing the subsequent GameInit which would reset restored state.
+    const expected = Buffer.from('e8ea700400a18c786300', 'hex');
+    if (!bytes.subarray(0x1bef01, 0x1bef01 + expected.length).equals(expected)) throw new Error('Načítání checkpointu: instrukce neodpovídají ověřené verzi.');
+    const selector = Buffer.from('c70550466d0000000000c705a4466d0000000000b811000000e94a000000', 'hex');
+    selector.writeUInt32LE(checkpointSlot, 16);
+    selector.writeInt32LE(0x5bee7f - (0x5bee17 + selector.length), selector.length - 4);
+    selector.copy(bytes, 0x1bee17);
+    Buffer.from('e84a720400e9f8020000', 'hex').copy(bytes, 0x1bef01);
   }
   return bytes;
 }
@@ -121,18 +135,31 @@ export class Playtest {
     catch (error) { if (error.code === 'ENOENT') return this.state(); throw error; }
     if (snapshot.format !== 'mafia-workbench-playtest' || snapshot.project !== project.root || run.exited || !Number.isInteger(run.pid) || run.pid < 1) return this.state();
     try { process.kill(run.pid, 0); } catch (error) { if (error.code === 'ESRCH') return this.state(); throw error; }
-    this.session = { root, game: path.join(root, 'game'), prefix: path.join(root, 'prefix'), level: snapshot.level };
+    this.session = { root, game: path.join(root, 'game'), prefix: path.join(root, 'prefix'), level: snapshot.level, checkpoints: run.checkpoints };
     this.child = { pid: run.pid, attached: true }; return this.state();
   }
   environment(prefix) {
     return { ...process.env, WINEPREFIX: prefix, DYLD_LIBRARY_PATH: this.runtime.dependencies, WINEDEBUG: '-all,err+all', WINEDLLOVERRIDES: 'winemenubuilder.exe=d;winegstreamer=d;winevulkan=d;vulkan-1=d' };
   }
-  async prepare(project, name, progress = () => {}) {
+  async checkpoints(project, name) {
+    await this.attach(project);
+    if (this.child) throw new Error('Pro výběr checkpointu nejprve ukončete běžící test.');
+    const root = path.join(project.root, 'playtest');
+    return availableCheckpoints(root, path.join(root, 'game'), project, missionFolder(name));
+  }
+  async prepare(project, name, progress = () => {}, checkpoint = null) {
     await this.attach(project);
     if (this.child) throw new Error('Nejdřív ukončete běžící test levelu.');
     if (process.platform !== 'darwin') throw new Error('Tento adaptér přímého spuštění je zatím určený pro místní Wine na macOS.');
     const level = missionFolder(name), source = await fs.realpath(project.manifest.gameRoot);
-    const executable = patchDirectLevelExe(await readSafe(source, 'Game.exe'));
+    let selected;
+    if (checkpoint !== null) {
+      if (!checkpoint || typeof checkpoint !== 'object' || !/^[a-f0-9]{64}$/.test(checkpoint.sha256)) throw new Error('Neplatný výběr checkpointu.');
+      checkpointFile(checkpoint.slot);
+      selected = (await this.checkpoints(project, name)).find(saved => saved.slot === checkpoint.slot && saved.sha256 === checkpoint.sha256);
+      if (!selected?.compatible) throw new Error('Checkpoint nepatří k aktuální verzi projektu. Spusťte novou misi a vytvořte nový checkpoint.');
+    }
+    const executable = patchDirectLevelExe(await readSafe(source, 'Game.exe'), selected?.slot ?? null);
     project.asset(`${level}/scene2.bin`); project.asset(`${level}/scene.4ds`); project.asset(`${level}/tree.klz`);
     await fs.access(this.runtime.wine, constants.X_OK); await fs.access(this.runtime.server, constants.X_OK);
     const root = path.join(project.root, 'playtest'), game = path.join(root, 'game'), prefix = path.join(root, 'prefix');
@@ -147,6 +174,8 @@ export class Playtest {
       await writeSafe(root, 'snapshot.json', JSON.stringify(record), true);
     }
     const sync = await synchronizeAssets(project, game, record.files ?? {}, progress);
+    const revision = playtestRevision(level, sync.files);
+    if (selected && (selected.revision !== revision || hash(await readSafe(game, checkpointFile(selected.slot))) !== selected.sha256)) throw new Error('Herní data nebo checkpoint se od výběru změnily. Spusťte novou misi.');
     for (const filename of await fs.readdir(source)) {
       if (!/\.dll$/i.test(filename)) continue;
       const bytes = await readSafe(source, filename); await writeSafe(game, filename.toLowerCase(), bytes);
@@ -185,10 +214,11 @@ export class Playtest {
     }
     await fs.symlink(game, path.join(devices, 'z:'));
     await writeSafe(root, 'snapshot.json', JSON.stringify({ format: 'mafia-workbench-playtest', project: project.root, source, level, alias, initialized: true, files: sync.files, sourceExe: SUPPORTED_GAME_HASH, testExe: hash(executable), updated: new Date().toISOString() }));
-    this.session = { root, game, prefix, level }; return this.session;
+    const saves = await checkpointInventory(game), baseline = Object.fromEntries(Object.entries(saves).map(([slot, save]) => [slot, save.sha256]));
+    this.session = { root, game, prefix, level, checkpoints: { baseline, revision, level, projectState: projectCheckpointState(project) } }; return this.session;
   }
-  async start(project, name, progress, onExit = () => {}) {
-    const session = await this.prepare(project, name, progress), log = await fs.open(path.join(session.root, 'game.log'), 'w');
+  async start(project, name, progress, onExit = () => {}, checkpoint = null) {
+    const session = await this.prepare(project, name, progress, checkpoint), log = await fs.open(path.join(session.root, 'game.log'), 'w');
     // A direct Electron -> Wine launch fails to initialise its desktop on macOS.
     // A fresh shell fixes the verified launch path. SIP strips DYLD variables on
     // entering the system shell, so restore this local dependency path there.
@@ -200,17 +230,20 @@ export class Playtest {
     let done = false;
     const finished = async (code, error) => {
       if (done) return; done = true;
+      let checkpointError;
+      try { await collectCheckpoints(session.root, session.game, session.checkpoints); }
+      catch (error) { checkpointError = `Evidence checkpointů: ${error.message}`; }
       await writeSafe(session.root, 'run.json', JSON.stringify({ pid: child.pid, exited: true })).catch(() => {});
       if (this.child === child) this.child = null;
       await log.close().catch(() => {});
       let startupError;
       try { startupError = wineStartupError((await readSafe(session.root, 'game.log')).toString()); } catch { /* Keep the process error if its diagnostic log is unavailable. */ }
       resolveFinished();
-      onExit({ ...this.state(), code, error: error?.message ?? startupError });
+      onExit({ ...this.state(), code, error: error?.message ?? startupError ?? checkpointError });
     };
     child.once('error', error => finished(null, error)); child.once('exit', code => finished(code));
     await new Promise((resolve, reject) => { child.once('spawn', resolve); child.once('error', reject); });
-    await writeSafe(session.root, 'run.json', JSON.stringify({ pid: child.pid, exited: done }));
+    await writeSafe(session.root, 'run.json', JSON.stringify({ pid: child.pid, exited: done, checkpoints: session.checkpoints }));
     return this.state();
   }
   async stop() {
@@ -219,7 +252,10 @@ export class Playtest {
     await command(this.runtime.server, ['-k'], { env: this.environment(this.session.prefix) });
     await command(this.runtime.server, ['-w'], { env: this.environment(this.session.prefix) });
     if (!child.attached) await this.finished;
-    else await writeSafe(session.root, 'run.json', JSON.stringify({ pid: child.pid, exited: true }));
+    else {
+      try { await collectCheckpoints(session.root, session.game, session.checkpoints); }
+      finally { await writeSafe(session.root, 'run.json', JSON.stringify({ pid: child.pid, exited: true })); if (this.child === child) this.child = null; }
+    }
     if (this.child === child) this.child = null;
     return this.state();
   }

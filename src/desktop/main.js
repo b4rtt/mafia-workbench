@@ -114,7 +114,8 @@ app.whenReady().then(async () => {
   handle('replay:missions', name => replayMissions(current(), name));
   handle('replay:context', (name, scene, difference) => loadCutsceneContext(current(), name, scene, difference));
   handle('playtest:get', () => playtest.attach(project));
-  handle('playtest:start', name => operation(() => playtest.start(current(), name, p => window.webContents.send('extraction:progress', p), state => { if (!window.isDestroyed()) window.webContents.send('playtest:state', state); })));
+  handle('playtest:checkpoints', name => operation(() => playtest.checkpoints(current(), name)));
+  handle('playtest:start', (name, checkpoint = null) => operation(() => playtest.start(current(), name, p => window.webContents.send('extraction:progress', p), state => { if (!window.isDestroyed()) window.webContents.send('playtest:state', state); }, checkpoint)));
   handle('playtest:stop', () => operation(() => playtest.stop()));
   handle('asset:media', name => {
     current().asset(name);

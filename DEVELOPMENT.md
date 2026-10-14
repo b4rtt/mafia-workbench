@@ -1,6 +1,6 @@
 # Vývoj Mafia Workbench
 
-Aktualizace: 13. října 2026. Vývoj pokračuje; komplexní editor není dokončený. Implementace, datové testy, ověření UI a ověření ve hře jsou různé úrovně dokončení; neoznačovat jednu za druhou. Podrobnosti existujících funkcí a jejich omezení jsou v README.md a research/formats.md. Původní hra se nemění, úpravy mají kontrolu verze, zálohu, export a undo. Herní data a soukromé reference nepatří do veřejného repozitáře.
+Aktualizace: 14. října 2026. Vývoj pokračuje; komplexní editor není dokončený. Implementace, datové testy, ověření UI a ověření ve hře jsou různé úrovně dokončení; neoznačovat jednu za druhou. Podrobnosti existujících funkcí a jejich omezení jsou v README.md a research/formats.md. Původní hra se nemění, úpravy mají kontrolu verze, zálohu, export a undo. Herní data a soukromé reference nepatří do veřejného repozitáře.
 
 ## Současná priorita: ovládání editoru
 
@@ -181,3 +181,12 @@ Uživatel požaduje oddělený AI plugin pro generování propracovaného živé
 - Hra: řetězec signál → převzetí úkolu kontrolním NPC → skriptovaný přesun hráče k cíli → rozhovor → koncový bod dosáhl textu dokončení a kontrolního HUD 31. Neúspěšný běh dosáhl pouze své větve a HUD 81; svět běžel dál. Signál odeslaný před úvodním čekáním se neztratil, třetí běh opět dokončil řetězec. Test rozhovoru používá 100ms tichý WAV; skutečný dabing této repliky ani jeho fyzický výstup se tím neprokazují.
 - Obnova: všechny tři hry a testovací aplikace ukončené, pomocné runtime změny i příprava vráceny. Soukromý projekt na historii 38, původní scéna/TextDB/model/geometrie/KLZ a chráněné ostatní projekty/EXE hashově beze změny. Testovací data a herní soubory nejsou v repozitáři.
 - Kontroly: 323 testů, check a build prošly. Další práce: ruční průchod, restart/načtení checkpointu a signálů, lip synchronizace, volby odpovědí, další typy úkolů a ostatní backlog. Goal plného editoru a celé vlastní mise zůstává aktivní. Navazující samostatný AI městský plugin je uložen v research/city-generator-plugin.md a nezačne před splněním tohoto předpokladu.
+
+
+## Načtení úplného checkpointu z editoru
+
+- Implementováno: samostatné Načíst checkpoint… vedle startu mise, výchozí profil 0, ID/zdraví/čas záznamu, zakázané načtení při změně projektu. Záznam vzniká jen pro nové či změněné úplné save vlastního běhu. Hash save, mise, stav projektu a revize synchronizovaných assetů brání záměně; přesné undo obnoví shodu. Sběr funguje i po opětovném připojení k testu a chyba indexu nezanechá ukončený běh jako spuštěný.
+- Core: readonly per-block G_Stream reader ověřuje hlavičky, slot, úplné bloky a hráče; nepřepisuje opaque stav. GOG 1.2 patch nejprve otevře wbtest a potom volá nativní loader místo NewGame, přeskočí resetující GameInit. Výchozí start má dosavadní bajty. Podklady, adresy a hranice v research/checkpoint-load.md.
+- Hra a UI: úplný slot 599 se automaticky zaevidoval po produkčním startu. Produkční načtení i tlačítko editoru obnovily zdraví 21, pozici a pokračující program, následoval přesun k cíli, dokončení úkolu a HUD 61. Samotný load save nezměnil. Vrácení TextDB přes UI zablokovalo starší checkpoint. Časový limit/signály/dialogy po načtení a ruční průchod zůstávají samostatnými kontrolami; camera_lock se neobnovil.
+- Obnova: obě pomocné operace vráceny přes UI na historii 38; scéna/TextDB/model/geometrie/KLZ mají výchozí hashe. Předchozí soukromý save obnoven ze zálohy; ostatní chráněné projekty a originální EXE shodné. Hra i Audit editor ukončené. Herní data, save, disassembly a snímky zůstávají soukromé.
+- Kontroly: 327 testů, check a build. Kompletní mise a celý editor stále aktivní; uložený AI městský plugin začne samostatným goalem až po splnění tohoto předpokladu.
