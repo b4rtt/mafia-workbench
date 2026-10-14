@@ -144,3 +144,44 @@ test('concurrent navigation changes and publication failures cannot partially sa
   await assert.rejects(project.changeSceneObject(name, { kind: 'configure-human', target: 'Guard', behavior }, hash(scene)), /patrol publication failure/);
   project.saveManifest = save; assert.equal(project.manifest.history.length, history); assert.deepEqual(await project.read(name), scene); assert.deepEqual(await project.read(navName), before);
 });
+
+const drive={mode:'drive',carName:'Car',boarding:'walk',stops:[{name:'Finish',pauseSeconds:2},{name:'Start',pauseSeconds:.5}],loop:true,delaySeconds:1};
+test('NPC driving recipes board the chosen car, preserve stop order and keep the driver active; edited code stays custom',()=>{
+  for(const boarding of ['walk','seated'])for(const loop of [false,true]){
+    const options={...drive,boarding,loop},code=humanBehaviorScript('Guard',options);
+    assert.deepEqual(inspectHumanBehavior('Guard',code),options);assert.deepEqual(inspectHumanBehavior('Guard',code.replaceAll('\r\n','\n')),options);
+    assert.match(code,/findframe 0, "Finish"\r\nenemy_car_moveto 1, 0, stop\r\nwait 2000\r\nfindframe 0, "Start"/);assert.doesNotMatch(code,/^end$/m);
+    assert.match(code,boarding==='walk'?/enemy_move_to_car 1, 0, walk\r\nenemy_usecar 1, 0/:/human_force_settocar 0, 1, 0\r\nwait 2000/);
+    assert.equal(inspectHumanBehavior('Guard',code.replace('Guard','Other')).mode,'custom');assert.equal(inspectHumanBehavior('Guard',code+'// edit').mode,'custom');assert.equal(inspectHumanBehavior('Guard',code.replace('stop\r\n','natvrdo\r\n')).mode,'custom');
+  }
+  for(const invalid of [{carName:'guard'},{carName:'Car"\nend'},{boarding:'driver'},{loop:1},{delaySeconds:NaN},{stops:[]},{stops:[{name:'Start',pauseSeconds:-1}]},{stops:[{name:'Start',pauseSeconds:0}]},{stops:[{name:'Guard',pauseSeconds:0}]},{stops:Array(33).fill(drive.stops[0])}])assert.throws(()=>humanBehaviorScript('Guard',{...drive,...invalid}),/Jízda/);
+});
+async function drivingFixture(t){
+  const f=await fixture(t),transform={rotation:[1,0,0,0],scale:[1,1,1]};let scene=changeSceneObject(f.scene,{kind:'add-car',name:'Car',model:'Car.i3d',position:[0,0,0],...transform});
+  for(const [name,z]of [['Finish',20],['Start',0]])scene=changeSceneObject(scene,{kind:'add-detector',name,position:[0,0,z],mask:0,code:'end'});
+  scene=changeSceneObject(scene,{kind:'add-model',name:'StaticCar',model:'Car.i3d',position:[0,0,0],...transform});await f.project.change(f.name,scene,'Driving fixture');
+  const {changeRoadTopology}=await import('../src/core/road-topology.js');let road=Buffer.alloc(12);road.writeUInt32LE(2);
+  for(const position of [[0,0,0],[0,0,20]])road=changeRoadTopology(road,{action:'create-crossing',position,speed:5,semaphore:0}).data;
+  road=changeRoadTopology(road,{action:'connect',from:0,to:1,positions:[[0,0,10]],speed:5}).data;
+  const roadName='missions/NPC/road.bin';await f.project.createFiles([{path:roadName,data:road}]);return {...f,scene,road,roadName,behavior:{...drive,roadHash:hash(road)}};
+}
+test('driving uses canonical actor/frame names and the same mission road; script-only save exports, reopens and undoes exactly',async t=>{
+  const {project,root,name,scene,road,roadName,behavior}=await drivingFixture(t),history=project.manifest.history.length,original=inspectScene(scene);
+  await project.changeSceneObject(name,{kind:'configure-human',target:'gUARD',behavior:{...behavior,carName:'cAR',stops:behavior.stops.map(stop=>({...stop,name:stop.name.toLowerCase()})),roadPath:'missions/OTHER/road.bin'}},hash(scene));
+  const after=await project.read(name),parsed=inspectScene(after);assert.equal(parsed.actorScripts[0].code,humanBehaviorScript('Guard',drive));assert.deepEqual(parsed.actorScripts.slice(1),original.actorScripts.slice(1));assert.deepEqual(parsed.entries.filter(e=>!e.actorScript).map(e=>e.value),original.entries.filter(e=>!e.actorScript).map(e=>e.value));assert(after.includes(Buffer.from('opaque sibling')));assert.deepEqual(await project.read(roadName),road);assert.deepEqual(project.manifest.history.at(-1).files.map(f=>f.path),[name]);
+  const reopened=await ModProject.open(root);await reopened.export(root+'/export');assert.deepEqual(await fs.readFile(root+'/export/'+name),after);assert.deepEqual(inspectHumanBehavior('Guard',inspectScene(await reopened.read(name)).actorScripts[0].code),drive);await reopened.undo();assert.deepEqual(await reopened.read(name),scene);assert.equal(reopened.manifest.history.length,history);
+  await reopened.changeSceneObject(name,{kind:'add-human',name:'NewDriver',model:'models/Human.4ds',position:[2,0,0],rotation:[1,0,0,0],scale:[1,1,1],parameters:{},behavior},hash(scene));assert.equal(inspectScene(await reopened.read(name)).actorScripts.at(-1).code,humanBehaviorScript('NewDriver',drive));await reopened.undo();assert.deepEqual(await reopened.read(name),scene);
+});
+test('driving rejects static cars, moving or missing targets, stale roads and networks without a connected route',async t=>{
+  const {project,name,scene,road,roadName,behavior}=await drivingFixture(t),history=project.manifest.history.length;
+  for(const invalid of [{carName:'Missing'},{carName:'StaticCar'},{roadHash:'stale'},{stops:[{name:'Target',pauseSeconds:0},{name:'Start',pauseSeconds:0}]},{stops:[{name:'Missing',pauseSeconds:0},{name:'Start',pauseSeconds:0}]}])await assert.rejects(project.changeSceneObject(name,{kind:'configure-human',target:'Guard',behavior:{...behavior,...invalid}},hash(scene)),/Jízda/);
+  assert.equal(project.manifest.history.length,history);assert.deepEqual(await project.read(name),scene);
+  const empty=Buffer.alloc(12);empty.writeUInt32LE(2);await project.change(roadName,empty,'Empty road');await assert.rejects(project.changeSceneObject(name,{kind:'configure-human',target:'Guard',behavior:{...behavior,roadHash:hash(empty)}},hash(scene)),/propojenou/);await project.undo();assert.deepEqual(await project.read(roadName),road);
+  const {humanDrivingTargets}=await import('../src/shared/human-driving.js'),file=await project.inspectMap(name);assert(humanDrivingTargets(file,'Guard','Car').some(f=>f.name==='Finish'));file.geometry.meshes.push({name:'finish',type:1});assert(!humanDrivingTargets(file,'Guard','Car').some(f=>f.name==='Finish'));
+});
+test('concurrent driving-road edits and failed publication cannot partially replace an NPC program',async t=>{
+  const {project,name,scene,road,roadName,behavior}=await drivingFixture(t),history=project.manifest.history.length,batch=project.changeBatch,{changeRoadTopology}=await import('../src/core/road-topology.js');
+  project.changeBatch=async function(files,...args){await this.change(roadName,changeRoadTopology(road,{action:'create-crossing',position:[100,0,100],speed:5}).data,'Independent road change');return batch.call(this,files,...args);};
+  await assert.rejects(project.changeSceneObject(name,{kind:'configure-human',target:'Guard',behavior},hash(scene)),/změnil/);assert.deepEqual(await project.read(name),scene);project.changeBatch=batch;await project.undo();assert.equal(project.manifest.history.length,history);
+  const save=project.saveManifest;project.saveManifest=async()=>{throw Error('driving publication failure');};await assert.rejects(project.changeSceneObject(name,{kind:'configure-human',target:'Guard',behavior},hash(scene)),/driving publication/);project.saveManifest=save;assert.deepEqual(await project.read(name),scene);assert.deepEqual(await project.read(roadName),road);assert.equal(project.manifest.history.length,history);
+});

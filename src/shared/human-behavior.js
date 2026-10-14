@@ -1,5 +1,6 @@
 import { HUMAN_IDLE_SCRIPT } from './human-program.js';
 import { dialogueSpeakers } from './mission-dialogue.js';
+import { humanDrivingScript, inspectHumanDriving } from './human-driving.js';
 
 const key = name => name.normalize('NFC').toLowerCase();
 const validName = name => typeof name === 'string' && name.trim() && name.length <= 255 && !/["\x00-\x1f]/.test(name);
@@ -35,7 +36,8 @@ export function validateHumanRoute(options, navigation) {
 }
 
 export function humanBehaviorScript(owner, options) {
-  if (!options || !['idle', 'custom', 'attack', 'patrol'].includes(options.mode)) throw new Error('Postava: vyberte platné chování.');
+  if (!options || !['idle', 'custom', 'attack', 'patrol', 'drive'].includes(options.mode)) throw new Error('Postava: vyberte platné chování.');
+  if (options.mode === 'drive') return humanDrivingScript(owner, options);
   if (options.mode === 'idle') return HUMAN_IDLE_SCRIPT;
   if (options.mode === 'custom') {
     if (typeof options.code !== 'string' || options.code.includes('\0') || options.code.length > 1000000) throw new Error('Postava: neplatný vlastní program.');
@@ -57,6 +59,7 @@ export function humanBehaviorScript(owner, options) {
 // Recognize only our exact generated recipe. Arbitrary programs stay custom.
 export function inspectHumanBehavior(owner, code) {
   const normalized = code.replaceAll('\r\n', '\n');
+  const driving=inspectHumanDriving(owner,code);if(driving)return driving;
   if (normalized === HUMAN_IDLE_SCRIPT.replaceAll('\r\n', '\n')) return { mode: 'idle' };
   const lines = normalized.split('\n');
   if (lines[0] === '// Mafia Workbench human patrol v1') {

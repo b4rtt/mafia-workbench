@@ -1272,7 +1272,7 @@ function renderMap(main, file, previous = null) {
       const cars=kind==='add-car'?await api.carModels():null;
       const context=kind==='add-human'?await humanBehaviorContext(file):null;
       if(cars&&!cars.models.length)throw new Error('Projekt nemá dostupný automobilový model s fyzikální tabulkou a potřebnými částmi.');
-      sceneObjectDialog(file, kind, selectedObject,cars,context?.catalog,context?.navigation);
+      sceneObjectDialog(file, kind, selectedObject,cars,context?.catalog,context?.navigation,context?.roads);
     });
     configureHuman.onclick=()=>run(async()=>{
       if(state.texts.size)throw new Error('Nejdřív uložte rozepsané vlastnosti.');
@@ -1520,11 +1520,11 @@ function detectorDialog(file,position=[0,0,0]){
   dialog.addEventListener('cancel',event=>{if(state.busy)event.preventDefault();});dialog.addEventListener('close',()=>{closed=true;destinationRevision++;dialog.remove();},{once:true});document.body.append(dialog);update();dialog.showModal();name.select();
 }
 async function humanBehaviorContext(file) {
-  const [catalog,navigation]=await Promise.all([api.pickupItems().catch(error=>({items:[],warning:error.message})),api.inspect(file.path.replace(/scene2\.bin$/i,'check.bin')).catch(error=>({warning:error.message}))]);
-  return {catalog,navigation};
+  const [catalog,navigation,roads]=await Promise.all([api.pickupItems().catch(error=>({items:[],warning:error.message})),api.inspect(file.path.replace(/scene2\.bin$/i,'check.bin')).catch(error=>({warning:error.message})),api.inspect(file.path.replace(/scene2\.bin$/i,'road.bin')).catch(error=>({warning:error.message}))]);
+  return {catalog,navigation,roads};
 }
 
-function sceneObjectDialog(file, kind, object, cars = null, weapons = null, navigation = null) {
+function sceneObjectDialog(file, kind, object, cars = null, weapons = null, navigation = null, roads = null) {
   const adding=['add-model','add-human','add-car'].includes(kind);
   if (!adding && !object) throw new Error('Nejdřív vyberte samostatný objekt mapy.');
   const dialog = element('dialog'), form = element('form', undefined, 'mission-form'), fields = element('div', undefined, 'mission-fields');
@@ -1557,7 +1557,7 @@ function sceneObjectDialog(file, kind, object, cars = null, weapons = null, navi
     if(kind==='add-human'){
       const settings=element('details'),settingsFields=element('div',undefined,'mission-fields');settings.append(element('summary','Parametry postavy'),settingsFields);
       for(const field of humanFields){const input=element('input');input.type='number';input.step=field.kind==='byte'?'1':'any';if(field.kind==='byte'){input.min='0';input.max='255';}input.value=String(field.default);input.required=true;input.setAttribute('aria-label',field.label);const row=element('label',field.label);row.append(input);settingsFields.append(row);parameters.set(field.key,input);}
-      behavior=humanBehaviorFields({element,file,catalog:weapons,navigation,owner:()=>name.value,onChange:result=>{behaviorValid=result.valid;if(submitButton)submitButton.disabled=!behaviorValid;}});name.addEventListener('input',()=>behavior.update());
+      behavior=humanBehaviorFields({element,file,catalog:weapons,navigation,roads,owner:()=>name.value,onChange:result=>{behaviorValid=result.valid;if(submitButton)submitButton.disabled=!behaviorValid;}});name.addEventListener('input',()=>behavior.update());
       form.append(settings,behavior.root,element('p','Parametry jsou uložená maxima; human_getproperty a human_setproperty používají procenta. Model musí mít kostru a rám base; dynamické kolize vytváří hra. Vlastní kód se vykoná při startu mise.','notice'));
     }
   } else { if(kind==='collision')collisionFields();form.append(fields, element('p', kind==='collision'?`${object.name}: přesný povrch zachová geometrické otvory; box vyplní celý obal. Povrch používá viditelné trojúhelníky prvního LOD, nikoli průhlednost textur. Odstranění se týká jen kolize vytvořené editorem.`:kind === 'duplicate' ? 'Kopie zachová model, rodiče a transformace a získá vlastní generovanou kolizi, pokud ji má původní objekt.' : 'Skripty, aktéři a původní geometrie se automaticky nepřepisují. Objekty s rozpoznanými vazbami nelze odstranit.')); }

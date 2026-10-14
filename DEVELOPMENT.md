@@ -2,6 +2,13 @@
 
 Aktualizace: 14. října 2026. Vývoj pokračuje; komplexní editor není dokončený. Implementace, datové testy, ověření UI a ověření ve hře jsou různé úrovně dokončení; neoznačovat jednu za druhou. Podrobnosti existujících funkcí a jejich omezení jsou v README.md a research/formats.md. Původní hra se nemění, úpravy mají kontrolu verze, zálohu, export a undo. Herní data a soukromé reference nepatří do veřejného repozitáře.
 
+## Řízená jízda NPC (2026-10-14)
+
+- Přidání postavy a Objekt → Chování postavy… nabízí jízdu konkrétním autem přes 1–32 stálých cílových framů, jejich pořadí a čekání, počáteční prodlevu, jednorázovou/opakovanou trasu a přirozený nástup nebo začátek na sedadle řidiče. Po dojezdu zůstává aktér aktivní. Přesně rozpoznaná šablona obnoví formulář; ruční programy zůstávají vlastními.
+- Backend kontroluje skutečného automobilového aktéra, jednoznačné nepohyblivé cíle a propojený road.bin ze stejné mise. Hash sítě se hlídá také při publikaci; uloží se jen program NPC, případně společně s novou postavou. Modely, parametry a ostatní programy zachované; jedno undo. Kontrola nezaručuje dojezd všech cílů, průchozí povrch ani volné sedadlo.
+- Samostatný Electron: neplatný cíl disabled, dvě zastávky, změna čekání a opakování, náhled, uložení, obnovení formuláře, přesný export a UI undo. GOG 1.2/Wine: nástup do skutečného auta na sedadlo řidiče, příjezd, návrat a druhý odjezd doložené nezávislým čtením vlastníka/sedadla a polohy auta (HUD 95). Jednorázová varianta začínající na sedadle přijela k cíli (HUD 70). Diagnostika neovládala auto. Podrobnosti a zbývající ověření v research/human-driving.md.
+- 437/437 testů, check a build prošly. Vlastní herní běhy i aplikace ukončené; diagnostika, testovací program a přidaný bod vrácené přesným undo. Vlastní herní kopie obnovena z výchozí scény, chráněné uživatelské soubory shodné. Přesné čekání, checkpoint této varianty a plný průchod vlastní mise stále vyžadují ověření; městský plugin tím není zahájený.
+
 ## Vozovka a chodníky podle silniční sítě (2026-10-14)
 
 - Silniční síť → Vytvořit vozovku a chodníky…: jedna uložená cesta, živý náhled, tři BMP materiály, ruční rozměry a opakování, nový nativní 4DS s identity transformací a světovými souřadnicemi. Road.bin zůstává přesný, vytvoření má jeden undo; model se vkládá zvlášť s přesnou kolizí. Závislosti sítě/textur chráněné i při publikaci, invalidní a překrývající se cesty odmítnuté. Sdílený writer nových povrchů zachoval starý terén po bajtech.

@@ -2,6 +2,8 @@ import { hash } from './files.js';
 import { inspectScene } from './scene.js';
 import { humanAttackTargets, humanBehaviorScript, humanWeapons, validateHumanRoute } from '../shared/human-behavior.js';
 import { parseNavigation } from './navigation.js';
+import { parseRoads } from './roads.js';
+import { resolveHumanDriving } from '../shared/human-driving.js';
 
 export async function prepareHumanBehavior(project, before, geometry, operation, scenePath) {
   const scene = { ...inspectScene(before), geometry }, owner = operation.kind === 'configure-human' ? operation.target : operation.name;
@@ -11,6 +13,12 @@ export async function prepareHumanBehavior(project, before, geometry, operation,
   let options = operation.behavior;
   humanBehaviorScript(name, options);
   const dependencies = [];
+  if (options.mode === 'drive') {
+    const asset=project.asset(scenePath.replace(/scene2\.bin$/i,'road.bin')),data=await project.read(asset.path);
+    if(options.roadHash!==hash(data))throw new Error('Jízda: silniční síť se od otevření změnila. Otevřete dialog znovu.');
+    options=resolveHumanDriving(scene,name,options,parseRoads(data));
+    dependencies.push({path:asset.path,data,expectedHash:options.roadHash});
+  }
   if (options.mode === 'patrol') {
     const navigationName = scenePath.replace(/scene2\.bin$/i, 'check.bin'), asset = project.asset(navigationName), data = await project.read(asset.path);
     if (options.navigationHash !== hash(data)) throw new Error('Trasa: navigace se od otevření změnila. Otevřete dialog znovu.');
