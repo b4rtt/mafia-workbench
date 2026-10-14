@@ -176,6 +176,8 @@ app.whenReady().then(async () => {
   handle('asset:model', (name, changes, expectedHash) => operation(async () => { await current().saveModel(name, changes, expectedHash); return current().inspect(name); }));
   handle('asset:model-geometry', (name, mesh) => current().modelGeometry(name,mesh));
   handle('asset:sector-context', name => current().sectorContext(name));
+  handle('asset:sector-link-context', (name,mesh) => current().sectorLinkContext(name,mesh));
+  handle('asset:sector-link', (name,request,expectedHash,sceneHash) => operation(async()=>{await current().connectSectorPortal(name,request,expectedHash,sceneHash);return current().inspect(name);}));
   handle('asset:sector-create', (name, options, expectedHash, sceneHash) => operation(async()=>{await current().createSector(name,options,expectedHash,sceneHash);return current().inspect(name);}));
   handle('asset:geometry', (name, request, expectedHash) => operation(async () => { await current().saveGeometry(name, request, expectedHash); return current().inspect(name); }));
   handle('asset:bitmap', (name, changes, expectedHash) => operation(async () => { await current().saveBitmap(name, changes, expectedHash); return current().inspect(name); }));

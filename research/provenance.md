@@ -31,3 +31,6 @@ Validace a writer změněné sektorové geometrie, portálů a jejich UI jsou vl
 
 
 Writer nového sektorového frame, box, jeho validace a dialog jsou vlastní implementace podle struktury `serialize_frame`/`serialize_sector` v uložené Blender referenci a auditu skutečných defaultů původních sektorů. Žádný zdroj exportéru ani původní herní asset nebyl vložen do veřejného repo. Testy používají syntetickou sektorovou fixture; nativní evidence a herní kopie zůstávají soukromé v ignored local.
+
+
+Plán propojení sektorů, převody souřadnic, kontroly hranice/overlap a dialog protikusu jsou vlastní implementace. Princip geometrického spojování byl porovnán s `UpdatePortalInterconnection`/`MakeReadySectors` z PS2 st0rm94 exportu a s polygonovými dvojicemi původních misí; zdroj ani neznámé tolerance nebyly kopírovány. Windows účinek ověřuje oddělený nativní test nové dvojice sektorů; evidence/herní data zůstávají ignored local. Syntetické testy nevkládají původní game asset do veřejného repo.

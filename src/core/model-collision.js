@@ -8,7 +8,7 @@ function matrix(frame) {
   return new Matrix4().compose(new Vector3(...(frame.position??[0,0,0])),new Quaternion(-rotation[1],-rotation[2],-rotation[3],rotation[0]).normalize(),new Vector3(...(frame.scale??[1,1,1])));
 }
 
-function sceneWorld(scene, geometry) {
+export function sceneWorld(scene, geometry) {
   const byName=new Map();
   for(const frame of geometry.meshes){const name=key(frame.name),list=byName.get(name)??[];list.push({frame,geometry:true});byName.set(name,list);}
   for(const frame of scene.objects){const name=key(frame.name),list=byName.get(name)??[];list.push({frame,geometry:false});byName.set(name,list);}

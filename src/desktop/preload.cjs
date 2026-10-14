@@ -41,6 +41,8 @@ contextBridge.exposeInMainWorld('workbench', {
   saveModel: (name, changes, expectedHash) => invoke('asset:model', name, changes, expectedHash),
   modelGeometry: (name, mesh) => invoke('asset:model-geometry', name, mesh),
   sectorContext: name => invoke('asset:sector-context', name),
+  sectorLinkContext: (name,mesh) => invoke('asset:sector-link-context',name,mesh),
+  connectSectorPortal: (name,request,expectedHash,sceneHash) => invoke('asset:sector-link',name,request,expectedHash,sceneHash),
   createSector: (name, options, expectedHash, sceneHash) => invoke('asset:sector-create', name, options, expectedHash, sceneHash),
   saveGeometry: (name, request, expectedHash) => invoke('asset:geometry', name, request, expectedHash),
   saveBitmap: (name, changes, expectedHash) => invoke('asset:bitmap', name, changes, expectedHash),

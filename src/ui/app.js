@@ -26,6 +26,7 @@ import { geometryDialog } from './model-geometry.js';
 import { modelImportDialog } from './model-import.js';
 import { terrainDialog } from './terrain.js';
 import { sectorCreateDialog } from './sector-create.js';
+import { sectorLinkDialog } from './sector-link.js';
 import { EffectsViewport } from './effects.js';
 import { renderEffectDefinitions } from './effect-types.js';
 import { AnimationPreview } from './animation.js';
@@ -954,8 +955,8 @@ function renderModel(main, file, previous = null) {
   objects.setAttribute('aria-label', 'Objekt modelu'); objects.append(element('option', 'Vyberte objekt…'));
   for (const mesh of file.meshes) { const option = element('option', `${mesh.id} · ${mesh.name}`); option.value = String(mesh.id); objects.append(option); }
   center.append(tools, objects, selected, viewport);
-  let properties;
-  const view = new Viewport(viewport, frame => { view.selectedId = frame.id; view.showSectors(view.sectorsVisible, frame.id); geometry.textContent=frame.type===5?'Sektor a portály…':'Vrcholy, plochy a UV…'; selected.textContent = `Objekt ${frame.sourceId}: ${frame.name}`; objects.value = String(frame.sourceId); properties?.select(`meshes/${frame.sourceId - 1}/position`); }, (frame, values, mode) => {
+  let properties,linkSector;
+  const view = new Viewport(viewport, frame => { view.selectedId = frame.id; view.showSectors(view.sectorsVisible, frame.id); if(linkSector)linkSector.disabled=!file.meshes[frame.sourceId-1]?.sector?.portals.length; geometry.textContent=frame.type===5?'Sektor a portály…':'Vrcholy, plochy a UV…'; selected.textContent = `Objekt ${frame.sourceId}: ${frame.name}`; objects.value = String(frame.sourceId); properties?.select(`meshes/${frame.sourceId - 1}/position`); }, (frame, values, mode) => {
     const field = { translate: 'position', rotate: 'rotation', scale: 'scale' }[mode], id = `meshes/${frame.sourceId - 1}/${field}`;
     state.texts.set(id, values[field]); state.selectedProperty = id; properties?.select(id); status('3D úprava je rozepsaná; uložte změny v inspektoru.');
   });
@@ -969,6 +970,7 @@ function renderModel(main, file, previous = null) {
   const wire = element('button', 'Drátěný pohled'); view.modelWireframe = Boolean(previous?.wireframe); wire.setAttribute('aria-pressed', String(view.modelWireframe)); wire.onclick = () => { view.modelWireframe = !view.modelWireframe; view.wireframe(view.modelWireframe); wire.setAttribute('aria-pressed', String(view.modelWireframe)); }; tools.append(fit, wire);
   const sectors=element('button','Všechny sektory a portály');view.sectorsVisible=Boolean(previous?.sectors);sectors.disabled=!file.meshes.some(mesh=>mesh.sector);sectors.setAttribute('aria-pressed',String(view.sectorsVisible));sectors.onclick=()=>{view.showSectors(!view.sectorsVisible,view.selectedId);sectors.setAttribute('aria-pressed',String(view.sectorsVisible));};tools.append(sectors);
   if(/^missions\/[^/]+\/scene\.4ds$/i.test(file.path)){const addSector=element('button','Nový sektor…');addSector.disabled=Boolean(state.texts.size);addSector.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před tvorbou sektoru uložte rozepsané vlastnosti.');const context=await api.sectorContext(file.path);if(context.sha256!==file.sha256)throw new Error('Geometrie se od otevření změnila. Otevřete ji znovu.');sectorCreateDialog(file,context,{element,run,status,center:[view.controls.target.x,view.controls.target.y,-view.controls.target.z],save:async(options,expectedHash,sceneHash)=>{const next=await api.createSector(file.path,options,expectedHash,sceneHash);view.selectedId=String(next.meshes.length);state.file=next;await refresh();renderDetail();}});});tools.append(addSector);}
+  if(/^missions\/[^/]+\/scene\.4ds$/i.test(file.path)){linkSector=element('button','Propojit portál…');linkSector.disabled=true;linkSector.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před propojením portálu uložte rozepsané vlastnosti.');const context=await api.sectorLinkContext(file.path,Number(objects.value));if(context.sha256!==file.sha256)throw new Error('Geometrie se od otevření změnila. Otevřete ji znovu.');sectorLinkDialog(context,{element,run,status,save:async(request,expectedHash,sceneHash)=>{state.file=await api.connectSectorPortal(file.path,request,expectedHash,sceneHash);await refresh();renderDetail();}});});tools.append(linkSector);}
   objects.onchange = () => view.select(String(objects.value));
   try { view.addModel(file); if (!previous) view.fit(); view.wireframe(view.modelWireframe); }
   catch (error) { status(error.message, true); }

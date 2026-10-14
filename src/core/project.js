@@ -36,6 +36,7 @@ import { parseEffectDefinitions, editEffectDefinitions } from './effect-types.js
 import { parseBmp, editBmp } from './bmp.js';
 import { inspectModelGeometry, editModelGeometry } from './model-geometry.js';
 import { appendSector } from './sector-create.js';
+import { inspectSectorLinks, linkSectorPortal } from './sector-link.js';
 import { inspectProjectCollision, saveProjectCollision } from './collision-project.js';
 import { modelImportPlan, importModel } from './model-import.js';
 
@@ -569,6 +570,18 @@ export class ModProject {
     if(hash(before)!==expectedHash||hash(scene)!==sceneHash)throw new Error('Data mise se od otevření změnila. Otevřete dialog znovu.');
     const after=appendSector(before,options,context.names);
     await this.changeBatch([{path:name,data:after,expectedHash},{path:scenePath,data:scene,expectedHash:sceneHash}],`Nový sektor ${options.name}`);
+  }
+  async sectorLinkContext(name,mesh) {
+    if(!/^missions\/[^/]+\/scene\.4ds$/i.test(name))throw new Error('Vyberte geometrii mise scene.4ds.');
+    const bytes=await this.read(name),scene=await this.read(name.slice(0,name.lastIndexOf('/'))+'/scene2.bin');
+    return {sha256:hash(bytes),sceneHash:hash(scene),...inspectSectorLinks(bytes,scene,mesh)};
+  }
+  async connectSectorPortal(name,request,expectedHash,sceneHash) {
+    if(!/^missions\/[^/]+\/scene\.4ds$/i.test(name))throw new Error('Vyberte geometrii mise scene.4ds.');
+    const before=await this.read(name),scenePath=name.slice(0,name.lastIndexOf('/'))+'/scene2.bin',scene=await this.read(scenePath);
+    if(hash(before)!==expectedHash||hash(scene)!==sceneHash)throw new Error('Geometrie nebo scéna se od otevření změnila. Otevřete dialog znovu.');
+    const after=linkSectorPortal(before,scene,request);
+    await this.changeBatch([{path:name,data:after,expectedHash},{path:scenePath,data:scene,expectedHash:sceneHash}],'Propojení sektorů portálem');
   }
   async saveCollision(name,operations,expectedHash,dependencies,options) { return saveProjectCollision(this,name,operations,expectedHash,dependencies,options); }
   async saveGeometry(name, request, expectedHash) {
