@@ -34,3 +34,6 @@ Writer nového sektorového frame, box, jeho validace a dialog jsou vlastní imp
 
 
 Plán propojení sektorů, převody souřadnic, kontroly hranice/overlap a dialog protikusu jsou vlastní implementace. Princip geometrického spojování byl porovnán s `UpdatePortalInterconnection`/`MakeReadySectors` z PS2 st0rm94 exportu a s polygonovými dvojicemi původních misí; zdroj ani neznámé tolerance nebyly kopírovány. Windows účinek ověřuje oddělený nativní test nové dvojice sektorů; evidence/herní data zůstávají ignored local. Syntetické testy nevkládají původní game asset do veřejného repo.
+
+
+Konstrukce konvexního povrchu používá MIT Three.js addon [ConvexHull](https://threejs.org/docs/pages/ConvexHull.html) z již instalované závislosti (QuickHull port uvedený v její dokumentaci). Addon je importovaný, nikoli kopírovaný z jiného Mafia editoru; bundler zachovává licenční komentáře. Mapování původních bodů/ID, float32 a LS3D inward validace, odebrání/přemapování, GUI a testy jsou implementace tohoto projektu. Herní evidence zůstává soukromá v ignored local.
