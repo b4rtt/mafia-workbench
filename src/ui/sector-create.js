@@ -1,0 +1,20 @@
+import {sectorBox} from '../shared/sector-box.js';
+import {Viewport} from './viewport.js';
+
+export function sectorCreateDialog(file,context,{element,run,status,save,center=[0,0,0]}){
+  const dialog=element('dialog',undefined,'geometry-dialog sector-create-dialog'),form=element('form'),fields=element('div',undefined,'mission-fields'),preview=element('div',undefined,'viewport'),message=element('p','','notice'),actions=element('div',undefined,'tools'),cancel=element('button','Zrušit'),submit=element('button','Vytvořit sektor','primary');
+  cancel.type='button';submit.type='submit';actions.append(cancel,submit);form.append(fields,preview,message,actions);dialog.append(element('h2','Nový sektor mise'),form,element('p','Sektor začne jako uzavřený box s osmi vrcholy. Střed je ve světových souřadnicích mise. Po vytvoření jej můžete upravit přes Sektor a portály… Samotný objem nevytvoří viditelné stěny ani kolize; pro spojení s okolím je potřeba doplnit portály.','notice'));
+  const field=(label,input)=>{const row=element('label',label);input.setAttribute('aria-label',label);row.append(input);fields.append(row);return input;};
+  const key=n=>n.normalize('NFC').toLowerCase(),used=new Set(context.names.map(key));let initial='WB_SECTOR',suffix=2;while(used.has(key(initial)))initial=`WB_SECTOR_${suffix++}`;
+  const name=field('Název sektoru',element('input'));name.value=initial;name.required=true;name.maxLength=80;
+  const number=(label,value,min,max,step='any')=>{const input=field(label,element('input'));input.type='number';input.required=true;input.value=String(value);input.min=String(min);input.max=String(max);input.step=step;return input;};
+  const position=['X','Y','Z'].map((axis,i)=>number(`Střed ${axis} (m)`,center[i],-32768,32768)),size=['X','Y','Z'].map((axis,i)=>number(`Rozměr ${axis} (m)`,[10,4,10][i],.01,8192)),flags=[number('Příznaky sektoru 1 (raw)',2049,0,4294967295,'1'),number('Příznaky sektoru 2 (raw)',0,0,4294967295,'1')];
+  const inputs=[name,...position,...size,...flags],options=()=>({name:name.value,center:position.map(i=>Number(i.value)),size:size.map(i=>Number(i.value)),flags:flags.map(i=>Number(i.value))});
+  let view=null,camera=null,previousBox=null,closed=false,busy=false;
+  function update(){
+    submit.disabled=true;if(view)camera=view.captureCamera();view?.dispose();view=null;preview.replaceChildren();
+    try{if(inputs.some(i=>!i.value.trim()||!i.validity.valid))throw new Error('Vyplňte platný název, souřadnice, rozměry a příznaky.');const config=options(),mesh=sectorBox(config);if(used.has(key(mesh.name)))throw new Error('Objekt tohoto názvu již existuje v misi.');view=new Viewport(preview);view.addModel({version:29,materials:[],meshes:[mesh],animated:0});view.showSectors(true,'1');const box={center:[config.center[0],config.center[1],-config.center[2]],size:Math.hypot(...config.size)};if(camera&&previousBox){const ratio=box.size/previousBox.size;camera={...camera,position:camera.position.map((v,i)=>box.center[i]+(v-previousBox.center[i])*ratio),target:camera.target.map((v,i)=>box.center[i]+(v-previousBox.center[i])*ratio)};view.restoreCamera(camera);}else view.fit();previousBox=box;message.textContent='8 vrcholů · 12 ploch · změna pouze geometrie, s jedním undo.';submit.disabled=busy;}catch(error){message.textContent=error.message;}
+  }
+  for(const input of inputs)input.oninput=update;cancel.onclick=()=>dialog.close();form.onsubmit=event=>{event.preventDefault();if(submit.disabled||!form.reportValidity())return;run(async()=>{busy=true;submit.disabled=cancel.disabled=true;fields.inert=true;try{await save(options(),context.sha256,context.sceneHash);status('Nový sektor vytvořen se zálohou.');dialog.close();}catch(error){message.textContent=error.message;}finally{busy=false;fields.inert=false;cancel.disabled=false;if(!closed)submit.disabled=false;}});};
+  dialog.addEventListener('cancel',event=>{if(busy)event.preventDefault();});dialog.addEventListener('close',()=>{closed=true;view?.dispose();dialog.remove();},{once:true});document.body.append(dialog);dialog.showModal();name.focus();name.select();update();
+}

@@ -28,3 +28,6 @@ Sektorové/portálové čtení a byte-local zápis 4DS v29 i Three.js obrysy jso
 
 
 Validace a writer změněné sektorové geometrie, portálů a jejich UI jsou vlastní implementace podle porovnané struktury a pravidel `validate_sector_and_portal` v Blender referenci. Výpočet bounds a jednotkové roviny vychází z geometrie a pozorovaných původních hodnot; zdroj exportéru nebyl kopírovaný. Nepoužité vrcholy původních objemů se zachovávají podle reálných dat. PS2 `UpdatePortal__10I3D_portalFv` z uloženého st0rm94 exportu je pomocný podklad transformace, nikoli důkaz nativního chování nového writeru. Omezení a výsledky ověření jsou v `formats.md`.
+
+
+Writer nového sektorového frame, box, jeho validace a dialog jsou vlastní implementace podle struktury `serialize_frame`/`serialize_sector` v uložené Blender referenci a auditu skutečných defaultů původních sektorů. Žádný zdroj exportéru ani původní herní asset nebyl vložen do veřejného repo. Testy používají syntetickou sektorovou fixture; nativní evidence a herní kopie zůstávají soukromé v ignored local.

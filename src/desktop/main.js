@@ -175,6 +175,8 @@ app.whenReady().then(async () => {
   handle('asset:scene-collision-rebuild', (name, expectedHash, collisionHash) => operation(async () => { const result=await current().rebuildSceneCollision(name,expectedHash,collisionHash);return {...result,map:await current().inspectMap(name)}; }));
   handle('asset:model', (name, changes, expectedHash) => operation(async () => { await current().saveModel(name, changes, expectedHash); return current().inspect(name); }));
   handle('asset:model-geometry', (name, mesh) => current().modelGeometry(name,mesh));
+  handle('asset:sector-context', name => current().sectorContext(name));
+  handle('asset:sector-create', (name, options, expectedHash, sceneHash) => operation(async()=>{await current().createSector(name,options,expectedHash,sceneHash);return current().inspect(name);}));
   handle('asset:geometry', (name, request, expectedHash) => operation(async () => { await current().saveGeometry(name, request, expectedHash); return current().inspect(name); }));
   handle('asset:bitmap', (name, changes, expectedHash) => operation(async () => { await current().saveBitmap(name, changes, expectedHash); return current().inspect(name); }));
   handle('asset:collision',(name,operations,expectedHash,dependencies,options)=>operation(async()=>{const result=await current().saveCollision(name,operations,expectedHash,dependencies,options);return {file:await current().inspect(name),...result};}));

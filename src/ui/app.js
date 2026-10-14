@@ -25,6 +25,7 @@ import { renderBitmap } from './bitmap.js';
 import { geometryDialog } from './model-geometry.js';
 import { modelImportDialog } from './model-import.js';
 import { terrainDialog } from './terrain.js';
+import { sectorCreateDialog } from './sector-create.js';
 import { EffectsViewport } from './effects.js';
 import { renderEffectDefinitions } from './effect-types.js';
 import { AnimationPreview } from './animation.js';
@@ -967,6 +968,7 @@ function renderModel(main, file, previous = null) {
   const geometry=element('button','Vrcholy, plochy a UV…');geometry.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před editací geometrie uložte rozepsané vlastnosti.');const id=Number(objects.value);if(!id)throw new Error('Nejdřív vyberte část modelu.');const context=await api.modelGeometry(file.path,id);if(context.sha256!==file.sha256)throw new Error('Model se od otevření změnil. Otevřete jej znovu.');geometryDialog(file,context,{run,status,resolveTexture:view.resolveTexture,save:async(request,expectedHash)=>{state.file=await api.saveGeometry(file.path,request,expectedHash);await refresh();renderDetail();}});});tools.append(geometry);
   const wire = element('button', 'Drátěný pohled'); view.modelWireframe = Boolean(previous?.wireframe); wire.setAttribute('aria-pressed', String(view.modelWireframe)); wire.onclick = () => { view.modelWireframe = !view.modelWireframe; view.wireframe(view.modelWireframe); wire.setAttribute('aria-pressed', String(view.modelWireframe)); }; tools.append(fit, wire);
   const sectors=element('button','Všechny sektory a portály');view.sectorsVisible=Boolean(previous?.sectors);sectors.disabled=!file.meshes.some(mesh=>mesh.sector);sectors.setAttribute('aria-pressed',String(view.sectorsVisible));sectors.onclick=()=>{view.showSectors(!view.sectorsVisible,view.selectedId);sectors.setAttribute('aria-pressed',String(view.sectorsVisible));};tools.append(sectors);
+  if(/^missions\/[^/]+\/scene\.4ds$/i.test(file.path)){const addSector=element('button','Nový sektor…');addSector.disabled=Boolean(state.texts.size);addSector.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před tvorbou sektoru uložte rozepsané vlastnosti.');const context=await api.sectorContext(file.path);if(context.sha256!==file.sha256)throw new Error('Geometrie se od otevření změnila. Otevřete ji znovu.');sectorCreateDialog(file,context,{element,run,status,center:[view.controls.target.x,view.controls.target.y,-view.controls.target.z],save:async(options,expectedHash,sceneHash)=>{const next=await api.createSector(file.path,options,expectedHash,sceneHash);view.selectedId=String(next.meshes.length);state.file=next;await refresh();renderDetail();}});});tools.append(addSector);}
   objects.onchange = () => view.select(String(objects.value));
   try { view.addModel(file); if (!previous) view.fit(); view.wireframe(view.modelWireframe); }
   catch (error) { status(error.message, true); }

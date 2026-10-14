@@ -23,6 +23,10 @@
 .bitmap-palette button[aria-pressed="true"] { outline: 2px solid var(--accent); outline-offset: 1px; z-index: 1; }
 .geometry-dialog { width: min(1100px, calc(100vw - 40px)); max-width: 1100px; max-height: calc(100vh - 40px); overflow: auto; }
 .geometry-dialog .viewport { height: 390px; min-height: 240px; }
+.sector-create-dialog form { display:grid; grid-template-columns:minmax(220px,.8fr) minmax(280px,1.2fr); gap:16px; align-items:start; }
+.sector-create-dialog form > .notice,.sector-create-dialog form > .tools { grid-column:1/-1; }
+.sector-create-dialog .tools { justify-content:flex-end; margin:0; }
+@media(max-width:700px){.sector-create-dialog form{display:block}.sector-create-dialog .viewport{margin:12px 0}}
 .geometry-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .geometry-fields fieldset { border: 1px solid var(--line); border-radius: 5px; }
 .geometry-fields input { width: 100%; margin-bottom: 6px; }

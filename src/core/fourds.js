@@ -125,7 +125,7 @@ export function parseFourDs(source, geometry = false) {
     const animationOffset=reader.pos;if (flags & 0x4000000) reader.skip(18);
     materials.push({ flags, ambient, diffuse, emission, opacity, texture, alphaTexture, reflection, environmentTexture, layout:{start,length:reader.pos-start,animationOffset,animationLength:reader.pos-animationOffset} });
   }
-  const meshCount = reader.u16(), meshes = [];
+  const meshCountOffset=reader.pos, meshCount = reader.u16(), framesOffset=reader.pos, meshes = [];
   for (let i = 0; i < meshCount; i++) {
     reader.context = `Objekt ${i + 1}`; const base = `meshes/${i}`, type = reader.u8();
     let visual, renderFlags, logicFlags;
@@ -157,7 +157,7 @@ export function parseFourDs(source, geometry = false) {
     meshes.push(mesh);
   }
   if (reader.pos + 1 !== reader.bytes.length) throw new Error(`4DS: neočekávaný konec (${reader.bytes.length - reader.pos} nerozpoznaných bajtů).`);
-  const animated = reader.u8();
+  const animatedOffset=reader.pos, animated = reader.u8();
   // Validate before a renderer recursively evaluates world transforms.
   for (const mesh of meshes) {
     const visited = new Set([mesh.id]); let parent = mesh.parent;
@@ -166,7 +166,7 @@ export function parseFourDs(source, geometry = false) {
       visited.add(parent); parent = meshes[parent - 1].parent;
     }
   }
-  return { version, materials, meshes, entries: reader.entries, animated };
+  return { version, materials, meshes, entries: reader.entries, animated, layout:{meshCountOffset,framesOffset,animatedOffset} };
 }
 export function editFourDs(source, changes) {
   const original = Buffer.from(source), parsed = parseFourDs(original);

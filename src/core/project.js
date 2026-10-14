@@ -35,6 +35,7 @@ import { parseEffects, editEffects, changeEffects, parseEffectTypes } from './ef
 import { parseEffectDefinitions, editEffectDefinitions } from './effect-types.js';
 import { parseBmp, editBmp } from './bmp.js';
 import { inspectModelGeometry, editModelGeometry } from './model-geometry.js';
+import { appendSector } from './sector-create.js';
 import { inspectProjectCollision, saveProjectCollision } from './collision-project.js';
 import { modelImportPlan, importModel } from './model-import.js';
 
@@ -555,6 +556,19 @@ export class ModProject {
   async modelGeometry(name, mesh) {
     if(!/\.4ds$/i.test(name))throw new Error('Soubor není 4DS model.');
     const bytes=await this.read(name);return {sha256:hash(bytes),...inspectModelGeometry(bytes,mesh)};
+  }
+  async sectorContext(name) {
+    if(!/^missions\/[^/]+\/scene\.4ds$/i.test(name))throw new Error('Vyberte geometrii mise scene.4ds.');
+    const bytes=await this.read(name),scenePath=name.slice(0,name.lastIndexOf('/'))+'/scene2.bin',scene=await this.read(scenePath),geometry=parseFourDs(bytes);
+    return {sha256:hash(bytes),sceneHash:hash(scene),names:[...geometry.meshes.map(m=>m.name),...inspectScene(scene).objects.map(m=>m.name)]};
+  }
+  async createSector(name,options,expectedHash,sceneHash) {
+    const context=await this.sectorContext(name);
+    if(context.sha256!==expectedHash||context.sceneHash!==sceneHash)throw new Error('Geometrie nebo scéna se od otevření změnila. Otevřete dialog znovu.');
+    const before=await this.read(name),scenePath=name.slice(0,name.lastIndexOf('/'))+'/scene2.bin',scene=await this.read(scenePath);
+    if(hash(before)!==expectedHash||hash(scene)!==sceneHash)throw new Error('Data mise se od otevření změnila. Otevřete dialog znovu.');
+    const after=appendSector(before,options,context.names);
+    await this.changeBatch([{path:name,data:after,expectedHash},{path:scenePath,data:scene,expectedHash:sceneHash}],`Nový sektor ${options.name}`);
   }
   async saveCollision(name,operations,expectedHash,dependencies,options) { return saveProjectCollision(this,name,operations,expectedHash,dependencies,options); }
   async saveGeometry(name, request, expectedHash) {
