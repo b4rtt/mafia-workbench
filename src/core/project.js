@@ -16,7 +16,7 @@ import { missionTaskScript, missionTaskVehicles } from '../shared/mission-task.j
 import { inspectMissionDestination } from './mission-destination.js';
 import { createTerrain } from './terrain.js';
 import { createRoadSurface } from './road-surface.js';
-import { missionDialogueScript, dialogueSpeakers } from '../shared/mission-dialogue.js';
+import { missionDialogueScript, dialogueSpeakers, editableMissionDialogue } from '../shared/mission-dialogue.js';
 import { prepareMissionChoice } from './mission-choice.js';
 import { prepareMissionCombat } from './mission-combat.js';
 import { editableMissionCombat } from '../shared/mission-combat.js';
@@ -449,8 +449,10 @@ export class ModProject {
       dependencies.push({path:geometryPath,data:geometryBytes,expectedHash:hash(geometryBytes)},{path:tablePath,data:tableBytes,expectedHash:hash(tableBytes)},{path:modelPath,data:modelBytes,expectedHash:hash(modelBytes)});
     }
     if(['add-light','add-sound','add-detector'].includes(operation?.kind))dependencies.push({path:geometryPath,data:geometryBytes,expectedHash:hash(geometryBytes)});
-    if(operation?.kind==='add-detector' && operation.dialogue){
-      if(operation.task)throw new Error('Rozhovor: nelze současně vytvořit úkolovou šablonu.');
+    if((operation?.kind==='add-detector' && operation.dialogue)||operation?.kind==='configure-dialogue'){
+      if(operation.task||operation.combat||operation.behavior)throw new Error('Rozhovor: vyberte pouze jednu šablonu.');
+      const current=operation.kind==='configure-dialogue'?editableMissionDialogue({...inspectScene(before),geometry},operation.target):null;
+      if(operation.kind==='configure-dialogue'&&!current)throw new Error('Rozhovor: vyberte jednoznačný skriptový bod s nezměněnou šablonou a maskou 1. Vlastní program upravte v editoru zdroje.');
       const dialogue={trigger:'use',camera:false,...operation.dialogue},textPath=relativeAssetPath(dialogue.textDb);
       missionDialogueScript(dialogue);
       if(!/^tables\/textdb_[a-z]{2}\.def$/i.test(textPath))throw new Error('Rozhovor: vyberte jazykový TextDB.');
@@ -467,7 +469,9 @@ export class ModProject {
         if(bytes.length<44||bytes.toString('ascii',0,4)!=='RIFF'||bytes.toString('ascii',8,12)!=='WAVE')throw new Error('Rozhovor: dabing nemá WAV hlavičku.');
         dependencies.push({path:asset.path,data:bytes,expectedHash:dialogue.soundHashes[id]});
       }
-      request={...operation,mask:1,code:missionDialogueScript({...dialogue,lines,flow:resolveMissionFlow({...inspectScene(before),geometry},dialogue.flow,operation.name)})};
+      const code=missionDialogueScript({...dialogue,lines,flow:resolveMissionFlow({...inspectScene(before),geometry},dialogue.flow,current?.entry.value.name??operation.name)});
+      if(current){choiceScene=editScene(before,current.entry.id,{...current.entry.value,code});dependencies.push({path:geometryPath,data:geometryBytes,expectedHash:hash(geometryBytes)});}
+      else request={...operation,mask:1,code};
     }
     if(operation?.kind==='add-detector' && operation.task){
       const task=operation.task,textPath=relativeAssetPath(task.textDb);
@@ -557,7 +561,7 @@ export class ModProject {
       if(owned){const klz=parseCollision(await this.read(`${folder}/tree.klz`)),record=ownedCollisionRecords(klz,[owned])[0];requests.push({name:operation.name,kind:owned.kind,material:record.material,doubleSided:owned.doubleSided});}
     }
     const collision=await prepareSceneCollision(this,name,before,after,{requests,expectedHash:operation?.collisionHash});
-    const label={ 'add-model': 'Vložení modelu do mise', 'add-human':'Vložení postavy a jejího skriptu','configure-human':'Nastavení chování postavy','configure-combat':'Nastavení bojového úkolu','add-car':'Vložení automobilu a jeho aktéra','add-light':'Vložení světla do mise','add-sound':'Vložení prostorového zvuku do mise','add-detector':'Vložení skriptového bodu','add-choice':'Vložení volby odpovědi','add-pickup':'Vložení předmětu k sebrání','configure-pickup':'Nastavení předmětu k sebrání','attach-door':'Vytvoření dveřního aktéra','attach-physical':'Vytvoření fyzikálního předmětu', duplicate: 'Duplikace objektu mise', delete: 'Odstranění objektu mise',collision:'Generování kolize modelu' }[operation?.kind]??'Úprava objektů mise';
+    const label={ 'add-model': 'Vložení modelu do mise', 'add-human':'Vložení postavy a jejího skriptu','configure-human':'Nastavení chování postavy','configure-combat':'Nastavení bojového úkolu','configure-dialogue':'Nastavení rozhovoru','add-car':'Vložení automobilu a jeho aktéra','add-light':'Vložení světla do mise','add-sound':'Vložení prostorového zvuku do mise','add-detector':'Vložení skriptového bodu','add-choice':'Vložení volby odpovědi','add-pickup':'Vložení předmětu k sebrání','configure-pickup':'Nastavení předmětu k sebrání','attach-door':'Vytvoření dveřního aktéra','attach-physical':'Vytvoření fyzikálního předmětu', duplicate: 'Duplikace objektu mise', delete: 'Odstranění objektu mise',collision:'Generování kolize modelu' }[operation?.kind]??'Úprava objektů mise';
     const files=new Map([{path:name,data:after,expectedHash},...dependencies,...(collision?.files??[])].map(file=>[key(file.path),file]));
     await this.changeBatch([...files.values()],label,collision?.ownership);
   }

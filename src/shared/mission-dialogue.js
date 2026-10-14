@@ -1,4 +1,4 @@
-import { missionFlow } from './mission-flow.js';
+import { missionFlow, missionFlowTargets } from './mission-flow.js';
 
 const key=name=>name.normalize('NFC').toLowerCase();
 const validName=name=>typeof name==='string'&&name.trim()&&name.length<=255&&!/["\x00-\x1f]/.test(name);
@@ -33,4 +33,25 @@ export function missionDialogueScript({trigger='use',interactionId,camera=false,
   if(camera)code.push('dialog_end');
   if(link.complete)code.push(link.complete.trimEnd());
   return [...code,'end'].join('\n');
+}
+
+// Only a full round trip through our generator authorizes a wizard edit.
+// Original templates need no extra metadata; custom source stays untouched.
+export function inspectMissionDialogue(code){
+  if(typeof code!=='string'||code.length>1000000)return null;
+  const source=code.replaceAll('\r\n','\n'),bindings=new Map([...source.matchAll(/^findactor (\d+), "([^"\x00-\x1f]+)"$/gm)].map(match=>[Number(match[1]),match[2]])),camera=/^dialog_begin \d+, \d+$/m.test(source);
+  const lines=camera?[...source.matchAll(/^dialog_camswitch (\d+), (\d+)\nhuman_talk (\d+), (\d+)$/gm)].map(match=>({speaker:bindings.get(Number(match[3])),listener:bindings.get(Number(match[1])),textId:Number(match[4])})):[...source.matchAll(/^human_talk (\d+), (\d+)$/gm)].map(match=>({speaker:bindings.get(Number(match[1])),textId:Number(match[2])}));
+  const use=/^detector_waitforuse (\d+)$/m.exec(source),signal=/^detector_setsignal (\d+), 1$/m.exec(source),waitForSignal=source.includes('label 1\ndetector_issignal -1, 2, -1\n'),onComplete=signal?bindings.get(Number(signal[1])):null;
+  const dialogue={trigger:use?'use':'load',...(use?{interactionId:Number(use[1])}:{}),camera,lines,flow:waitForSignal||onComplete?{waitForSignal,onComplete,onFailure:null}:null};
+  try{if(missionDialogueScript(dialogue)===source)return dialogue;}catch{/* Unknown or modified programs are not wizard recipes. */}
+  return null;
+}
+export function editableMissionDialogue(scene,owner){
+  if(!validName(owner))return null;
+  const actors=(scene.actors??[]).filter(actor=>key(actor.name)===key(owner)),entries=(scene.entries??[]).filter(entry=>entry.actorScript&&entry.actorKind===5&&key(entry.value.name)===key(owner));
+  if(actors.length!==1||actors[0].kind!==5||entries.length!==1||!missionFlowTargets(scene).some(actor=>key(actor.name)===key(owner)))return null;
+  const masks=scene.entries.filter(entry=>entry.detectorParameter&&entry.id.startsWith(actors[0].id+'/'));
+  if(masks.length!==1||masks[0].value!==1)return null;
+  const dialogue=inspectMissionDialogue(entries[0].value.code);
+  return dialogue?{entry:entries[0],dialogue}:null;
 }

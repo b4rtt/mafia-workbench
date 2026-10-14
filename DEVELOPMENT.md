@@ -2,6 +2,13 @@
 
 Aktualizace: 14. října 2026. Vývoj pokračuje; komplexní editor není dokončený. Implementace, datové testy, ověření UI a ověření ve hře jsou různé úrovně dokončení; neoznačovat jednu za druhou. Podrobnosti existujících funkcí a jejich omezení jsou v README.md a research/formats.md. Původní hra se nemění, úpravy mají kontrolu verze, zálohu, export a undo. Herní data a soukromé reference nepatří do veřejného repozitáře.
 
+## Úpravy existujících rozhovorů (2026-10-14)
+
+- Objekt → Nastavit rozhovor… obnoví 1–32 replik, jejich pořadí, mluvčí, posluchače kamery, aktivaci a návaznost. Rozpoznání vyžaduje přesnou shodu celého programu s generátorem, jednoznačný detektor typu 5 a masku 1; podporuje původní šablony bez metadat i CRLF. Vlastní programy zůstávají v inspektoru. Jazyk není zakódovaný v programu, formulář žádá volbu TextDB pro kontrolu a náhled ID.
+- configure-dialogue mění pouze code vybraného bodu. Texty, hlasy, poloha, maska, programy NPC a neznámé bloky zůstávají zachované. Scéna/TextDB/WAV/geometrie se hlídají i při publikaci; chybějící původní postava se zobrazí jako nedostupná, bez automatické náhrady. Nezměněný recept má disabled Save; změna má jednu zálohu a undo.
+- Oddělený Electron obnovil tři repliky, přes UI změnil pořadí, mluvčího, posluchače, ID, počet replik a aktivaci na load. Náhled obou WAV, save/reopen, přesný export i skutečné UI undo ověřené. Native GOG 1.2/Wine načetlo přesně uložený program, TextDB a WAV: oba střihy na Second/Sam a First/Paulie, návrat kamery k hráči a nezávislý návazný bod Next/HUD 85 po dokončení rozhovoru. Samostatná diagnostika pouze nastavila výchozí HUD 21; neovládala průchod rozhovorem. Fyzický výstup dabingu nebyl poslechnutý a titulky rozhovoru na snímcích nebyly vidět.
+- 445/445 testů, check a build prošly. Vlastní hra i aplikace ukončené; diagnostika a příprava vrácené na historii 12, scéna/TextDB a ostatní části mise mají výchozí hashe, tři vlastní WAV odstraněné přes undo. Herní staging obnovený, chráněné projekty a původní EXE shodné. Ruční aktivace, restart a save/load této varianty dál vyžadují ověření. Goal zůstává aktivní; městský plugin čeká na plnohodnotnou tvorbu misí.
+
 ## Úpravy existujících bojových úkolů (2026-10-14)
 
 - Objekt → Nastavit bojový úkol… obnoví cíle, aktivaci, texty, limit, ochranu NPC, checkpoint, konce a návaznosti ze stávajícího programu. Rozpoznání vyžaduje přesnou shodu s celým znovu generovaným zdrojem, jednoznačného aktéra 5 a masku 1; původní šablony bez metadat i CRLF podporované. Vlastní změněné skripty zůstávají v editoru zdroje. Jazyk se ze skriptu nedá určit, proto formulář výslovně žádá volbu TextDB pro náhled/kontrolu ID.
