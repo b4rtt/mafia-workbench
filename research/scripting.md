@@ -153,3 +153,23 @@ Ověření 14. října 2026: v aktuálním Electronu vyplněn úkol s vlastními
 Produkční izolovaný Playtest dostal přesné hashe aktuální scény, všech osmi souborů cílové mise a TextDB. V GOG 1.2/Wine kontrolní NPC převzal bod pomocí enemy_use_detector a přesunul hráče k bedně. Snímky zachytily návazný cíl, text dokončení, původní zdraví 71, nový startovní stav 100 a poté zdraví 31, které nastavuje pouze skript cílové mise. Po přechodu běh pokračoval i v pozdním snímku. To prokazuje vykonání cílové inicializace; krátký text jejího startovního skriptu samotné snímky nezachytily. Ruční použití, hranice checkpointů/načítání mezi misemi a přenos hráče či vozidla zůstávají neověřené.
 
 Hra a Audit aplikace ukončené. UI bod i čtyři přípravné operace vráceny na historii 38; původní scéna, model, geometrie, KLZ a TextDB mají výchozí hashe, cílová testovací mise není v indexu. Původní save aktivního profilu obnovený a ostatní chráněné projekty/EXE přesné. Herní soubory, snímky a pomocné skripty zůstávají v ignorovaném local/. 336 testů, check a build prošly.
+
+## Bojový úkol a aktivní NPC
+
+`Přidat bojový úkol…` vytvoří detektor typu 5 s maskou 1 a vlastním programem. Sleduje 1–16 jednoznačných NPC typu 27 navázaných na existující framy, kromě hráče. Po volitelném signálu a aktivaci získá aktéry přes `findactor`; `human_getproperty actor, 0, Energy` vrací procenta energie a u mrtvého aktéra nulu. V cyklu po 100 ms čeká na všechny cíle. Časový limit používá místní `getgametime` registry, začíná při aktivaci. Smrt jiné chráněné NPC a časový limit mají přednost před dokončením. Úspěch/neúspěch odstraní pouze vlastní zadání a mohou odeslat signál jinému bodu nebo ukončit misi. Checkpoint je volitelný, ukládá až po inicializaci vazeb/času a přepisuje profil 0, slot ID − 5000; editorským undo nelze vrátit herní save.
+
+Core sestaví zdroj znovu a ověří skutečnou scénu, geometrii a neprázdné jednoznačné TextDB ID včetně případného názvu checkpointu. Ostatní NPC programy nepřepisuje, zdraví nenastavuje a aktéry nemaže. Proto samotná šablona nevytvoří nepřítele: výzbroj, chování a aktivní program cíle musí připravit autor mise.
+
+**Pozor na `end` v programu NPC.** V PC enginu příkaz volá `program_clear_after_end` (VA 0x005bac10), který nastaví vlastnímu aktérovi stav 2 přes `actor_set_act_state` (0x0044c750). `human_change_state` (0x00494d60) pro jiný stav než 0 odregistruje dynamické kolize; pro živou postavu odstraní všechny. Model může zůstat stát, ale aktér už není aktivní. Typ 27 ani správná kostra tomu nezabrání. Pro stojící živou NPC použijte výchozí program editoru:
+
+```text
+label 1
+wait 1000
+goto 1
+```
+
+Při skutečné smrti `human_death` (0x00490a20) odstraní pohybový collider a ponechá objem s příznakem 2 pro tělo; to je odlišný stav od vypnutí živé NPC. `human_create_dyn_colls` (0x00496110) vytváří dva objemy a vyžaduje podframe `base`. Primární podklad: uložený [PC/PS2 reverse engineering export](https://github.com/st0rm94/mafia-reverse-engineering-export), `Game-ghidra.exe.annotated.c`, a místní MSDR.CZ dokumentace. Toto není požadavek vytvářet statickou KLZ kolizi postavy.
+
+Ověření: testy rozhodnutí pokrývají všechny kombinace dvou živých/mrtvých cílů, prioritu smrti ochránce, hranici času, aktivaci, registry návazností a checkpointu; projektové testy kontrolují stale texty/geometrii, neplatné NPC/ID, zachování ostatních programů/opaque dat, export/reopen a přesné undo. V odděleném Electronu vznikl úkol s dvěma cíli, ochranou třetí NPC, 60s limitem, checkpointem 5050 a následným bodem. Chybná ochrana stejného cíle byla odmítnutá, platný zdroj/maska/export přesné a uložení mělo jeden krok historie.
+
+V izolované GOG 1.2/Wine hře kontrolní program aktivoval úkol, skriptovaně snížil energii obou cílů a následný bod změnil HUD na 85. Srovnávací běh se stejnými modely a parametry ukázal NPC s `end` po smrti stále stojící a NPC s čekací smyčkou ležící; tento rozdíl odpovídá uvedenému přechodu stavu. Chyba byla v mém pomocném testovacím programu, nikoli ve výchozí smyčce dialogu Přidat postavu. Tři NPC oddělené testovací mise dostaly čekací smyčku. Opakované závěrečné testy všech aktivních NPC a dotazů na kolize se nedostaly do hry kvůli `nodrv_CreateWindow / explorer process failed to start`; nejde o důkaz jejich runtime výsledku. Ruční průchod kolem živé NPC, běžná střelba, větve neúspěchu a načtení tohoto checkpointu zůstávají neověřené. Testovací procesy ukončené, dočasné diagnostické programy vrácené a chráněný uživatelský projekt/původní EXE mají shodné hashe.

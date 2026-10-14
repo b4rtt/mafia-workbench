@@ -17,6 +17,7 @@ import { inspectMissionDestination } from './mission-destination.js';
 import { createTerrain } from './terrain.js';
 import { missionDialogueScript, dialogueSpeakers } from '../shared/mission-dialogue.js';
 import { prepareMissionChoice } from './mission-choice.js';
+import { prepareMissionCombat } from './mission-combat.js';
 import { dialogueSoundPath, prepareDialogueWav } from './dialogue-audio.js';
 import { dialogueLipPath, parseLip, editLip, createLip, lipFromVoice } from './lip.js';
 import { parseNavigation, prepareNavigationEdits, changeNavigationConnection, changeNavigationPoint } from './navigation.js';
@@ -407,6 +408,11 @@ export class ModProject {
     const folder = this.asset(name).path.slice(0, this.asset(name).path.lastIndexOf('/'));
     const geometryPath=`${folder}/scene.4ds`,geometryBytes=await this.read(geometryPath),geometry = parseFourDs(geometryBytes);
     let request = operation,choiceScene=null;const dependencies=[];
+    if(operation?.kind==='add-detector' && [operation.task,operation.dialogue,operation.combat].filter(Boolean).length>1)throw new Error('Skriptový bod: vyberte pouze jednu šablonu; úkol a rozhovor nelze vytvářet současně.');
+    if(operation?.kind==='add-detector' && operation.combat){
+      const combat=await prepareMissionCombat(this,before,geometry,operation);
+      request={...operation,mask:1,code:combat.code};dependencies.push(...combat.dependencies);
+    }
     if(operation?.kind==='add-choice'){
       const choice=await prepareMissionChoice(this,before,geometry,operation);choiceScene=choice.data;
       dependencies.push(...choice.dependencies,{path:geometryPath,data:geometryBytes,expectedHash:hash(geometryBytes)});

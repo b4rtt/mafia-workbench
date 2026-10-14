@@ -10,6 +10,7 @@ import { missionTaskScript } from '../shared/mission-task.js';
 import { missionDestinations } from '../shared/mission-destinations.js';
 import { missionDialogueScript, dialogueSpeakers } from '../shared/mission-dialogue.js';
 import { missionChoiceDialog } from './mission-choice.js';
+import { missionCombatDialog } from './mission-combat.js';
 import { materialFlags, materialAlphaModes, materialAlphaMode, withMaterialAlphaMode, materialDraft } from '../shared/material-settings.js';
 import { lightTypes, lightDefaults, sceneSectors } from '../shared/lights.js';
 import { soundTypes, soundDefaults } from '../shared/sounds.js';
@@ -1129,7 +1130,7 @@ function renderMap(main, file, previous = null) {
   duplicate.disabled = remove.disabled = focus.disabled = collision.disabled = true;
   const assignSector=element('button','Přiřadit do sektorů…');assignSector.disabled=true;
   const addPickup=element('button','Přidat předmět k sebrání…'),configurePickup=element('button','Nastavit předmět…');configurePickup.disabled=true;
-  const addDoor=element('button','Vytvořit dveře…'),addPhysical=element('button','Vytvořit fyzikální předmět…'),addLight=element('button','Přidat světlo…'),addSound=element('button','Přidat zvuk…'),addDetector=element('button','Přidat skriptový bod…'),addDialogue=element('button','Přidat rozhovor…'),addChoice=element('button','Přidat volbu odpovědi…');addDoor.disabled=addPhysical.disabled=true;
+  const addDoor=element('button','Vytvořit dveře…'),addPhysical=element('button','Vytvořit fyzikální předmět…'),addLight=element('button','Přidat světlo…'),addSound=element('button','Přidat zvuk…'),addDetector=element('button','Přidat skriptový bod…'),addDialogue=element('button','Přidat rozhovor…'),addChoice=element('button','Přidat volbu odpovědi…'),addCombat=element('button','Přidat bojový úkol…');addDoor.disabled=addPhysical.disabled=true;
   const vehiclePhysics = element('button', 'Fyzika auta…');
   const vehicleTable = state.project.assets.find(asset => asset.path.normalize('NFC').toLowerCase() === 'tables/vehicles.bin');
   vehiclePhysics.dataset.vehicleLink = ''; vehiclePhysics.hidden = true;
@@ -1262,8 +1263,9 @@ function renderMap(main, file, previous = null) {
     addDetector.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před vložením skriptového bodu uložte rozepsané vlastnosti.');detectorDialog(file,selectedObject?.position);});
     addDialogue.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před vytvořením rozhovoru uložte rozepsané vlastnosti.');dialogueDialog(file,selectedObject?.position);});
     addChoice.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před vytvořením volby uložte rozepsané vlastnosti.');missionChoiceDialog({api,assets:state.project.assets,file,position:selectedObject?.position,element,run,onCreated:async(result,name)=>{state.file=result;state.selectSceneName=name;await refresh();renderDetail();status('Volba odpovědi vytvořená se zálohou a jedním společným undo.');}});});
+    addCombat.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před vytvořením bojového úkolu uložte rozepsané vlastnosti.');missionCombatDialog({api,assets:state.project.assets,file,position:selectedObject?.position,element,run,flowFields:missionFlowFields,onCreated:async(result,name)=>{state.file=result;state.selectSceneName=name;await refresh();renderDetail();status('Bojový úkol vytvořený se zálohou a jedním undo.');}});});
     for(const [button,configure] of [[addPickup,false],[configurePickup,true]])button.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před vložením nebo nastavením předmětu uložte rozepsané vlastnosti.');const catalog=await api.pickupItems();if(!catalog.items.length)throw new Error('Tabulka neobsahuje předměty s dostupným podporovaným modelem.');pickupDialog(file,catalog,configure?selectedObject:null,selectedObject?.position);});
-    tools.append(actionMenu('Přidat',[add,addHuman,addCar,addPickup,addLight,addSound,addDetector,addDialogue,addChoice]),actionMenu('Objekt',[duplicate,remove,collision,assignSector,configurePickup,addDoor,addPhysical]));
+    tools.append(actionMenu('Přidat',[add,addHuman,addCar,addPickup,addLight,addSound,addDetector,addDialogue,addChoice,addCombat]),actionMenu('Objekt',[duplicate,remove,collision,assignSector,configurePickup,addDoor,addPhysical]));
   }
   tools.append(actionMenu('Zobrazení',displayActions));
   if(collisionActions.length)tools.append(actionMenu('Kolize',collisionActions));
@@ -1395,7 +1397,7 @@ function missionFlowFields(file,parent,name,onchange,{failure=false}={}){
   const waiting=field('Čekat na signál jiného bodu před spuštěním',element('input'));waiting.type='checkbox';
   const choose=label=>{const input=field(label,element('select')),none=element('option','Bez návaznosti');none.value='';input.append(none);for(const actor of missionFlowTargets(file)){const option=element('option',actor.name);option.value=actor.name;input.append(option);}return input;};
   const complete=choose('Po dokončení poslat signál bodu'),failed=failure?choose('Po neúspěchu poslat signál bodu'):null;
-  const notice=element('p','Nejprve vytvořte cílové body s čekáním na signál, potom zdrojový úkol nebo rozhovor. Příjemce začne jednou po signálu 1; u úkolu následně čeká na použití hráčem. Signál se automaticky nemaže. Větve úspěchu a neúspěchu lze poslat různým bodům.','notice');notice.style.gridColumn='1 / -1';parent.append(notice);
+  const notice=element('p','Nejprve vytvořte cílové body s čekáním na signál, potom zdrojový úkol nebo rozhovor. Příjemce začne jednou po signálu 1; další aktivaci určuje jeho konfigurace. Signál se automaticky nemaže. Větve úspěchu a neúspěchu lze poslat různým bodům.','notice');notice.style.gridColumn='1 / -1';parent.append(notice);
   for(const input of [waiting,complete,failed].filter(Boolean))input.onchange=onchange;
   return {options:()=>{const flow={waitForSignal:waiting.checked,onComplete:complete.value||null,onFailure:failed&&!failed.disabled?failed.value||null:null};return flow.waitForSignal||flow.onComplete||flow.onFailure?flow:null;},update:({enabled=true,hasFailure=false,exit=false,end=false}={})=>{waiting.disabled=complete.disabled=!enabled;if(failed){failed.disabled=!enabled||!hasFailure;failed.parentElement.style.display=hasFailure?'':'none';}for(const [input,ending]of [[complete,exit],[failed,end]])if(input)input.setCustomValidity(!input.disabled&&input.value&&(input.value.normalize('NFC').toLowerCase()===name.value.normalize('NFC').toLowerCase()?'Bod nemůže poslat signál sám sobě.':ending?'Návazný bod nelze spustit současně s ukončením mise.':'')||'');}};
 }
