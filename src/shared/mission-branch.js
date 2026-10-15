@@ -1,5 +1,6 @@
 import { dialogueSpeakers } from './mission-dialogue.js';
 import { missionFlowTargets } from './mission-flow.js';
+import { missionTaskVehicles } from './mission-task.js';
 
 const key = name => name.normalize('NFC').toLowerCase();
 const validName = name => typeof name === 'string' && name.trim() && name.length <= 255 && !/["\x00-\x1f]/.test(name);
@@ -23,6 +24,14 @@ export function missionBranchOptions({ waitForSignal = true, match = 'all', cond
       if (!validName(condition.name)) fail('vyberte postavu nebo skriptový bod.');
       return { kind, name: condition.name, expected };
     }
+    if (kind === 'vehicle') {
+      if (!validName(condition.name) || typeof condition.driverOnly !== 'boolean') fail('vyberte automobil a platné omezení na řidiče.');
+      return { kind, name: condition.name, driverOnly: condition.driverOnly, expected };
+    }
+    if (kind === 'proximity') {
+      if (!validName(condition.name) || !Number.isFinite(condition.radius) || condition.radius < 0.1 || condition.radius > 10000) fail('vyberte objekt a poloměr 0,1–10 000 metrů.');
+      return { kind, name: condition.name, radius: condition.radius, expected };
+    }
     fail('neznámý druh podmínky.');
   });
   return { waitForSignal, match, conditions: list, onTrue, onFalse };
@@ -31,9 +40,13 @@ export function missionBranchOptions({ waitForSignal = true, match = 'all', cond
 export function missionBranchScript(options) {
   const branch = missionBranchOptions(options), names = [], slots = new Map();
   const index = name => { const canonical = key(name); if (!slots.has(canonical)) { slots.set(canonical, names.length); names.push(name); } return slots.get(canonical); };
-  for (const condition of branch.conditions) index(condition.kind === 'item' ? 'Tommy' : condition.name);
+  for (const condition of branch.conditions) {
+    if (['item', 'vehicle'].includes(condition.kind)) index('Tommy');
+    if (condition.kind !== 'item' && condition.kind !== 'proximity') index(condition.name);
+  }
   const yes = index(branch.onTrue), no = index(branch.onFalse);
-  const code = [prefix + JSON.stringify(branch), `dim_act ${names.length}`, 'dim_flt 1',
+  const vehicle = branch.conditions.some(condition => condition.kind === 'vehicle'), proximity = branch.conditions.some(condition => condition.kind === 'proximity'), scratch = names.length;
+  const code = [prefix + JSON.stringify(branch), `dim_act ${names.length + Number(vehicle)}`, `dim_flt ${proximity ? 7 : 1}`, ...(proximity ? ['dim_frm 3'] : []),
     // Preserve an early incoming signal; setting zero also makes a waiting
     // detector saveable. Never reset a signal already delivered at GameInit.
     'detector_issignal -1, 3, -1', 'detector_setsignal -1, 0', 'label 3', 'wait 2000'];
@@ -45,6 +58,22 @@ export function missionBranchScript(options) {
     const positive = condition.expected ? success : failure, negative = condition.expected ? failure : success;
     code.push(`label ${100 + i}`);
     if (condition.kind === 'signal') code.push(`detector_issignal ${index(condition.name)}, ${positive}, ${negative}`);
+    else if (condition.kind === 'vehicle') {
+      // Two NULL actor registers compare equal. Reject a missing car before
+      // comparing it to the player's owner; never reuse an output's register.
+      code.push(`setnullactor ${scratch}`, `compareactors ${index(condition.name)}, ${scratch}, 0`, `if flt[0] = 1, ${negative}, -1`,
+        `human_getowner ${index('Tommy')}, ${scratch}`, `compareactors ${index(condition.name)}, ${scratch}, 0`,
+        `if flt[0] = 1, ${condition.driverOnly ? 200 + i : positive}, ${negative}`);
+      if (condition.driverOnly) code.push(`label ${200 + i}`, 'let flt[0] = -1', `human_getseatidx ${index('Tommy')}, 0`, `if flt[0] = 0, ${positive}, ${negative}`);
+    }
+    else if (condition.kind === 'proximity') {
+      // Missing frames must not look like two coincident positions, nor reuse
+      // a previous rule's frame/coordinates. A false predicate is then negated
+      // normally when the rule asks for "not near".
+      code.push('setnullframe 0', 'setnullframe 1', 'setnullframe 2', 'findframe 0, "Tommy"', `findframe 1, "${condition.name}"`,
+        'compareframes 0, 2, 0', `if flt[0] = 1, ${negative}, -1`, 'compareframes 1, 2, 0', `if flt[0] = 1, ${negative}, -1`,
+        'frm_getworldpos 0, 0', 'frm_getworldpos 1, 3', 'vect_sub_vect 0, 3', 'vect_magnitude 0, 6', `if flt[6] < ${condition.radius}, ${positive}, ${negative}`);
+    }
     else {
       // A failed runtime human lookup must not retain an earlier item's 1.
       if (condition.kind === 'human') code.push('let flt[0] = 0');
@@ -54,6 +83,19 @@ export function missionBranchScript(options) {
   }
   code.push('label 900', `detector_setsignal ${yes}, 1`, 'end', 'label 901', `detector_setsignal ${no}, 1`, 'end');
   return code.join('\n');
+}
+
+// One geometry base plus one scene override names a single engine frame.
+// Repeated names within either source are ambiguous and cannot be selected.
+export function missionBranchFrames(scene, owner) {
+  const groups = new Map();
+  for (const [source, frames] of [[0, scene.geometry?.meshes ?? []], [1, scene.objects ?? []]]) for (const frame of frames) {
+    if (!validName(frame.name)) continue;
+    const identity = key(frame.name), group = groups.get(identity) ?? [[], []];
+    group[source].push(frame); groups.set(identity, group);
+  }
+  return [...groups.entries()].filter(([identity, [base, overrides]]) => identity !== 'tommy' && identity !== key(owner ?? '') && base.length <= 1 && overrides.length <= 1)
+    .map(([, [base, overrides]]) => overrides[0] ?? base[0]);
 }
 
 export function inspectMissionBranch(code) {
@@ -80,6 +122,7 @@ export function editableMissionBranch(scene, owner) {
 export function resolveMissionBranch(scene, options, owner) {
   if (!validName(owner)) fail('zadejte platný název podmínkového bodu.');
   const branch = missionBranchOptions(options), humans = new Map(dialogueSpeakers(scene).map(actor => [key(actor.name), actor])), targets = new Map(missionFlowTargets(scene).map(actor => [key(actor.name), actor.name]));
+  const vehicles = new Map(missionTaskVehicles(scene).map(actor => [key(actor.name), actor])), frames = new Map(missionBranchFrames(scene, owner).map(frame => [key(frame.name), frame]));
   const detector = name => {
     const target = targets.get(key(name));
     if (!target || key(target) === key(owner)) fail('vyberte jiný jednoznačný skriptový bod této mise.');
@@ -92,7 +135,12 @@ export function resolveMissionBranch(scene, options, owner) {
       if (!actor) fail('postava musí mít jednoznačného lidského aktéra a frame.');
       return { ...condition, name: actor.name };
     }
-    if (humans.get('tommy')?.kind !== 2) fail('inventář potřebuje jednoznačného hráče Tommy typu Player.');
+    if (humans.get('tommy')?.kind !== 2) fail('inventář, vzdálenost a automobil potřebují jednoznačného hráče Tommy typu Player.');
+    if (condition.kind === 'vehicle' || condition.kind === 'proximity') {
+      const target = (condition.kind === 'vehicle' ? vehicles : frames).get(key(condition.name));
+      if (!target) fail(condition.kind === 'vehicle' ? 'automobil musí mít jednoznačného aktéra typu Car a modelový frame.' : 'vyberte jiný jednoznačný objekt s frame této mise.');
+      return { ...condition, name: target.name };
+    }
     return condition;
   });
   return { ...branch, conditions, onTrue: detector(branch.onTrue), onFalse: detector(branch.onFalse) };
@@ -101,5 +149,7 @@ export function resolveMissionBranch(scene, options, owner) {
 export function missionBranchConditionLabel(condition) {
   if (condition.kind === 'item') return `Hráč ${condition.expected ? 'má' : 'nemá'} předmět ID ${condition.itemId}`;
   if (condition.kind === 'human') return `${condition.name}: ${condition.expected ? 'žije' : 'nežije'}`;
+  if (condition.kind === 'vehicle') return `Hráč ${condition.expected ? 'je' : 'není'} v ${condition.name}${condition.driverOnly ? ' na místě řidiče' : ' na libovolném sedadle'}`;
+  if (condition.kind === 'proximity') return `Hráč ${condition.expected ? 'je' : 'není'} blíž než ${condition.radius} m od ${condition.name}`;
   return `${condition.name}: signál ${condition.expected ? 'zapnutý' : 'vypnutý'}`;
 }
