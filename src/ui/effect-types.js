@@ -1,6 +1,6 @@
 export function renderEffectDefinitions(main,file,{element,state,api,run,refresh,renderDetail,status}) {
   const all=file.records.flatMap(record=>[record,...record.children.flatMap(emitter=>[emitter,...emitter.children])]);
-  main.append(element('p',`${file.records.length} typů · ${all.filter(node=>node.kind==='emitter').length} emitorů · ${all.filter(node=>node.kind==='phase').length} fází. Definice jsou společné pro všechny mise. Změny se projeví po novém načtení hry. Pořadí typů a jejich ID zůstávají zachované.`,'notice'));
+  main.append(element('p',`${file.records.length} typů · ${all.filter(node=>node.kind==='emitter').length} emitorů · ${all.filter(node=>node.kind==='phase').length} fází. Definice jsou společné pro všechny mise. Nový typ vznikne kopií na konci tabulky; původní ID se nemění. Po změně hru znovu načtěte.`,'notice'));
   const layout=element('div',undefined,'items-workspace effect-definitions'),browser=element('section'),form=element('section',undefined,'item-form');
   const search=element('input'),list=element('div',undefined,'text-list effect-definition-list');search.type='search';search.placeholder='Typ, emitor nebo fáze…';search.setAttribute('aria-label','Hledat definice efektů');browser.append(search,list);layout.append(browser,form);main.append(layout);
   const current=entry=>state.texts.has(entry.id)?state.texts.get(entry.id):entry.value;
@@ -9,6 +9,29 @@ export function renderEffectDefinitions(main,file,{element,state,api,run,refresh
   const expanded=new Set(remembered?.expanded??[]);search.value=remembered?.query??'';let selected=all.find(node=>node.id===remembered?.id);
   selected??=file.records[0];
   const remember=()=>{state.effectDefinitionSelection={path:file.path,id:selected?.id,query:search.value,expanded:[...expanded]};};
+  const tools=element('div',undefined,'tools'),newType=element('button','Nový typ kopií…'),duplicate=element('button','Kopírovat…'),up=element('button','Posunout nahoru'),down=element('button','Posunout dolů'),remove=element('button','Odstranit…');tools.append(newType,duplicate,up,down,remove);main.insertBefore(tools,layout);
+  const parentOf=node=>all.find(parent=>parent.children.includes(node));
+  const label=node=>node.kind==='effect'?'typ efektu':node.kind==='emitter'?'emitor':'fázi';
+  const guard=()=>{if(state.texts.size)throw Error('Nejdřív uložte rozepsané parametry efektů.');};
+  async function change(request){
+    guard();const result=await api.changeEffectDefinition(file.path,request,file.sha256);state.file=result.file;
+    state.effectDefinitionSelection={path:file.path,id:result.selection,query:'',expanded:[]};await refresh();renderDetail();status('Struktura efektu uložená s jedním undo. Původní ID typů zůstala zachovaná.');
+  }
+  function confirm(action,target){
+    guard();const dialog=element('dialog'),form=element('form',undefined,'mission-form'),name=element('input'),message=element('p','','notice'),cancel=element('button','Zrušit'),save=element('button',action==='delete'?'Odstranit':'Vytvořit kopii','primary'),actions=element('div',undefined,'tools');
+    const parent=parentOf(target),siblings=parent?.children??file.records;
+    dialog.append(element('h2',`${action==='delete'?'Odstranit':'Kopírovat'} ${label(target)}`),form);form.append(element('p',`${title(target)}${target.kind==='effect'?` · zdrojové ID ${file.records.indexOf(target)}`:''}`));
+    if(action==='duplicate'){
+      const row=element('label','Název kopie');name.required=true;name.maxLength=998;name.setAttribute('aria-label','Název kopie efektu');let index=1;do{name.value=`${target.name||'Efekt'} kopie${index===1?'':' '+index++}`;if(index===1)index++;}while(siblings.some(sibling=>sibling.name.normalize('NFC').toLowerCase()===name.value.normalize('NFC').toLowerCase()));row.append(name);form.append(row);
+      form.append(element('p',target.kind==='effect'?`Nové ID bude ${file.records.length}. Zkopírují se parametry, model i všechny emitory a fáze. Původní definice se nezmění; nový typ pak vyberte v Efektech mise.`:'Kopie se vloží za vybraný záznam v témže rodiči. Parametry, modelové vazby a vnořené fáze se převezmou ze vzoru.','notice'));
+      name.oninput=()=>{save.disabled=!name.value.trim();};
+    }else form.append(element('p',target.kind==='emitter'?'Odstraní se tento emitor včetně jeho fází ze společné definice. Změna ovlivní všechny mise používající tento typ.':'Odstraní se tato fáze z řetězce vybraného emitoru. Změna ovlivní všechny mise používající tento typ.','notice'));
+    cancel.type='button';cancel.onclick=()=>dialog.close();save.type='submit';actions.append(cancel,save);form.append(message,actions);let saving=false;
+    form.onsubmit=event=>{event.preventDefault();if(save.disabled)return;run(async()=>{saving=true;form.inert=true;try{await change({action,id:target.id,...(action==='duplicate'?{name:name.value}:{})});dialog.close();}catch(error){message.textContent=error.message;}finally{saving=false;form.inert=false;}});};
+    dialog.addEventListener('cancel',event=>{if(saving)event.preventDefault();});dialog.addEventListener('close',()=>dialog.remove(),{once:true});document.body.append(dialog);dialog.showModal();if(action==='duplicate'){name.focus();name.select();}
+  }
+  newType.onclick=()=>run(()=>{let target=selected;while(parentOf(target))target=parentOf(target);confirm('duplicate',target);});duplicate.onclick=()=>run(()=>confirm('duplicate',selected));remove.onclick=()=>run(()=>confirm('delete',selected));
+  up.onclick=()=>run(()=>change({action:'move',id:selected.id,direction:-1}));down.onclick=()=>run(()=>change({action:'move',id:selected.id,direction:1}));
   function fill(){
     const scroll=list.scrollTop,query=search.value.trim().toLowerCase();list.replaceChildren();
     const matchesSelf=(node,index)=>`${node.kind==='effect'?index:''} ${title(node)} ${node.entries.map(entry=>entry.kind==='string'?current(entry):'').join(' ')}`.toLowerCase().includes(query);
@@ -25,6 +48,7 @@ export function renderEffectDefinitions(main,file,{element,state,api,run,refresh
     file.records.forEach((record,i)=>{const item=row(record,i);if(item)list.append(item);});list.scrollTop=scroll;
   }
   function edit(){
+    newType.disabled=!selected;const parent=selected&&parentOf(selected),index=parent?.children.indexOf(selected)??-1;duplicate.disabled=!parent;duplicate.textContent=selected?.kind==='phase'?'Kopírovat fázi…':'Kopírovat emitor…';up.disabled=!parent||index===0;down.disabled=!parent||index===parent.children.length-1;remove.disabled=!parent||parent.children.length<2;
     if(!selected)return;remember();form.replaceChildren();
     form.append(element('h3',`${selected.kind==='effect'?'Typ efektu':selected.kind==='emitter'?'Emitor':'Fáze'} · ${title(selected)||'(bez názvu)'}`));
     for(const warning of selected.warnings)form.append(element('p',warning,'notice'));

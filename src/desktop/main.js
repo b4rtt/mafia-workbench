@@ -194,6 +194,7 @@ app.whenReady().then(async () => {
   handle('asset:collision',(name,operations,expectedHash,dependencies,options)=>operation(async()=>{const result=await current().saveCollision(name,operations,expectedHash,dependencies,options);return {file:await current().inspect(name),...result};}));
   handle('asset:effects', (name, changes, expectedHash, dependencies) => operation(async () => { await current().saveEffects(name, changes, expectedHash, dependencies); return current().inspect(name); }));
   handle('asset:effect-definitions', (name, changes, expectedHash) => operation(async () => { await current().saveEffectDefinitions(name, changes, expectedHash); return current().inspect(name); }));
+  handle('asset:effect-definition-structure',(name,request,expectedHash)=>operation(async()=>{const selection=await current().changeEffectDefinition(name,request,expectedHash);return {file:await current().inspect(name),selection};}));
   handle('asset:effects-change', (name, request, expectedHash, dependencies) => operation(async () => { await current().changeEffects(name, request, expectedHash, dependencies); return current().inspect(name); }));
   handle('asset:animation', (name, changes, expectedHash) => operation(async () => { await current().saveAnimation(name, changes, expectedHash); return current().inspect(name); }));
   handle('asset:animation-timeline',(name,request,expectedHash)=>operation(async()=>{await current().saveAnimationTimeline(name,request,expectedHash);return current().inspect(name);}));

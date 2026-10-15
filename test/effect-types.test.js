@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import iconv from 'iconv-lite';
-import {parseEffectDefinitions,editEffectDefinitions} from '../src/core/effect-types.js';
+import {parseEffectDefinitions,editEffectDefinitions,changeEffectDefinition} from '../src/core/effect-types.js';
 import {parseEffectTypes} from '../src/core/effects.js';
 import {ModProject} from '../src/core/project.js';
 import {writeSafe,hash} from '../src/core/files.js';
@@ -79,4 +79,52 @@ test('project saves definitions atomically with stale guards, byte-exact reopen/
   await project.saveEffectDefinitions(name,changes,file.sha256);const expected=editEffectDefinitions(bytes,changes);assert.deepEqual(await project.read(name),expected);await assert.rejects(project.saveEffectDefinitions(name,changes,file.sha256),/změnil/);
   const reopened=await ModProject.open(root),destination=path.join(root,'export');await reopened.export(destination);assert.deepEqual(await fs.readFile(path.join(destination,name)),expected);assert.deepEqual(await reopened.read(name),expected);
   await reopened.undo();assert.deepEqual(await reopened.read(name),bytes);assert.equal(reopened.manifest.history.length,baseline);assert.equal(hash(await reopened.read(name)),file.sha256);
+});
+
+test('new effect types append exact renamed copies without changing any previous ID or opaque data',()=>{
+  const source=Buffer.concat([fixture({opaque:true}),fixture({reversed:true})]),before=parseEffectDefinitions(source),request={action:'duplicate',id:before.records[0].id,name:'Vlastní kouř'};
+  const {data,selection}=changeEffectDefinition(source,request),after=parseEffectDefinitions(data);
+  assert.equal(selection,'types/2');assert.equal(after.records.length,3);assert.deepEqual(data.subarray(0,source.length),source);assert.equal(after.records[2].name,request.name);
+  assert.equal(parseEffectTypes(data).items[2].effectId,2);assert.equal(parseEffectTypes(data).items[2].model,'particle.I3D');
+  const expected=editEffectDefinitions(fixture({opaque:true}),[{id:before.records[0].entries.find(e=>e.key==='name').id,value:request.name}]);assert.deepEqual(data.subarray(source.length),expected);
+  assert.equal(after.records[2].children[0].children[0].warnings.length,1);assert.deepEqual(source,Buffer.concat([fixture({opaque:true}),fixture({reversed:true})]));
+});
+
+test('local emitter/phase copies, ordering and deletion retain effective overrides, suffixes and exact other types',()=>{
+  for(const kind of ['emitter','phase']){
+    const source=Buffer.concat([fixture({reversed:true}),fixture({invalid:true})]),type=parseEffectDefinitions(source).records[0],emitter=type.children[0],target=kind==='emitter'?emitter:emitter.children[0];
+    let result=changeEffectDefinition(source,{action:'duplicate',id:target.id,name:'Druhá'});const read=bytes=>{const record=parseEffectDefinitions(bytes).records[0];return kind==='emitter'?record.children:record.children[0].children;};
+    assert.equal(read(result.data).length,2);assert.equal(read(result.data)[1].id,result.selection);assert.equal(read(result.data)[1].name,'Druhá');assert.deepEqual(result.data.subarray(-fixture({invalid:true}).length),fixture({invalid:true}));
+    const copy=read(result.data)[1],phase=kind==='phase'?copy:copy.children[0];assert.deepEqual(entry(phase,'scale').value,[8,5,6]);assert(result.data.includes(Buffer.from('emitter-suffix')));assert(result.data.includes(Buffer.from('phase-suffix')));
+    const copied=result.data;result=changeEffectDefinition(result.data,{action:'move',id:copy.id,direction:-1});assert.equal(read(result.data)[0].name,'Druhá');assert.equal(read(result.data)[0].id,result.selection);
+    result=changeEffectDefinition(result.data,{action:'move',id:result.selection,direction:1});assert.deepEqual(result.data,copied);
+    result=changeEffectDefinition(result.data,{action:'delete',id:read(result.data)[1].id});assert.deepEqual(result.data,source);assert.equal(result.selection,kind==='emitter'?type.id:emitter.id);
+  }
+});
+
+test('unnamed native emitter/phase templates gain only a name chunk in their new copy',()=>{
+  const phase=chunk(102,chunk(107,floats([9.8]))),emitter=chunk(101,phase),source=chunk(100,Buffer.concat([text(103,'Type'),emitter]));
+  for(const id of ['types/0/1','types/0/1/0']){
+    const result=changeEffectDefinition(source,{action:'duplicate',id,name:'Pojmenovaná kopie'}),parsed=parseEffectDefinitions(result.data),nodes=[parsed.records[0],...parsed.records[0].children.flatMap(e=>[e,...e.children])],copy=nodes.find(n=>n.id===result.selection);assert.equal(copy.name,'Pojmenovaná kopie');
+    const original=nodes.find(n=>n.id===id);assert.equal(original.name,'');assert.deepEqual(changeEffectDefinition(result.data,{action:'delete',id:copy.id}).data,source);
+    if(copy.kind==='phase')assert.equal(entry(copy,'gravity').value,Math.fround(9.8));
+  }
+});
+
+test('definition structure refuses global ID shifts, empty chains, invalid requests and unsafe names',()=>{
+  const source=fixture(),type=parseEffectDefinitions(source).records[0],emitter=type.children[0],phase=emitter.children[0];
+  for(const request of [null,[],{}, {action:'delete',id:type.id},{action:'move',id:type.id,direction:1},{action:'delete',id:emitter.id},{action:'delete',id:phase.id},{action:'move',id:phase.id,direction:-1},{action:'move',id:phase.id,direction:0},{action:'duplicate',id:'types/0/missing',name:'X'},{action:'duplicate',id:phase.id,name:'FÁZE'},{action:'duplicate',id:type.id,name:'New',extra:true},{action:'delete',id:phase.id,name:'Name'},{action:'duplicate',id:type.id,name:'New',direction:1}])assert.throws(()=>changeEffectDefinition(source,request),/Definice efektů/);
+  for(const name of ['', '  ', 'x\0y', '🔥', 'a'.repeat(999),null])assert.throws(()=>changeEffectDefinition(source,{action:'duplicate',id:phase.id,name}),/Definice efektů/);
+  assert.throws(()=>changeEffectDefinition(chunk(100,text(103,'Empty')),{action:'duplicate',id:'types/0',name:'Copy'}),/úplný vzor/);
+  assert.deepEqual(editEffectDefinitions(source,[]),source);
+});
+
+test('definition structure guards stale versions, publication rollback, export and one exact undo',async t=>{
+  const root=await fs.mkdtemp(path.join(os.tmpdir(),'mafia-effect-structure-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));await writeSafe(root,'workbench.json',JSON.stringify({format:'mafia-workbench',version:2,name:'Particles',assets:[],history:[]}));
+  const p=await ModProject.open(root),name='tables/effects.tbl',source=fixture();await p.createFiles([{path:name,data:source},{path:'protected.bin',data:Buffer.from('protected')}]);const history=p.manifest.history.length,request={action:'duplicate',id:'types/0',name:'Vlastní'};
+  await assert.rejects(()=>p.changeEffectDefinition(name,request,'stale'),/změnil/);await assert.rejects(()=>p.changeEffectDefinition('other.bin',request,hash(source)),/tabulka/);assert.equal(p.manifest.history.length,history);
+  const publish=p.saveManifest;p.saveManifest=async()=>{throw Error('Publish failed');};await assert.rejects(()=>p.changeEffectDefinition(name,request,hash(source)),/Publish failed/);p.saveManifest=publish;assert.deepEqual(await p.read(name),source);assert.equal(p.manifest.history.length,history);
+  const selection=await p.changeEffectDefinition(name,request,hash(source));assert.equal(selection,'types/1');assert.equal(p.manifest.history.length,history+1);
+  const expected=changeEffectDefinition(source,request).data,reopen=await ModProject.open(root);assert.deepEqual(await reopen.read(name),expected);await reopen.export(root+'/export');assert.deepEqual(await fs.readFile(root+'/export/'+name),expected);
+  await reopen.undo();assert.deepEqual(await reopen.read(name),source);assert.equal(reopen.manifest.history.length,history);assert.equal((await reopen.read('protected.bin')).toString(),'protected');
 });

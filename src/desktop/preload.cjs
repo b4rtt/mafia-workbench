@@ -59,6 +59,7 @@ contextBridge.exposeInMainWorld('workbench', {
   saveCollision: (name,operations,expectedHash,dependencies,options) => invoke('asset:collision',name,operations,expectedHash,dependencies,options),
   saveEffects: (name, changes, expectedHash, dependencies) => invoke('asset:effects', name, changes, expectedHash, dependencies),
   saveEffectDefinitions: (name, changes, expectedHash) => invoke('asset:effect-definitions', name, changes, expectedHash),
+  changeEffectDefinition: (name,request,expectedHash) => invoke('asset:effect-definition-structure',name,request,expectedHash),
   changeEffects: (name, request, expectedHash, dependencies) => invoke('asset:effects-change', name, request, expectedHash, dependencies),
   saveAnimation: (name, changes, expectedHash) => invoke('asset:animation', name, changes, expectedHash),
   saveAnimationTimeline: (name, request, expectedHash) => invoke('asset:animation-timeline', name, request, expectedHash),

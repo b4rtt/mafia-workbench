@@ -41,7 +41,7 @@ import { collisionOwnership, ownedCollisionRecords, prepareSceneCollision, colli
 import { parseVehicleTable, vehicleModelDefinition, validateVehicleModel } from './vehicles.js';
 import { inspectVehicleTable, editVehicleTable } from './vehicle-table.js';
 import { parseEffects, editEffects, changeEffects, parseEffectTypes } from './effects.js';
-import { parseEffectDefinitions, editEffectDefinitions } from './effect-types.js';
+import { parseEffectDefinitions, editEffectDefinitions, changeEffectDefinition } from './effect-types.js';
 import { parseBmp, editBmp } from './bmp.js';
 import { inspectModelGeometry, editModelGeometry } from './model-geometry.js';
 import { appendSector } from './sector-create.js';
@@ -868,6 +868,15 @@ export class ModProject {
       if(hash(before)!==expectedHash)throw new Error('Soubor se od otevření změnil. Otevřete jej znovu.');
       return editEffectDefinitions(before,changes);
     },'Úprava definic částicových efektů');
+  }
+  async changeEffectDefinition(name,request,expectedHash) {
+    if(!/^tables\/effects\.tbl$/i.test(name))throw new Error('Soubor není tabulka efektů.');
+    let selection;
+    await this.change(name,before=>{
+      if(hash(before)!==expectedHash)throw new Error('Soubor se od otevření změnil. Otevřete jej znovu.');
+      const changed=changeEffectDefinition(before,request);selection=changed.selection;return changed.data;
+    },'Změna struktury částicového efektu');
+    return selection;
   }
   async changeEffects(name,request,expectedHash,dependencies) { await this.writeEffects(name,before=>changeEffects(before,request),expectedHash,dependencies,request?.action!=='delete'); }
   async saveItems(name, changes, expectedHash) {

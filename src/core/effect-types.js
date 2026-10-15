@@ -143,3 +143,54 @@ export function editEffectDefinitions(source,changes) {
   }
   const result=Buffer.concat(parsed.roots.map(rebuild));parseEffectDefinitions(result);return result;
 }
+
+// Type IDs are positions in the global table. Append new types only; emitter
+// and phase chains are local ordered vectors populated by the native loaders.
+export function changeEffectDefinition(source,request) {
+  const parsed=layout(source);
+  if(!request||typeof request!=='object'||Array.isArray(request)||!['duplicate','delete','move'].includes(request.action)||Object.keys(request).some(key=>!['action','id','name','direction'].includes(key)))fail('neplatná strukturální operace.');
+  const node=parsed.nodes.find(node=>node.id===request.id&&node.container);
+  if(!node)fail('vyberte existující typ, emitor nebo fázi.');
+  const parent=parsed.nodes.find(parent=>parent.children.includes(node)),siblings=parent?parent.children.filter(child=>child.container):parsed.roots,index=siblings.indexOf(node);
+  let selection=node.id,copy,neighbor;
+  if(request.action==='duplicate'){
+    if(request.direction!==undefined)fail('kopie nemá směr přesunu.');
+    const name=encode(request.name);if(!request.name.trim())fail('kopie potřebuje neprázdný název.');
+    if(siblings.some(sibling=>sibling.name.normalize('NFC').toLowerCase()===request.name.normalize('NFC').toLowerCase()))fail('název už mezi sourozenci existuje.');
+    const field=node.entries.find(entry=>entry.key==='name'),entry=parsed.entries.find(entry=>entry.id===field?.id),slot=entry?.slots[0];
+    if(node.type!==102&&!node.children.some(child=>child.container))fail('zdroj nemá emitor nebo fázi; vyberte úplný vzor.');
+    const clone=child=>{
+      let payload=child===slot?.child?Buffer.concat([name,Buffer.from([0]),parsed.bytes.subarray(slot.zero+1,child.end)]):child.children.length?Buffer.concat(child.children.map(clone)):parsed.bytes.subarray(child.payload,child.end);
+      if(child===node&&!slot){const header=Buffer.alloc(6);header.writeUInt16LE(103);header.writeUInt32LE(name.length+7,2);payload=Buffer.concat([header,name,Buffer.from([0]),payload]);}
+      const header=Buffer.from(parsed.bytes.subarray(child.start,child.payload));header.writeUInt32LE(payload.length+6,2);return Buffer.concat([header,payload]);
+    };
+    copy=clone(node);
+    selection=parent?parent.id+'/'+(parent.children.indexOf(node)+1):'types/'+parsed.roots.length;
+  }else{
+    if(request.name!==undefined)fail('název se zadává jen při kopírování.');
+    if(!parent)fail('původní typy nelze odstranit ani řadit, změnilo by se jejich globální ID.');
+    if(request.action==='delete'){
+      if(request.direction!==undefined)fail('odstranění nemá směr přesunu.');
+      if(siblings.length<2)fail(node.type===101?'Typ musí mít alespoň jeden emitor.':'Emitor musí mít alespoň jednu fázi.');
+      selection=parent.id;
+    }else{
+      if(![-1,1].includes(request.direction))fail('směr přesunu musí být −1 nebo 1.');
+      neighbor=siblings[index+request.direction];if(!neighbor)fail('záznam je už na hranici seznamu.');
+      selection=neighbor.id;
+    }
+  }
+  const rebuild=branch=>{
+    if(branch!==parent)return parsed.bytes.subarray(branch.start,branch.end);
+    const children=branch.children.flatMap(child=>{
+      const raw=parsed.bytes.subarray(child.start,child.end);
+      if(child===node){if(request.action==='duplicate')return [raw,copy];if(request.action==='delete')return [];return [parsed.bytes.subarray(neighbor.start,neighbor.end)];}
+      return [child===neighbor?parsed.bytes.subarray(node.start,node.end):raw];
+    });
+    const header=Buffer.from(parsed.bytes.subarray(branch.start,branch.payload)),payload=Buffer.concat(children);header.writeUInt32LE(payload.length+6,2);return Buffer.concat([header,payload]);
+  };
+  // Rebuild the selected parent and only its ancestors. All other chunks stay exact.
+  const visit=branch=>{if(branch===parent)return rebuild(branch);if(!branch.children.some(child=>child===parent||parent?.id.startsWith(child.id+'/')))return parsed.bytes.subarray(branch.start,branch.end);const payload=Buffer.concat(branch.children.map(visit)),header=Buffer.from(parsed.bytes.subarray(branch.start,branch.payload));header.writeUInt32LE(payload.length+6,2);return Buffer.concat([header,payload]);};
+  const data=Buffer.concat([...parsed.roots.map(visit),...(!parent&&copy?[copy]:[])]);
+  const result=parseEffectDefinitions(data);if(result.records.length>10000)fail('tabulka může mít nejvýše 10000 typů.');
+  return {data,selection};
+}
