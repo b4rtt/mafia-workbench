@@ -2,6 +2,13 @@
 
 Aktualizace: 15. října 2026. Vývoj pokračuje; komplexní editor není dokončený. Implementace, datové testy, ověření UI a ověření ve hře jsou různé úrovně dokončení; neoznačovat jednu za druhou. Podrobnosti existujících funkcí a jejich omezení jsou v README.md a research/formats.md. Původní hra se nemění, úpravy mají kontrolu verze, zálohu, export a undo. Herní data a soukromé reference nepatří do veřejného repozitáře.
 
+## Řídicí bod a spojování signálů (2026-10-15)
+
+- Přidat → Řídicí bod mise… v diagramu i 3D: vlastní aktivační signál, 0–8 sledovaných bodů (všechny současně / alespoň jeden), prodleva 0–86400 s s přesností ms a 1–8 výstupů. Jednorázový program čte aktuální příznaky, nespotřebovává je ani nelatchuje nesoučasné pulzy. Po splnění prodleva vstupy znovu nekontroluje. Pouze přesné generované recepty se obnoví do formuláře; vlastní zdroje zůstávají vlastní.
+- Core znovu generuje zdroj, ověří jednoznačné detektory a geometrii, odmítá vlastní/nejednoznačné vazby, duplicity a smíšené šablony. Jedna transakce scény, ochrana závislostí, export/reopen/no-op/undo a rollback. Diagram odlišuje čekání na příznak od aktivace a nezapočítává čtecí hrany do vykonávacích cyklů; kontrola mise ověřuje vstupy/výstupy.
+- 31/31 cílených testů včetně nezávislého časovaného interpreteru: ALL bez latche, ANY, časný vlastní signál, prodlevy, jednorázovost, concurrent scéna/geometrie a selhání publikace. Check/build prošly. Produkční renderer nad soukromou kopií: vytvoření, úprava ALL→ANY a aktivačního signálu, neplatné duplicity/prodleva, disabled no-op, přesný export/reopen a dvě UI undo na historii 53. Nativní pokusy z Node i Audit Electronu skončily před checkpointem při selhání grafického okna Wine; chování v enginu zatím není ověřené. Diagnostika, save/index i kopie obnovené, původní assety beze změny.
+- Aktivní další blok podle uživatele: přehrávání částicových efektů v 3D náhledu, pauza/restart/rychlost, z uložených parametrů emitorů a fází. Automatické testování v oddělených kopiích během jeho nepřítomnosti; nečekat na ruční ovládání hry. Automatické navázání odpovědí po řeči zůstává otevřená samostatná mezera. Celý goal editoru pokračuje, AI/OSM plugin dál čeká na splnění předpokladu plné vlastní mise.
+
 ## 3D výběr modelové části efektu (2026-10-15)
 
 - Model a části… nyní obsahuje texturovaný statický 3D náhled LOD 0, izolaci aktivního emitoru, celý model s obrysem vybrané části, přiblížení a přiřazení kliknutím. Zachovává hierarchii transformací; zobrazí i skrytý zdroj klonované částice, pomocné objemy skryje. Žádný manipulátor ani změna modelových dat. Pohyb, emise, billboardy a fáze se nesimulují.

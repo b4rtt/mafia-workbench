@@ -9,6 +9,7 @@ import { dialogueSoundPath } from './dialogue-audio.js';
 import { dialogueSpeakers, dialogueInteractionHumans } from '../shared/mission-dialogue.js';
 import { missionTaskVehicles, resolveMissionTaskEscort } from '../shared/mission-task.js';
 import { resolveMissionBranch } from '../shared/mission-branch.js';
+import { resolveMissionCoordination } from '../shared/mission-coordination.js';
 import { missionLogic } from '../shared/mission-logic.js';
 import { validateHumanRoute, resolveHumanAttack, humanWeapons } from '../shared/human-behavior.js';
 import { resolveHumanFollowing } from '../shared/human-following.js';
@@ -99,6 +100,10 @@ export async function checkMission(project, name, textDb = null) {
       if (node.kind === 'custom') { custom++; continue; }
       if (!recipe) continue;
       recipes++;
+      if (node.kind === 'coordination') {
+        try { resolveMissionCoordination(scene, recipe, node.name); } catch (error) { issue('error', 'coordination', `${node.name}: ${error.message}`, location); }
+        continue;
+      }
       if (node.kind === 'branch') {
         try { resolveMissionBranch(scene, recipe, node.name); } catch (error) { issue('error', 'branch', `${node.name}: ${error.message}`, location); }
         const itemConditions = recipe.conditions.filter(condition => condition.kind === 'item');

@@ -11,7 +11,7 @@ export function renderMissionLogic(main, file, remembered, { element, projectRoo
   all.type = 'checkbox'; all.checked = remembered?.all ?? false; allLabel.prepend(all);
   scroll.tabIndex = 0; scroll.setAttribute('role', 'region'); scroll.setAttribute('aria-label', 'Diagram logiky mise'); scroll.append(canvas);
   const count = element('span', '', 'muted'), focus = element('button', 'Najít vybraný'), toggleOutline = element('button', 'Body'), toggleInspector = element('button', 'Podrobnosti');
-  const additions = Object.entries({ task: 'Přidat úkol…', branch: 'Přidat podmínku mise…', dialogue: 'Přidat rozhovor…', choice: 'Přidat volbu odpovědi…', combat: 'Přidat bojový úkol…', finish: 'Přidat zakončení mise…', custom: 'Přidat vlastní skript…' }).map(([kind, label]) => {
+  const additions = Object.entries({ task: 'Přidat úkol…', branch: 'Přidat podmínku mise…', coordination: 'Přidat řídicí bod mise…', dialogue: 'Přidat rozhovor…', choice: 'Přidat volbu odpovědi…', combat: 'Přidat bojový úkol…', finish: 'Přidat zakončení mise…', custom: 'Přidat vlastní skript…' }).map(([kind, label]) => {
     const button = element('button', label); button.dataset.logicAction = ''; button.dataset.logicCreate = ''; button.onclick = () => create(kind); return button;
   });
   controls.append(actionMenu('Přidat', additions), focus, toggleOutline, toggleInspector, count); center.append(controls, scroll);
@@ -25,7 +25,7 @@ export function renderMissionLogic(main, file, remembered, { element, projectRoo
   panel(toggleOutline, 'logic-outline-hidden', !(remembered?.outlineHidden ?? false)); panel(toggleInspector, 'logic-inspector-hidden', !(remembered?.inspectorHidden ?? false));
   toggleOutline.onclick = () => panel(toggleOutline, 'logic-outline-hidden', layout.classList.contains('logic-outline-hidden'));
   toggleInspector.onclick = () => panel(toggleInspector, 'logic-inspector-hidden', layout.classList.contains('logic-inspector-hidden'));
-  const caption = node => node.kind === 'branch' ? `${node.waiting ? 'Po signálu' : 'Po načtení'} · ${node.recipe.match === 'all' ? 'všechny' : 'alespoň jedna'} · ${node.recipe.conditions.length} podmínky` : node.kind === 'attack' ? `${node.waiting ? 'Po signálu · ' : ''}Útok na ${node.recipe.targetName}` : node.kind === 'patrol' ? `${node.waiting ? 'Po signálu · ' : ''}${node.recipe.pace === 'walk' ? 'Chůze' : 'Běh'} · zastávky: ${node.recipe.waypoints.length} · ${node.recipe.loop ? 'opakovaně' : 'jednou'}` : node.kind === 'follow' ? `${node.waiting ? 'Po signálu · ' : ''}${node.recipe.destinationName ? `Cíl ${node.recipe.destinationName}` : 'Bez cíle'}` : node.kind === 'drive' ? `${node.waiting ? 'Po signálu · ' : ''}${node.recipe.carName} · zastávky: ${node.recipe.stops.length} · ${node.recipe.loop ? 'opakovaně' : 'jednou'}` : node.kind === 'choice' ? `${node.waiting ? 'Po signálu · ' : ''}${node.recipe.answers.length} odpovědi · ${node.recipe.controller}` : node.recipe ? `${node.waiting ? 'Po signálu · ' : ''}${node.trigger === 'use' ? 'Akce hráče' : node.trigger === 'area' ? `Oblast · ${node.recipe.triggerRadius}` : 'Po načtení'}` : logicKinds[node.kind];
+  const caption = node => node.kind === 'coordination' ? `${node.waiting ? 'Po signálu · ' : ''}Vstupy: ${node.recipe.signals.length} (${node.recipe.match === 'all' ? 'všechny' : 'alespoň jeden'}) · Výstupy: ${node.recipe.targets.length} · ${node.recipe.delaySeconds} s` : node.kind === 'branch' ? `${node.waiting ? 'Po signálu' : 'Po načtení'} · ${node.recipe.match === 'all' ? 'všechny' : 'alespoň jedna'} · ${node.recipe.conditions.length} podmínky` : node.kind === 'attack' ? `${node.waiting ? 'Po signálu · ' : ''}Útok na ${node.recipe.targetName}` : node.kind === 'patrol' ? `${node.waiting ? 'Po signálu · ' : ''}${node.recipe.pace === 'walk' ? 'Chůze' : 'Běh'} · zastávky: ${node.recipe.waypoints.length} · ${node.recipe.loop ? 'opakovaně' : 'jednou'}` : node.kind === 'follow' ? `${node.waiting ? 'Po signálu · ' : ''}${node.recipe.destinationName ? `Cíl ${node.recipe.destinationName}` : 'Bez cíle'}` : node.kind === 'drive' ? `${node.waiting ? 'Po signálu · ' : ''}${node.recipe.carName} · zastávky: ${node.recipe.stops.length} · ${node.recipe.loop ? 'opakovaně' : 'jednou'}` : node.kind === 'choice' ? `${node.waiting ? 'Po signálu · ' : ''}${node.recipe.answers.length} odpovědi · ${node.recipe.controller}` : node.recipe ? `${node.waiting ? 'Po signálu · ' : ''}${node.trigger === 'use' ? 'Akce hráče' : node.trigger === 'area' ? `Oblast · ${node.recipe.triggerRadius}` : 'Po načtení'}` : logicKinds[node.kind];
   function select(id) {
     selected = id;
     for (const [nodeId, card] of cards) { card.classList.toggle('selected', nodeId === id); card.setAttribute('aria-pressed', String(nodeId === id)); }
@@ -46,6 +46,10 @@ export function renderMissionLogic(main, file, remembered, { element, projectRoo
         inspector.append(element('p', 'NPC čte signál vybraného bodu; přerušovaná hrana neznamená, že se čeká na dokončení programu tohoto bodu. Chování, navigaci a překážky ověřte ve hře.', 'notice'));
       }
       if (node.kind === 'attack') inspector.append(element('p', 'Útok neposílá dokončení. Smrt cílů a další děj propojte samostatným bojovým úkolem.', 'notice'));
+      if (node.kind === 'coordination') {
+        details.push(['Vstupní signály', node.recipe.signals.join(', ') || 'Bez vstupů'], ['Čekání', node.recipe.match === 'all' ? 'Všechny zapnuté současně' : 'Alespoň jeden zapnutý'], ['Prodleva po splnění', `${node.recipe.delaySeconds} s`], ['Spustit body', node.recipe.targets.join(', ')]);
+        inspector.append(element('p', 'Čeká na stav příznaků; nenuluje je ani si nepamatuje oddělené krátké pulzy. Po splnění odměří prodlevu bez další kontroly vstupů, zapne výstupy a skončí.', 'notice'));
+      }
       if (node.kind === 'branch') {
         details.push(['Vyhodnocení', node.recipe.match === 'all' ? 'Platí všechny podmínky' : 'Platí alespoň jedna podmínka'], ...node.recipe.conditions.map((condition, i) => [`Podmínka ${i + 1}`, missionBranchConditionLabel(condition)]));
         inspector.append(element('p', 'Jednorázové rozhodnutí po signálu nebo načtení. Nečeká na splnění podmínek; ihned vybere Ano nebo Ne. Čtené příznaky ani inventář nemění.', 'notice'));
@@ -55,7 +59,7 @@ export function renderMissionLogic(main, file, remembered, { element, projectRoo
       if (node.recipe.escort) details.push(['Příchod NPC', node.recipe.escort.humanName]);
       if (node.recipe.vehicle) details.push(['Auto', node.recipe.vehicle.name]);
       if (node.recipe.inventory) details.push(['Předmět', `ID ${node.recipe.inventory.itemId}${node.recipe.inventory.consume ? ' · odevzdat' : ''}`]);
-      if (node.recipe.targets) details.push(['Protivníci', node.recipe.targets.join(', ')]);
+      if (node.recipe.targets && node.kind !== 'coordination') details.push(['Protivníci', node.recipe.targets.join(', ')]);
       if (node.recipe.lines) details.push(['Repliky', node.recipe.lines.map(line => `${line.speaker}: ${line.textId}`).join(' · ')]);
       for (const [name, value] of details) inspector.append(element('p', `${name}: ${value}`));
       if (node.recipe.checkpointId !== null && node.recipe.checkpointId !== undefined) inspector.append(element('p', `Checkpoint: ${node.recipe.checkpointId}`));
@@ -91,12 +95,12 @@ export function renderMissionLogic(main, file, remembered, { element, projectRoo
     const namespace = 'http://www.w3.org/2000/svg', svg = document.createElementNS(namespace, 'svg'); svg.setAttribute('width', positions.width); svg.setAttribute('height', positions.height); svg.classList.add('logic-edges'); svg.setAttribute('aria-hidden', 'true'); canvas.append(svg);
     for (const [index,edge] of edges.entries()) {
       const outgoing=edges.filter(other=>other.from===edge.from),incoming=edges.filter(other=>other.to===edge.to);
-      const a = positions.positions.get(edge.from), b = positions.positions.get(edge.to), x = a.x + 250, y = a.y + 32 + Math.min(3,outgoing.indexOf(edge))*24, end = b.x, endY = b.y + 32 + Math.min(3,incoming.indexOf(edge))*24, group = document.createElementNS(namespace, 'g'), path = document.createElementNS(namespace, 'path'), arrow = document.createElementNS(namespace, 'path'), label = document.createElementNS(namespace,'text');
+      const a = positions.positions.get(edge.from), b = positions.positions.get(edge.to), x = a.x + 250, y = a.y + 32 + (outgoing.length > 4 ? outgoing.indexOf(edge) * 72 / (outgoing.length - 1) : outgoing.indexOf(edge) * 24), end = b.x, endY = b.y + 32 + (incoming.length > 4 ? incoming.indexOf(edge) * 72 / (incoming.length - 1) : incoming.indexOf(edge) * 24), group = document.createElementNS(namespace, 'g'), path = document.createElementNS(namespace, 'path'), arrow = document.createElementNS(namespace, 'path'), label = document.createElementNS(namespace,'text');
       // Long and backward edges travel above the cards, not through intervening
       // quest nodes. Separate ports keep equal-target branches distinguishable.
       const lane=16+(index%7)*9;
       group.classList.add(edge.kind); path.setAttribute('d', b.x-a.x===340 ? `M ${x} ${y} C ${x + 36} ${y}, ${end - 36} ${endY}, ${end} ${endY}` : `M ${x} ${y} L ${x+20} ${y} L ${x+20} ${lane} L ${end-20} ${lane} L ${end-20} ${endY} L ${end} ${endY}`); arrow.setAttribute('d', `M ${end - 8} ${endY - 5} L ${end} ${endY} L ${end - 8} ${endY + 5}`);
-      label.setAttribute('x',String(x+5));label.setAttribute('y',String(y-7));label.textContent=edge.kind==='read'?'Čte':edge.kind==='signal'?'Signál':byId.get(edge.from)?.kind==='branch'?(edge.kind==='success'?'Ano':'Ne'):edge.kind==='failure'?'Neúsp.':edge.kind==='answer'?String(outgoing.indexOf(edge)+1):'Dok.';group.append(path, arrow,label); svg.append(group); lines.push({ edge, group });
+      label.setAttribute('x',String(x+5));label.setAttribute('y',String(y-7));label.textContent=edge.kind==='read'?(byId.get(edge.to)?.kind==='coordination'?'Čeká':'Čte'):edge.kind==='signal'?'Signál':byId.get(edge.from)?.kind==='coordination'?'Spustit':byId.get(edge.from)?.kind==='branch'?(edge.kind==='success'?'Ano':'Ne'):edge.kind==='failure'?'Neúsp.':edge.kind==='answer'?String(outgoing.indexOf(edge)+1):'Dok.';group.append(path, arrow,label); svg.append(group); lines.push({ edge, group });
     }
     const query = find.value.normalize('NFC').toLowerCase();
     for (const node of nodes) {
