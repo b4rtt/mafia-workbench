@@ -334,7 +334,7 @@ function renderDetail() {
         else if(node.kind==='combat')missionCombatDialog({api,assets:state.project.assets,file,target:node.name,element,run,flowFields:missionFlowFields,onCreated});
         else if(node.kind==='finish')missionFinishDialog({api,assets:state.project.assets,file,target:node.name,element,run,onCreated});
         else if(node.kind==='choice')missionChoiceDialog({api,assets:state.project.assets,file,target:node.name,element,run,onCreated});
-        else if(['patrol','follow','drive'].includes(node.kind)){
+        else if(['patrol','follow','drive','attack'].includes(node.kind)){
           if(state.texts.size)throw new Error('Nejdřív uložte rozepsané vlastnosti.');
           const context=await humanBehaviorContext(file);
           humanBehaviorDialog({element,file,...context,target:node.name,run,save:async request=>onCreated(await api.changeSceneObject(file.path,request,file.sha256))});

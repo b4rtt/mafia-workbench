@@ -7,7 +7,7 @@ import { missionFlowTargets } from './mission-flow.js';
 import { inspectHumanBehavior } from './human-behavior.js';
 
 const key = name => name.normalize('NFC').toLowerCase();
-export const logicKinds = { task: 'Úkol', finish: 'Zakončení mise', dialogue: 'Rozhovor', combat: 'Bojový úkol', choice: 'Volba odpovědi', patrol: 'Trasa NPC', follow: 'Doprovod hráče', drive: 'Jízda NPC', custom: 'Vlastní skript', unresolved: 'Nedostupný bod', mission: 'Další mise', ending: 'Konec mise' };
+export const logicKinds = { task: 'Úkol', finish: 'Zakončení mise', dialogue: 'Rozhovor', combat: 'Bojový úkol', choice: 'Volba odpovědi', patrol: 'Trasa NPC', follow: 'Doprovod hráče', drive: 'Jízda NPC', attack: 'Útok NPC', custom: 'Vlastní skript', unresolved: 'Nedostupný bod', mission: 'Další mise', ending: 'Konec mise' };
 
 // Edges come only from complete, previously verified editor recipes. Arbitrary
 // LS3D programs remain visible source nodes; we do not infer their execution.
@@ -33,7 +33,7 @@ export function missionLogic(scene) {
     const detector = entry.actorScript && entry.actorKind === 5;
     const task = detector ? editableMissionTask(scene, name) : null, dialogue = detector && !task ? editableMissionDialogue(scene, name) : null, combat = detector && !task && !dialogue ? editableMissionCombat(scene, name) : null, finish = detector && !task && !dialogue && !combat ? editableMissionFinish(scene, name) : null;
     const behavior = entry.actorScript && entry.actorKind === 27 && humans.has(key(name)) && scene.entries.filter(other => other.actorScript && key(other.value.name) === key(name)).length === 1 ? inspectHumanBehavior(name, entry.value.code) : null;
-    const journey = ['patrol', 'follow', 'drive'].includes(behavior?.mode) ? behavior : null;
+    const journey = ['patrol', 'follow', 'drive', 'attack'].includes(behavior?.mode) ? behavior : null;
     const kind = task ? 'task' : dialogue ? 'dialogue' : combat ? 'combat' : finish ? 'finish' : journey ? journey.mode : 'custom';
     const recipe = task?.task ?? dialogue?.dialogue ?? combat?.combat ?? finish?.finish ?? journey;
     const node = add({ id: `script:${entry.id}`, name, kind, entryId: entry.id, actor: Boolean(entry.actorScript), recipe, members: [name], trigger: journey ? 'load' : recipe ? recipe.trigger ?? 'use' : null, waiting: journey ? Boolean(journey.startSignal) : finish?.finish.waitForSignal ?? recipe?.flow?.waitForSignal ?? false });
@@ -65,7 +65,7 @@ export function missionLogic(scene) {
   for (const node of [...nodes]) {
     const recipe = node.recipe;
     if (!recipe) continue;
-    if (['patrol', 'follow', 'drive'].includes(node.kind)) {
+    if (['patrol', 'follow', 'drive', 'attack'].includes(node.kind)) {
       if (recipe.startSignal) {
         const gate = target(recipe.startSignal), helper = gate.kind === 'choice' && key(gate.name) !== key(recipe.startSignal);
         edges.push({ id: `edge:${edges.length}`, from: gate.id, to: node.id, kind: 'signal', label: `Čeká na signál bodu ${recipe.startSignal}`, targetName: recipe.startSignal, helper });
@@ -85,7 +85,7 @@ export function missionLogic(scene) {
     if (recipe.failure?.endMission) terminal(node, 'Neúspěšné ukončení', 'ending', 'failure', 'Neúspěch');
   }
   for (const node of nodes) {
-    const gate = ['patrol', 'follow', 'drive'].includes(node.kind) ? node.recipe.startSignal : null;
+    const gate = ['patrol', 'follow', 'drive', 'attack'].includes(node.kind) ? node.recipe.startSignal : null;
     if (gate) {
       if (!edges.some(edge => edge.kind !== 'signal' && edge.targetName && key(edge.targetName) === key(gate))) node.warnings.push(`Čeká na signál bodu ${gate}; žádná rozpoznaná šablona jej neposílá. Může jej posílat vlastní skript.`);
     } else if (node.waiting && !edges.some(edge => edge.to === node.id && !edge.helper && edge.kind !== 'signal')) node.warnings.push('Čeká na signál; v rozpoznaných návaznostech nemá odesílatele. Může jej spouštět vlastní skript.');

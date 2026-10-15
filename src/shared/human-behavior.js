@@ -56,6 +56,19 @@ export function resolveHumanPatrol(scene, owner, options) {
   return result;
 }
 
+export function resolveHumanAttack(scene, owner, options) {
+  humanBehaviorScript(owner, options);
+  const target = humanAttackTargets(scene, owner).find(actor => key(actor.name) === key(options.targetName));
+  if (!target) throw new Error('Postava: cíl musí být jednoznačný lidský aktér této mise.');
+  const result = { ...options, targetName: target.name };
+  if (result.startSignal != null) {
+    const gate = missionFlowTargets(scene).find(actor => key(actor.name) === key(result.startSignal));
+    if (!gate || key(gate.name) === key(owner)) throw new Error('Útok: vyberte jiný jednoznačný skriptový bod této mise.');
+    result.startSignal = gate.name;
+  }
+  return result;
+}
+
 export function humanBehaviorScript(owner, options) {
   if (!options || !['idle', 'custom', 'attack', 'patrol', 'drive', 'follow'].includes(options.mode)) throw new Error('Postava: vyberte platné chování.');
   if (options.mode === 'follow') return humanFollowingScript(owner, options);
@@ -79,6 +92,15 @@ export function humanBehaviorScript(owner, options) {
   if (!integer(options.itemId, 1, 65535) || !integer(options.clip, 1, 100000) || !integer(options.reserve, 0, 100000)) throw new Error('Postava: zadejte zbraň a platnou munici; zásobník musí být neprázdný.');
   if (!Number.isFinite(options.range) || (options.range !== -1 && (options.range <= 0 || options.range > 10000))) throw new Error('Postava: vzdálenost útoku musí být −1 nebo kladné číslo do 10000 m.');
   if (!Number.isFinite(options.delaySeconds) || options.delaySeconds < 0 || options.delaySeconds > 86400) throw new Error('Postava: prodleva musí být 0–86400 sekund.');
+  if (options.startSignal != null) {
+    if (!validName(options.startSignal) || key(options.startSignal) === key(owner)) throw new Error('Útok: vyberte platný skriptový bod odlišný od postavy.');
+    // Do not clear the gate: dialogue may send its signal before initialization.
+    // Equip only after the gate, then retain the existing attack/active-idle flow.
+    return ['// Mafia Workbench human behavior v2', 'dim_act 3', 'wait 2000', `findactor 0, "${owner}"`, `findactor 2, "${options.startSignal}"`,
+      'label 100', 'detector_issignal 2, 200, -1', 'wait 100', 'goto 100', 'label 200',
+      `human_addweapon 0, ${options.itemId}, ${options.clip}, ${options.reserve}`, `human_activateweapon 0, ${options.itemId}`, `wait ${Math.round(options.delaySeconds * 1000)}`,
+      `findactor 1, "${options.targetName}"`, `enemy_action_fire 1, ${options.range}`, 'label 1', 'wait 1000', 'goto 1', ''].join('\r\n');
+  }
   return ['// Mafia Workbench human behavior v1', 'dim_act 2', 'wait 2000', `findactor 0, "${owner}"`, `human_addweapon 0, ${options.itemId}, ${options.clip}, ${options.reserve}`, `human_activateweapon 0, ${options.itemId}`, `wait ${Math.round(options.delaySeconds * 1000)}`, `findactor 1, "${options.targetName}"`, `enemy_action_fire 1, ${options.range}`, 'label 1', 'wait 1000', 'goto 1', ''].join('\r\n');
 }
 
@@ -106,13 +128,15 @@ export function inspectHumanBehavior(owner, code) {
     const options = { mode: 'patrol', waypoints, pace, loop: lines[at] === 'wait 100', delaySeconds: Number(delay?.[1]) / 1000 };
     try { if (humanBehaviorScript(owner, options).replaceAll('\r\n', '\n') === normalized) return options; } catch { /* Keep edited code custom. */ }
   }
-  if (lines[0] === '// Mafia Workbench human behavior v1') {
-    const weapon = /^human_addweapon 0, (\d+), (\d+), (\d+)$/.exec(lines[4] ?? '');
-    const delay = /^wait (\d+)$/.exec(lines[6] ?? '');
-    const target = /^findactor 1, "([^"\x00-\x1f]+)"$/.exec(lines[7] ?? '');
-    const range = /^enemy_action_fire 1, (.+)$/.exec(lines[8] ?? '');
+  if (/^\/\/ Mafia Workbench human behavior v[12]$/.test(lines[0])) {
+    const gated = lines[0].endsWith('v2'), offset = gated ? 6 : 0;
+    const weapon = /^human_addweapon 0, (\d+), (\d+), (\d+)$/.exec(lines[4 + offset] ?? '');
+    const delay = /^wait (\d+)$/.exec(lines[6 + offset] ?? '');
+    const target = /^findactor 1, "([^"\x00-\x1f]+)"$/.exec(lines[7 + offset] ?? '');
+    const range = /^enemy_action_fire 1, (.+)$/.exec(lines[8 + offset] ?? '');
     if (weapon && delay && target && range) {
       const options = { mode: 'attack', itemId: Number(weapon[1]), clip: Number(weapon[2]), reserve: Number(weapon[3]), delaySeconds: Number(delay[1]) / 1000, targetName: target[1], range: Number(range[1]) };
+      if (gated) options.startSignal = /^findactor 2, "([^"\x00-\x1f]+)"$/.exec(lines[4] ?? '')?.[1];
       try { if (humanBehaviorScript(owner, options).replaceAll('\r\n', '\n') === normalized) return options; } catch { /* Keep edited code custom. */ }
     }
   }

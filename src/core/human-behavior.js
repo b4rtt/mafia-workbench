@@ -1,6 +1,6 @@
 import { hash } from './files.js';
 import { inspectScene } from './scene.js';
-import { humanAttackTargets, humanBehaviorScript, humanWeapons, validateHumanRoute, resolveHumanPatrol } from '../shared/human-behavior.js';
+import { humanAttackTargets, humanBehaviorScript, humanWeapons, validateHumanRoute, resolveHumanPatrol, resolveHumanAttack } from '../shared/human-behavior.js';
 import { parseNavigation } from './navigation.js';
 import { parseRoads } from './roads.js';
 import { resolveHumanDriving } from '../shared/human-driving.js';
@@ -29,8 +29,7 @@ export async function prepareHumanBehavior(project, before, geometry, operation,
     dependencies.push({ path: asset.path, data, expectedHash: options.navigationHash });
   }
   if (options.mode === 'attack') {
-    const target = humanAttackTargets(scene, name).find(actor => actor.name.normalize('NFC').toLowerCase() === options.targetName.normalize('NFC').toLowerCase());
-    if (!target) throw new Error('Postava: cíl musí být jednoznačný lidský aktér této mise.');
+    options = resolveHumanAttack(scene, name, options);
     const catalog = await project.pickupItems();
     if (options.tableHash !== catalog.sha256) throw new Error('Postava: tabulka zbraní se od otevření změnila. Otevřete dialog znovu.');
     const item = humanWeapons(catalog).find(item => item.itemId === options.itemId);
@@ -42,7 +41,6 @@ export async function prepareHumanBehavior(project, before, geometry, operation,
       if (hash(data) !== expectedHash) throw new Error('Postava: výzbroj se během přípravy změnila. Otevřete dialog znovu.');
       dependencies.push({ path: asset.path, data, expectedHash });
     }
-    options = { ...options, targetName: target.name };
   }
   return { code: humanBehaviorScript(name, options), entry: entries[0], dependencies };
 }

@@ -9,7 +9,7 @@ import { dialogueSoundPath } from './dialogue-audio.js';
 import { dialogueSpeakers } from '../shared/mission-dialogue.js';
 import { missionTaskVehicles, resolveMissionTaskEscort } from '../shared/mission-task.js';
 import { missionLogic } from '../shared/mission-logic.js';
-import { validateHumanRoute } from '../shared/human-behavior.js';
+import { validateHumanRoute, resolveHumanAttack, humanWeapons } from '../shared/human-behavior.js';
 import { resolveHumanFollowing } from '../shared/human-following.js';
 import { parseNavigation } from './navigation.js';
 import { resolveHumanDriving } from '../shared/human-driving.js';
@@ -98,6 +98,21 @@ export async function checkMission(project, name, textDb = null) {
       if (node.kind === 'custom') { custom++; continue; }
       if (!recipe) continue;
       recipes++;
+      if (node.kind === 'attack') {
+        try { resolveHumanAttack(scene, node.name, recipe); } catch (error) { issue('error', 'npc-attack', `${node.name}: ${error.message}`, location); }
+        const items = await parsed('tables/predmety.def', parseItems, location, 'npc-weapon');
+        if (items) {
+          const item = humanWeapons({ items: items.records.filter(item => item.name.trim()).map(item => ({ ...item, itemId: item.index, clip: item.magazine })) }).find(item => item.itemId === recipe.itemId);
+          if (!item || recipe.clip > item.clip) issue('error', 'npc-weapon', `${node.name}: zbraň ID ${recipe.itemId} není dostupná střelná zbraň nebo zásobník přesahuje kapacitu.`, location);
+          else {
+            try {
+              const path = relativeAssetPath(item.model.replace(/\.(?:i3d|4ds)$/i, '.4ds'));
+              const model = await read(/^models\//i.test(path) ? path : `models/${path}`); models.add(key(model.path)); await materialFiles(parseFourDs(model.data), model.path);
+            } catch (error) { issue('error', 'npc-weapon', `${node.name}: model zbraně: ${error.message}`, location); }
+          }
+        }
+        continue;
+      }
       if (node.kind === 'patrol') {
         const navigation = await parsed(`${folder}/check.bin`, parseNavigation, location, 'npc-route');
         if (navigation) try { validateHumanRoute(recipe, navigation); } catch (error) { issue('error', 'npc-route', `${node.name}: ${error.message}`, location); }

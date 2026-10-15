@@ -151,3 +151,17 @@ test('car journeys expose read and completion edges, legacy automatic starts and
   for(const extra of [{startSignal:'Absent'},{onComplete:'NPC'}])assert(missionLogic(journeyScene({...options,...extra})).nodes.some(n=>n.kind==='unresolved'));
   const edited={...scene,entries:scene.entries.map(e=>e.actorScript&&e.value.name==='Walker'?{...e,value:{...e.value,code:e.value.code+'// own'}}:e)};assert.equal(named(missionLogic(edited),'Walker').kind,'custom');
 });
+
+test('attack cards expose activation without inventing completion or death edges', () => {
+  const options = { mode: 'attack', targetName: 'NPC', itemId: 9, clip: 7, reserve: 35, range: -1, delaySeconds: 5, startSignal: 'dialogue' }, scene = journeyScene(options), before = JSON.stringify(scene), graph = missionLogic(scene), guard = named(graph, 'Walker');
+  assert.equal(guard.kind, 'attack'); assert(guard.waiting); assert.deepEqual(guard.recipe, options);
+  assert.deepEqual(graph.edges.filter(e => e.to === guard.id).map(e => [e.from, e.kind, e.targetName]), [[named(graph, 'Dialogue').id, 'signal', 'dialogue']]);
+  assert.deepEqual(graph.edges.filter(e => e.from === guard.id), []); assert.equal(JSON.stringify(scene), before);
+  const legacy = { ...options }; delete legacy.startSignal;
+  const automatic = named(missionLogic(journeyScene(legacy)), 'Walker'); assert.equal(automatic.kind, 'attack'); assert.equal(automatic.waiting, false);
+  for (const startSignal of ['Absent', 'NPC']) assert(missionLogic(journeyScene({ ...options, startSignal })).nodes.some(n => n.kind === 'unresolved'));
+  const edited = { ...scene, entries: scene.entries.map(e => e.actorScript && e.value.name === 'Walker' ? { ...e, value: { ...e.value, code: e.value.code + '// own' } } : e) };
+  assert.equal(named(missionLogic(edited), 'Walker').kind, 'custom');
+  const helper = missionLogic(journeyScene({ ...options, startSignal: 'CHOICE_ANSWER1' })).edges.find(e => e.to === guard.id);
+  assert.equal(helper.targetName, 'CHOICE_ANSWER1'); assert.equal(helper.helper, true);
+});

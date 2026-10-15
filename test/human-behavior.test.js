@@ -310,3 +310,51 @@ test('following rejects missing player/bindings and protects scene and geometry 
   await assert.rejects(project.changeSceneObject(name,{kind:'configure-human',target:'Guard',behavior},hash(scene)),/změnil/); assert.deepEqual(await project.read(name),scene); project.changeBatch=batch; await project.undo(); assert.deepEqual(await project.read(geometryPath),geometry);
   const save=project.saveManifest; project.saveManifest=async()=>{throw Error('following publication failure');}; await assert.rejects(project.changeSceneObject(name,{kind:'configure-human',target:'Guard',behavior},hash(scene)),/following publication/); project.saveManifest=save; assert.deepEqual(await project.read(name),scene); assert.equal(project.manifest.history.length,history);
 });
+
+test('attack gates preserve legacy bytes, retain early signals and equip only after activation', () => {
+  const legacy = humanBehaviorScript('Guard', attack);
+  assert.equal(humanBehaviorScript('Guard', { ...attack, startSignal: null }), legacy);
+  const options = { ...attack, startSignal: 'Ambush' }, code = humanBehaviorScript('Guard', options);
+  assert.deepEqual(inspectHumanBehavior('Guard', code), options);
+  assert.deepEqual(inspectHumanBehavior('Guard', code.replaceAll('\r\n', '\n')), options);
+  assert.match(code, /findactor 2, "Ambush"\r\nlabel 100\r\ndetector_issignal 2, 200, -1/);
+  assert(code.indexOf('label 200') < code.indexOf('human_addweapon'));
+  assert.match(code, /human_activateweapon 0, 1\r\nwait 5000\r\nfindactor 1, "Target"\r\nenemy_action_fire 1, -1/);
+  assert.doesNotMatch(code, /detector_setsignal|^end$/m); assert.ok(code.endsWith(HUMAN_IDLE_SCRIPT));
+  for (const startSignal of ['', 8, 'gUARD', 'A"\nend']) assert.throws(() => humanBehaviorScript('Guard', { ...attack, startSignal }), /Útok/);
+  for (const changed of [code + '// edit', code.replace('detector_issignal 2', 'detector_issignal 1'), code.replace('wait 100\r\ngoto 100', 'wait 200\r\ngoto 100')]) assert.equal(inspectHumanBehavior('Guard', changed).mode, 'custom');
+});
+
+test('attack gates and targets resolve unique scene actors without mutating input', async () => {
+  const { resolveHumanAttack } = await import('../src/shared/human-behavior.js');
+  const scene = { actors: [{ name: 'Target', kind: 27 }, { name: 'Ambush', kind: 5 }], objects: [{ name: 'Target', frameType: 9 }, { name: 'Ambush' }], geometry: { meshes: [] } }, before = structuredClone(scene);
+  assert.deepEqual(resolveHumanAttack(scene, 'Guard', { ...attack, targetName: 'target', startSignal: 'aMBUSH' }), { ...attack, startSignal: 'Ambush' });
+  for (const extra of [{ actors: [...scene.actors, { name: 'AMBUSH', kind: 5 }] }, { objects: [...scene.objects, { name: 'Ambush' }] }, { actors: scene.actors.map(a => a.name === 'Ambush' ? { ...a, kind: 27 } : a) }]) assert.throws(() => resolveHumanAttack({ ...scene, ...extra }, 'Guard', { ...attack, startSignal: 'Ambush' }), /jednoznačný/);
+  assert.throws(() => resolveHumanAttack(scene, 'Guard', { ...attack, startSignal: 'Missing' }), /skriptový bod/);
+  assert.throws(() => resolveHumanAttack(scene, 'Guard', { ...attack, targetName: 'Ambush' }), /lidský/);
+  assert.deepEqual(scene, before);
+});
+
+test('gated attack creation and configuration preserve siblings, export/reopen and exact undo', async t => {
+  const { project, root, name, behavior } = await fixture(t);
+  await project.changeSceneObject(name, { kind: 'add-detector', name: 'Ambush', position: [0, 0, 0], mask: 0, code: 'end' }, hash(await project.read(name)));
+  const before = await project.read(name), history = project.manifest.history.length;
+  const gated = { ...behavior, startSignal: 'aMBUSH' }, canonical = { ...attack, startSignal: 'Ambush' };
+  for (const startSignal of ['Missing', 'Target', 'Guard']) await assert.rejects(project.changeSceneObject(name, { kind: 'configure-human', target: 'Guard', behavior: { ...gated, startSignal } }, hash(before)));
+  assert.deepEqual(await project.read(name), before); assert.equal(project.manifest.history.length, history);
+  await project.changeSceneObject(name, { kind: 'configure-human', target: 'Guard', behavior: gated }, hash(before));
+  const after = await project.read(name), parsed = inspectScene(after), original = inspectScene(before);
+  assert.deepEqual(inspectHumanBehavior('Guard', parsed.actorScripts[0].code), canonical);
+  assert.deepEqual(parsed.actorScripts.slice(1), original.actorScripts.slice(1));
+  assert.deepEqual(parsed.entries.filter(e => !e.actorScript).map(e => e.value), original.entries.filter(e => !e.actorScript).map(e => e.value));
+  assert.deepEqual(project.manifest.history.at(-1).files.map(f => f.path), [name]);
+  await assert.rejects(project.changeSceneObject(name, { kind: 'configure-human', target: 'Guard', behavior: gated }, hash(before)), /změnil/);
+  const reopened = await ModProject.open(root); await reopened.export(path.join(root, 'attack-export')); assert.deepEqual(await fs.readFile(path.join(root, 'attack-export', name)), after);
+  await reopened.undo(); assert.deepEqual(await reopened.read(name), before); assert.equal(reopened.manifest.history.length, history);
+  await reopened.changeSceneObject(name, { kind: 'add-human', name: 'Ambusher', model: 'models/Human.4ds', position: [2, 0, 5], rotation: [1, 0, 0, 0], scale: [1, 1, 1], parameters: {}, behavior: gated }, hash(before));
+  assert.deepEqual(inspectHumanBehavior('Ambusher', inspectScene(await reopened.read(name)).actorScripts.at(-1).code), canonical);
+  await reopened.undo(); assert.deepEqual(await reopened.read(name), before);
+  const save = reopened.saveManifest; reopened.saveManifest = async () => { throw new Error('gated publication failure'); };
+  await assert.rejects(reopened.changeSceneObject(name, { kind: 'configure-human', target: 'Guard', behavior: gated }, hash(before)), /gated publication/);
+  reopened.saveManifest = save; assert.deepEqual(await reopened.read(name), before); assert.equal(reopened.manifest.history.length, history);
+});

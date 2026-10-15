@@ -200,3 +200,23 @@ test('model failures point to owning scene, unsafe references never escape asset
   await project.change('models/Human.4ds',texturedModel({texture:'../outside.bmp',alpha:'',environment:'',animated:true}),'Animated material');report=await project.checkMission(scenePath);assert(errors(report).some(i=>i.code==='texture'&&i.path==='models/Human.4ds'));assert.equal(report.issues.filter(i=>i.code==='texture-animation').length,1);
   await project.undo();assert.deepEqual(errors(await project.checkMission(scenePath)),[]);
 });
+
+test('attack checks validate saved gates, human targets, weapon definitions and models without writes', async t => {
+  const { project, root, geometry } = await fixture(t);
+  const table = Buffer.alloc(376); table.write('Gun', 188); table.write('GUN.I3D', 224); table.writeInt32LE(1, 280); table.writeInt32LE(7, 284);
+  await project.createFiles([{ path: 'tables/predmety.def', data: table }, { path: 'models/Gun.4ds', data: geometry }]);
+  const options = { mode: 'attack', targetName: 'Tommy', itemId: 1, clip: 7, reserve: 35, range: -1, delaySeconds: 2, startSignal: 'Talk' };
+  await script(project, 'Companion', humanBehaviorScript('Companion', options));
+  const manifest = await fs.readFile(path.join(root, 'workbench.json')), scene = await project.read(scenePath);
+  let report = await project.checkMission(scenePath); assert.deepEqual(errors(report), []); assert.equal(report.recipes, 3); assert(report.files.some(f => f.path === 'tables/predmety.def')); assert(report.files.some(f => f.path === 'models/Gun.4ds'));
+  assert.deepEqual(await fs.readFile(path.join(root, 'workbench.json')), manifest); assert.deepEqual(await project.read(scenePath), scene);
+  for (const [extra, expected] of [[{ startSignal: 'Missing' }, 'flow'], [{ targetName: 'Missing' }, 'npc-attack'], [{ itemId: 2 }, 'npc-weapon'], [{ clip: 8 }, 'npc-weapon']]) {
+    await script(project, 'Companion', humanBehaviorScript('Companion', { ...options, ...extra })); report = await project.checkMission(scenePath);
+    const issue = errors(report).find(i => i.code === expected); assert(issue, expected); assert(issue.entryId); await project.undo();
+  }
+  await project.change('models/Gun.4ds', Buffer.from('bad'), 'broken weapon');
+  report = await project.checkMission(scenePath); assert(errors(report).some(i => i.code === 'npc-weapon')); await project.undo();
+  const assets = project.manifest.assets; project.manifest.assets = assets.filter(a => a.path !== 'tables/predmety.def');
+  report = await project.checkMission(scenePath); assert(errors(report).some(i => i.code === 'npc-weapon')); project.manifest.assets = assets;
+  const reopened = await ModProject.open(root); assert.deepEqual(errors(await reopened.checkMission(scenePath)), []); assert.deepEqual(await reopened.read(scenePath), scene);
+});
