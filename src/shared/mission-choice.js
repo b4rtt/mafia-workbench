@@ -80,10 +80,11 @@ export function choiceControllers(scene, { includeFull = false } = {}) {
   });
 }
 
-export function missionChoicePrograms({ name, controller, waitForSignal = false, answers, atController = false, lockPlayer = false } = {}, groups = []) {
+export function missionChoicePrograms({ name, controller, waitForSignal = false, answers, atController = false, lockPlayer = false, promptId } = {}, groups = []) {
   if (!ownerName(name)) throw new Error('Volba: název musí mít 1–55 ASCII písmen, číslic nebo podtržítek a začínat písmenem či podtržítkem.');
   if (!validName(controller) || typeof waitForSignal !== 'boolean' || typeof atController !== 'boolean') throw new Error('Volba: vyberte řídicí postavu a platný způsob spuštění.');
   if (typeof lockPlayer !== 'boolean' || (lockPlayer && !atController)) throw new Error('Volba: zámek pohybu potřebuje nabídku u řídicí postavy.');
+  if (promptId !== undefined && (!Number.isSafeInteger(promptId) || promptId < 0 || promptId > 0x7fffffff)) throw new Error('Volba: pokyn potřebuje platné ID textu.');
   if (key(name) === key(choiceMovementName)) throw new Error('Volba: tento název je vyhrazen správě pohybu.');
   if (!Array.isArray(answers) || answers.length < 2 || answers.length > 4) throw new Error('Volba: zadejte 2–4 odpovědi.');
   for (const answer of answers) {
@@ -100,7 +101,7 @@ export function missionChoicePrograms({ name, controller, waitForSignal = false,
   if (waitForSignal) start.push('label 1', 'detector_issignal -1, 2, -1', 'wait 100', 'goto 1', 'label 2');
   if (lockPlayer) start.push('label 4', `getactorsdist ${count + 2}, ${count + 3}, 0`, 'if flt[0] < 1.5, 5, -1', 'wait 100', 'goto 4', 'label 5',
     `detector_setsignal ${count + 1}, 1`, 'label 6', `detector_issignal ${count}, 7, -1`, 'wait 50', 'goto 6', 'label 7');
-  start.push('detector_setsignal -1, 1', ...names.map((_, index) => `detector_setsignal ${index}, 1`), 'end');
+  start.push('detector_setsignal -1, 1', ...names.map((_, index) => `detector_setsignal ${index}, 1`), ...(promptId === undefined ? [] : [`subtitle_add ${promptId}`]), 'end');
   const nodes = [{ name, code: start.join('\n') }, { name: claim, code: 'detector_setsignal -1, 0\nlabel 1\nwait 1000\ngoto 1' }];
   for (const [index, answer] of answers.entries()) nodes.push({ name: names[index], code: [
     'dim_act 3', ...(atController ? ['dim_frm 2', 'dim_flt 3'] : []), `findactor 0, "${claim}"`, `findactor 1, "${controller}"`, `findactor 2, "${answer.target}"`,
@@ -146,7 +147,8 @@ function inspectChoiceGroup(scene, controller, index) {
     const id = /^detector_waitforuse (\d+)$/m.exec(code), target = /^findactor 2, "([^"\x00-\x1f]+)"$/m.exec(code);
     return { textId: Number(id?.[1]), target: target?.[1] };
   });
-  const choice = { ...(nodes[2].entry.value.code.includes('frm_linkto 1, 0') ? { atController: true } : {}), ...(nodes[0].entry.value.code.includes(`, "${choiceMovementName}"`) ? { lockPlayer: true } : {}), name: group.owner, controller: controller.name, waitForSignal: nodes[0].entry.value.code.replaceAll('\r\n', '\n').includes('label 1\ndetector_issignal -1, 2, -1\n'), answers };
+  const prompt = /^subtitle_add (\d+)$/m.exec(nodes[0].entry.value.code.replaceAll('\r\n', '\n'));
+  const choice = { ...(prompt ? { promptId: Number(prompt[1]) } : {}), ...(nodes[2].entry.value.code.includes('frm_linkto 1, 0') ? { atController: true } : {}), ...(nodes[0].entry.value.code.includes(`, "${choiceMovementName}"`) ? { lockPlayer: true } : {}), name: group.owner, controller: controller.name, waitForSignal: nodes[0].entry.value.code.replaceAll('\r\n', '\n').includes('label 1\ndetector_issignal -1, 2, -1\n'), answers };
   try {
     const expected = missionChoicePrograms(choice, controller.groups.slice(0, index));
     if (expected.nodes.some((node, i) => node.code !== nodes[i].entry.value.code.replaceAll('\r\n', '\n'))) return null;

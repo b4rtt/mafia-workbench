@@ -107,7 +107,7 @@ test('a changed overlay or concurrent project revision invalidates the entire ch
 
 test('choice answer text, combat actors and escort bindings are checked from exact recipes, with shared voice IDs deduplicated', async t => {
   const { project } = await fixture(t);
-  const plan = missionChoicePrograms({ name: 'Choice', controller: 'Companion', answers: [{ textId: 500, target: 'Quest' }, { textId: 600, target: 'Talk' }] });
+  const plan = missionChoicePrograms({ name: 'Choice', controller: 'Companion', promptId: 700, answers: [{ textId: 500, target: 'Quest' }, { textId: 600, target: 'Talk' }] });
   await script(project, 'Companion', plan.controller.code);
   let bytes = await project.read(scenePath);
   for (const node of plan.nodes) bytes = changeSceneObject(bytes, { kind: 'add-detector', name: node.name, position: [0, 0, 0], mask: 0, code: node.code });
@@ -117,7 +117,7 @@ test('choice answer text, combat actors and escort bindings are checked from exa
   await script(project, 'Talk', missionDialogueScript({ trigger: 'load', lines: [{ speaker: 'Companion', textId: 80 }, { speaker: 'Companion', textId: 80 }] }));
   const report = await project.checkMission(scenePath), failures = errors(report);
   assert.equal(report.recipes, 4); assert.equal(report.voices, 1);
-  assert.deepEqual(failures.filter(issue => issue.code === 'text-id').map(issue => issue.textId), [500, 600]);
+  assert.deepEqual(failures.filter(issue => issue.code === 'text-id').map(issue => issue.textId), [700, 500, 600]);
   assert(failures.some(issue => issue.code === 'human' && issue.object === 'Combat'));
   assert(failures.some(issue => issue.code === 'escort' && issue.object === 'Quest'));
 });

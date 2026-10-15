@@ -1,6 +1,6 @@
 import { relativeAssetPath } from './dta.js';
 import { hash } from './files.js';
-import { parseTextDb } from './textdb.js';
+import { parseTextDb, addTextDbEntry } from './textdb.js';
 import { inspectScene, editScene, changeSceneObject, removeChoiceDetector } from './scene.js';
 import { sceneWorld } from './model-collision.js';
 import { resolveMissionChoice, resolveMissionChoiceEdit, choiceControllers, editableMissionChoice, choiceMovementName, choiceMovementProgram } from '../shared/mission-choice.js';
@@ -38,11 +38,20 @@ export async function prepareMissionChoice(project, source, geometry, operation)
   const asset = project.asset(textPath), bytes = await project.read(asset.path);
   if (hash(bytes) !== choice.textHash) throw new Error('Volba: texty se od otevření změnily. Otevřete formulář znovu.');
   const entries = parseTextDb(bytes, asset.path).entries.slice(0, -1);
+  let textData = bytes;
+  if (choice.promptId !== undefined) {
+    const matches = entries.filter(entry => entry.id === choice.promptId);
+    if (matches.length === 1 && matches[0].text.trim()) {
+      if (choice.promptText !== undefined && choice.promptText !== matches[0].text) throw new Error('Volba: existující text pokynu se nepřepisuje. Vyberte volné ID nebo jej upravte v Texty.');
+    } else if (!matches.length && typeof choice.promptText === 'string' && choice.promptText.trim() && choice.promptText.length <= 1024) {
+      textData = addTextDbEntry(bytes, asset.path, { id: choice.promptId, text: choice.promptText });
+    } else throw new Error('Volba: pokyn potřebuje jednoznačný neprázdný text nebo nový text pro volné ID.');
+  } else if (choice.promptText !== undefined) throw new Error('Volba: nový text pokynu potřebuje ID.');
   for (const answer of choice.answers) {
     const matches = entries.filter(entry => entry.id === answer.textId);
     if (matches.length !== 1 || !matches[0].text.trim()) throw new Error('Volba: každá odpověď potřebuje jednoznačný existující neprázdný text, nikoli hraniční záznam.');
   }
-  const dependencies = [{ path: asset.path, data: bytes, expectedHash: choice.textHash }], readDependencies = [];
+  const dependencies = [{ path: asset.path, data: textData, expectedHash: choice.textHash }], readDependencies = [];
   let data = source;
   if (editing) {
     for (const controller of plan.controllers) {

@@ -137,7 +137,7 @@ export async function checkMission(project, name, textDb = null) {
         if (roads) try { resolveHumanDriving(scene, node.name, recipe, roads); } catch (error) { issue('error', 'npc-drive', `${node.name}: ${error.message}`, location); }
         continue;
       }
-      for (const field of ['objectiveId', 'interactionId', 'nextObjectiveId', 'completeId', 'checkpointId']) text(recipe[field], node);
+      for (const field of ['objectiveId', 'interactionId', 'nextObjectiveId', 'completeId', 'checkpointId', 'promptId']) text(recipe[field], node);
       text(recipe.failure?.textId, node);
       for (const answer of recipe.answers ?? []) text(answer.textId, node);
       for (const line of recipe.lines ?? []) {

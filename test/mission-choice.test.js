@@ -6,7 +6,7 @@ import path from 'node:path';
 import { missionChoicePrograms, choiceControllerGroups, choiceControllers, editableMissionChoice, choiceMovementName, choiceMovementProgram } from '../src/shared/mission-choice.js';
 import { ModProject } from '../src/core/project.js';
 import { changeSceneObject, inspectScene, editScene } from '../src/core/scene.js';
-import { editTextDb } from '../src/core/textdb.js';
+import { editTextDb, parseTextDb } from '../src/core/textdb.js';
 import { hash, writeSafe } from '../src/core/files.js';
 
 const choice = { name: 'ANSWER', controller: 'NPC', waitForSignal: true, answers: [{ textId: 90000, target: 'YES' }, { textId: 90001, target: 'NO' }] };
@@ -156,4 +156,63 @@ test('movement locks reject invalid placement, missing player and foreign manage
   await assert.rejects(p.changeSceneObject(name, { kind: 'configure-choice', target: 'ANSWER', choice: locked.choice }, hash(custom)), /vlastní či neúplný/);
   assert.deepEqual(await p.read(name), custom); await p.undo(); await p.undo();
   assert.deepEqual(await p.read(name), scene); assert.equal(p.manifest.history.length, history);
+});
+
+test('choice prompt runs once after answers and movement are ready, and exact recovery preserves legacy choices', async t => {
+  const { p, name, scene, request } = await fixture(t);
+  const config = { ...request.choice, atController: true, lockPlayer: true, promptId: 90002 };
+  const code = missionChoicePrograms({ ...choice, ...config }).nodes[0].code;
+  assert.equal(code.match(/subtitle_add/g).length, 1);
+  assert(code.indexOf('subtitle_add 90002') > code.indexOf('detector_setsignal 1, 1'));
+  assert(code.indexOf('subtitle_add 90002') > code.indexOf('detector_issignal 3, 7, -1'));
+  assert(!code.includes('console_addtext'));
+  assert(!missionChoicePrograms(choice).nodes[0].code.includes('subtitle_add'));
+  for (const promptId of [-1, 2147483648, 1.5, NaN, '90002', null]) assert.throws(() => missionChoicePrograms({ ...choice, promptId }), /ID textu/);
+  await p.changeSceneObject(name, { ...request, choice: config }, hash(scene));
+  const parsed = await p.inspectMap(name), current = editableMissionChoice(parsed, 'ANSWER');
+  assert.equal(current.choice.promptId, 90002);
+  const owner = current.nodes[0].entry;
+  assert.equal(editableMissionChoice({ ...parsed, entries: parsed.entries.map(entry => entry.id === owner.id ? { ...entry, value: { ...entry.value, code: entry.value.code.replaceAll('\n', '\r\n') } } : entry) }, 'ANSWER').choice.promptId, 90002);
+  assert.equal(editableMissionChoice({ ...parsed, entries: parsed.entries.map(entry => entry.id === owner.id ? { ...entry, value: { ...entry.value, code: entry.value.code + '\nsubtitle_add 90002' } } : entry) }, 'ANSWER'), null);
+});
+
+test('new choice prompt and scene publish together, reopen/export exactly, support no-op edits and share one undo', async t => {
+  const { p, root, name, scene, request, textPath, texts, geometryPath, geometry } = await fixture(t);
+  await p.changeSceneObject(name, request, hash(scene)); const legacy = await p.read(name), history = p.manifest.history.length;
+  const config = { ...request.choice, atController: true, lockPlayer: true, promptId: 91015, promptText: 'Vyber odpověď akčním tlačítkem.' };
+  await p.changeSceneObject(name, { kind: 'configure-choice', target: 'ANSWER', choice: config }, hash(legacy));
+  const updated = await p.read(name), table = await p.read(textPath), parsed = parseTextDb(table, textPath);
+  assert.equal(parsed.entries.find(entry => entry.id === 91015).text, config.promptText);
+  for (const entry of parseTextDb(texts, textPath).entries.slice(0, -1)) assert.equal(parsed.entries.find(next => next.id === entry.id).text, entry.text);
+  assert.equal(p.manifest.history.length, history + 1);
+  assert.deepEqual(await p.read(geometryPath), geometry);
+  const next = { ...config, textHash: hash(table) };
+  await p.changeSceneObject(name, { kind: 'configure-choice', target: 'ANSWER', choice: next }, hash(updated));
+  assert.equal(p.manifest.history.length, history + 1);
+  const reopened = await ModProject.open(root); await reopened.export(root + '/prompt-export');
+  assert.deepEqual(await fs.readFile(root + '/prompt-export/' + name), updated);
+  assert.deepEqual(await fs.readFile(root + '/prompt-export/' + textPath), table);
+  assert.equal(editableMissionChoice(await reopened.inspectMap(name), 'ANSWER').choice.promptId, 91015);
+  await reopened.undo(); assert.deepEqual(await reopened.read(name), legacy); assert.deepEqual(await reopened.read(textPath), texts);
+  await reopened.undo(); assert.deepEqual(await reopened.read(name), scene);
+});
+
+test('prompt rejects unsafe text changes and rolls back both files on publication failure', async t => {
+  const { p, name, scene, request, textPath, texts } = await fixture(t), baseline = JSON.stringify(p.manifest);
+  for (const extra of [
+    { promptId: 90002, promptText: 'Overwrite' }, { promptId: 91015 },
+    { promptId: 91015, promptText: ' ' }, { promptId: 91015, promptText: 'x'.repeat(1025) },
+    { promptId: 99999999, promptText: 'Boundary' }, { promptText: 'No ID' },
+    { promptId: 91015, promptText: 'Unsupported 😀' },
+  ]) {
+    await assert.rejects(p.changeSceneObject(name, { ...request, choice: { ...request.choice, ...extra } }, hash(scene)));
+    assert.equal(JSON.stringify(p.manifest), baseline); assert.deepEqual(await p.read(name), scene); assert.deepEqual(await p.read(textPath), texts);
+  }
+  const save = p.saveManifest; p.saveManifest = async () => { throw new Error('prompt publish failed'); };
+  const prompted = { ...request, choice: { ...request.choice, promptId: 91015, promptText: 'Use action to choose.' } };
+  await assert.rejects(p.changeSceneObject(name, prompted, hash(scene)), /prompt publish failed/); p.saveManifest = save;
+  assert.equal(JSON.stringify(p.manifest), baseline); assert.deepEqual(await p.read(name), scene); assert.deepEqual(await p.read(textPath), texts);
+  const batch = p.changeBatch; p.changeBatch = async function(files, ...args) { await this.change(textPath, editTextDb(texts, textPath, [{ index: 1, text: 'Concurrent' }]), 'Concurrent text'); return batch.call(this, files, ...args); };
+  await assert.rejects(p.changeSceneObject(name, prompted, hash(scene)), /změnil/); p.changeBatch = batch;
+  assert.deepEqual(await p.read(name), scene); await p.undo(); assert.deepEqual(await p.read(textPath), texts); assert.equal(JSON.stringify(p.manifest), baseline);
 });
