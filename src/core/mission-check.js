@@ -12,6 +12,8 @@ import { missionLogic } from '../shared/mission-logic.js';
 import { validateHumanRoute } from '../shared/human-behavior.js';
 import { resolveHumanFollowing } from '../shared/human-following.js';
 import { parseNavigation } from './navigation.js';
+import { resolveHumanDriving } from '../shared/human-driving.js';
+import { parseRoads } from './roads.js';
 
 const key = name => name.replaceAll('\\', '/').normalize('NFC').toLowerCase();
 
@@ -103,6 +105,11 @@ export async function checkMission(project, name, textDb = null) {
       }
       if (node.kind === 'follow') {
         try { resolveHumanFollowing(scene, node.name, recipe); } catch (error) { issue('error', 'npc-follow', `${node.name}: ${error.message}`, location); }
+        continue;
+      }
+      if (node.kind === 'drive') {
+        const roads = await parsed(`${folder}/road.bin`, parseRoads, location, 'npc-drive');
+        if (roads) try { resolveHumanDriving(scene, node.name, recipe, roads); } catch (error) { issue('error', 'npc-drive', `${node.name}: ${error.message}`, location); }
         continue;
       }
       for (const field of ['objectiveId', 'interactionId', 'nextObjectiveId', 'completeId', 'checkpointId']) text(recipe[field], node);

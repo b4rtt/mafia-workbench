@@ -151,6 +151,25 @@ test('following dependencies are checked while altered NPC programs remain expli
   await script(project,'Companion',humanBehaviorScript('Companion',options)+'// own');report=await project.checkMission(scenePath);assert.equal(report.recipes,2);assert(!errors(report).some(i=>i.code==='npc-follow'));assert(report.issues.some(i=>i.code==='custom'));
 });
 
+test('driving checks stored road data, bound vehicles, static stops and gates while preserving all files and history',async t=>{
+  const {project}=await fixture(t),roadName='missions/Test/road.bin',options={mode:'drive',carName:'Car',boarding:'seated',stops:[{name:'Finish',pauseSeconds:1}],loop:false,delaySeconds:0,startSignal:'Talk',onComplete:'Quest'};
+  const before=await project.read(scenePath);await project.change(scenePath,changeSceneObject(before,{kind:'add-car',name:'Car',model:'Human.i3d',position:[0,0,0],rotation:[1,0,0,0],scale:[1,1,1]}),'Test vehicle');
+  await script(project,'Companion',humanBehaviorScript('Companion',options));
+  let report=await project.checkMission(scenePath);assert(errors(report).some(i=>i.code==='npc-drive'&&i.path===scenePath&&i.object==='Companion'&&i.entryId&&i.message.includes('road.bin')));
+  const {changeRoadTopology}=await import('../src/core/road-topology.js');let road=Buffer.alloc(12);road.writeUInt32LE(2);
+  for(const position of [[0,0,0],[0,0,10]])road=changeRoadTopology(road,{action:'create-crossing',position,speed:5,semaphore:0}).data;
+  road=changeRoadTopology(road,{action:'connect',from:0,to:1,positions:[[0,0,5]],speed:5}).data;await project.createFiles([{path:roadName,data:road}]);
+  const snapshot=new Map(await Promise.all(project.manifest.assets.map(async a=>[a.path,await project.read(a.path)]))),history=project.manifest.history.length;
+  report=await project.checkMission(scenePath);assert.deepEqual(errors(report),[]);assert.equal(report.recipes,3);assert(report.files.some(f=>f.path===roadName&&f.sha256===hash(road)));
+  for(const extra of [{carName:'Missing'},{stops:[{name:'Tommy',pauseSeconds:0}]},{stops:[{name:'Missing',pauseSeconds:0}]},{startSignal:'Car'},{onComplete:'Absent'}]){
+    await script(project,'Companion',humanBehaviorScript('Companion',{...options,...extra}));report=await project.checkMission(scenePath);const issue=errors(report).find(i=>i.code==='npc-drive');assert.equal(issue.object,'Companion');assert.equal(issue.path,scenePath);assert(issue.entryId);await project.undo();
+  }
+  for(const bytes of [Buffer.from('bad'),Buffer.from([2,0,0,0,0,0,0,0,0,0,0,0])]){await project.change(roadName,bytes,'Road audit');report=await project.checkMission(scenePath);assert(errors(report).some(i=>i.code==='npc-drive'));await project.undo();}
+  await script(project,'Companion',humanBehaviorScript('Companion',options)+'// own');report=await project.checkMission(scenePath);assert.equal(report.recipes,2);assert(!errors(report).some(i=>i.code==='npc-drive'));await project.undo();
+  assert.equal(project.manifest.history.length,history);for(const [name,bytes]of snapshot)assert.deepEqual(await project.read(name),bytes);
+  const read=project.read.bind(project);let count=0;project.read=async n=>{const b=await read(n);return n===roadName&&++count===2?Buffer.concat([b,Buffer.from([0])]):b;};await assert.rejects(project.checkMission(scenePath),/během kontroly/);
+});
+
 function texturedModel({texture='WALL.BMP',alpha='MASK.BMP',environment='REFLECT.BMP',animated=false}={}) {
   const header=Buffer.alloc(16);header.write('4DS\0');header.writeUInt16LE(29,4);header.writeUInt16LE(1,14);
   const values=Buffer.alloc(44);values.writeUInt32LE((alpha?0x40000000:0)|(environment?0x80000:0)|(animated?0x4000000:0));values.writeFloatLE(1,40);

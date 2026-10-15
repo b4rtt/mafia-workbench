@@ -2,6 +2,12 @@
 
 Aktualizace: 15. října 2026. Vývoj pokračuje; komplexní editor není dokončený. Implementace, datové testy, ověření UI a ověření ve hře jsou různé úrovně dokončení; neoznačovat jednu za druhou. Podrobnosti existujících funkcí a jejich omezení jsou v README.md a research/formats.md. Původní hra se nemění, úpravy mají kontrolu verze, zálohu, export a undo. Herní data a soukromé reference nepatří do veřejného repozitáře.
 
+## Návaznosti jízdy NPC a její kontrola (2026-10-15)
+
+- Jízda vozidlem: volitelný signál před nástupem i dokončení po posledním čekání jednorázové trasy. Přesná legacy v1, v2 jen se signály, jednoznačné detektory a aktivní řidič po příjezdu. Karta Logiky mise s autem/nástupem/zastávkami, čtecí a odesílací hrany a stejný formulář chování. Kontrola uložené mise zahrnuje road.bin, propojení, auto, cíle a signály, s odkazy na NPC program a ochranou proti smíšené revizi.
+- Čtyři nové testy, 42/42 cílených kontrol, check/build. Produkční rozhraní v místním prohlížeči nad samostatnou skutečnou kopií: v1 obnova, oba signály, blokace opakování s dokončením, save/diagram/výběr, v2 obnova a disabled nezměněný save, přesný export/reopen a skutečné UI undo. Kontrola 0 chyb, očekávané upozornění na neznámého odesílatele. Všechny přípravy obnovené na historii 34 a baseline/protected hashe shodné, konzole čistá. Podrobnosti research/human-driving.md, soukromý index local/driving-flow.json.
+- Nová kombinace ještě čeká na spuštění v původním enginu; hra uživatele zůstala pro natáčení nedotčená. Goal pokračuje. Úplný ruční průchod vlastní ukázky ani předpoklad pro spuštění AI/OSM pluginu tím nejsou prohlášeny za hotové.
+
 ## Kontrola modelů a textur vlastní mise (2026-10-15)
 
 - Zkontrolovat misi čte přímo uložené 4DS odkazy scénových modelů a textury diffuse/alpha/reflection jejich materiálů i geometrie mise. Case-insensitive cesty, sdílené čtení, odmítnutí unsafe cest, nálezy s vlastníkem/materiály a stejná ochrana proti smíšené revizi. Počty souborových závislostí v UI. Rozsah neobsahuje dekódování obrázků, dynamické skriptové zdroje ani snímky animovaných sekvencí; omezení jsou viditelná.

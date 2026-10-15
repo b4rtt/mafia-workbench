@@ -231,6 +231,38 @@ test('concurrent driving-road edits and failed publication cannot partially repl
   const save=project.saveManifest;project.saveManifest=async()=>{throw Error('driving publication failure');};await assert.rejects(project.changeSceneObject(name,{kind:'configure-human',target:'Guard',behavior},hash(scene)),/driving publication/);project.saveManifest=save;assert.deepEqual(await project.read(name),scene);assert.deepEqual(await project.read(roadName),road);assert.equal(project.manifest.history.length,history);
 });
 
+test('driving gates precede both boarding modes and completion follows the last pause exactly once',()=>{
+  const legacy=humanBehaviorScript('Guard',drive);
+  assert.equal(hash(Buffer.from(legacy)),'c649eb2191f17b7f01a518e8ce0705ad178595ae5c96ad1bb4ca3dc298ef78d0');
+  assert.equal(humanBehaviorScript('Guard',{...drive,startSignal:null,onComplete:null}),legacy);
+  for(const boarding of ['walk','seated'])for(const [startSignal,onComplete,loop]of [['Start','Finish',false],['Start',null,false],[null,'Finish',false],['Start',null,true]]){
+    const options={...drive,boarding,startSignal,onComplete,loop},code=humanBehaviorScript('Guard',options);
+    assert.deepEqual(inspectHumanBehavior('Guard',code),options);assert.deepEqual(inspectHumanBehavior('Guard',code.replaceAll('\r\n','\n')),options);
+    assert.doesNotMatch(code,/^end$|detector_setsignal \d+, 0/m);
+    if(startSignal)assert(code.indexOf('detector_issignal')<code.indexOf(boarding==='walk'?'enemy_move_to_car':'human_force_settocar'));
+    if(onComplete){assert(code.indexOf('detector_setsignal')>code.indexOf('wait 500'));assert.equal(code.match(/detector_setsignal/g).length,1);assert(code.indexOf('detector_setsignal')<code.indexOf('label 2\r\n'));}
+    for(const edited of [code+'// edited',...(startSignal?[code.replace('200, -1','1, -1')]:[]),code.replace('findactor 0, "Guard"','findactor 0, "Other"')])assert.equal(inspectHumanBehavior('Guard',edited).mode,'custom');
+  }
+  assert.match(humanBehaviorScript('Guard',{...drive,loop:false,startSignal:'Start',onComplete:'START'}),/dim_act 3\r\n/);
+  for(const extra of [{startSignal:''},{startSignal:7},{startSignal:'gUARD'},{onComplete:'X"\nend'},{loop:true,onComplete:'Finish'}])assert.throws(()=>humanBehaviorScript('Guard',{...drive,loop:false,...extra}),/Jízda/);
+});
+
+test('signal driving saves canonical detector references with the road dependency, exact export/reopen and one undo',async t=>{
+  const {project,root,name,scene,road,roadName,behavior}=await drivingFixture(t),history=project.manifest.history.length;
+  const options={...behavior,loop:false,startSignal:'sTART',onComplete:'fINISH'},expected={...drive,loop:false,startSignal:'Start',onComplete:'Finish'};
+  await project.changeSceneObject(name,{kind:'configure-human',target:'Guard',behavior:options},hash(scene));
+  const after=await project.read(name);assert.equal(inspectScene(after).actorScripts[0].code,humanBehaviorScript('Guard',expected));
+  assert.deepEqual(await project.read(roadName),road);assert.deepEqual(project.manifest.history.at(-1).files.map(f=>f.path),[name]);
+  const reopened=await ModProject.open(root);await reopened.export(root+'/signal-driving-export');assert.deepEqual(await fs.readFile(root+'/signal-driving-export/'+name),after);assert.deepEqual(inspectHumanBehavior('Guard',inspectScene(await reopened.read(name)).actorScripts[0].code),expected);
+  await reopened.undo();assert.deepEqual(await reopened.read(name),scene);assert.equal(reopened.manifest.history.length,history);
+  await reopened.changeSceneObject(name,{kind:'add-human',name:'NewDriver',model:'models/Human.4ds',position:[2,0,0],rotation:[1,0,0,0],scale:[1,1,1],parameters:{},behavior:options},hash(scene));assert.equal(inspectScene(await reopened.read(name)).actorScripts.at(-1).code,humanBehaviorScript('NewDriver',expected));await reopened.undo();assert.deepEqual(await reopened.read(name),scene);
+  for(const extra of [{startSignal:'Car'},{onComplete:'StaticCar'},{startSignal:'Missing'},{onComplete:'Target'},{roadHash:'stale'}])await assert.rejects(reopened.changeSceneObject(name,{kind:'configure-human',target:'Guard',behavior:{...options,...extra}},hash(scene)),/Jízda/);
+  assert.equal(reopened.manifest.history.length,history);assert.deepEqual(await reopened.read(name),scene);
+  const {resolveHumanDriving}=await import('../src/shared/human-driving.js'),{parseRoads}=await import('../src/core/roads.js'),file=await reopened.inspectMap(name),before=JSON.stringify(file);
+  assert.throws(()=>resolveHumanDriving({...file,actors:[...file.actors,{name:'START',kind:5}]},'Guard',options,parseRoads(road)),/skriptový bod/);
+  assert.throws(()=>resolveHumanDriving({...file,objects:file.objects.filter(o=>o.name!=='Start')},'Guard',{...options,stops:[{name:'Finish',pauseSeconds:0}]},parseRoads(road)),/skriptový bod/);assert.equal(JSON.stringify(file),before);
+});
+
 async function followingFixture(t) {
   const f = await fixture(t); let scene = changeSceneObject(f.scene, { kind: 'add-human', name: 'Tommy', model: 'Human.i3d', position: [0,0,0], rotation: [1,0,0,0], scale: [1,1,1], parameters: {}, code: HUMAN_IDLE_SCRIPT });
   scene = editScene(scene, inspectScene(scene).entries.find(e => e.label === 'Typ aktéra' && e.context.endsWith('/ Tommy')).id, 2);

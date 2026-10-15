@@ -24,7 +24,7 @@ export function renderMissionLogic(main, file, remembered, { element, projectRoo
   panel(toggleOutline, 'logic-outline-hidden', !(remembered?.outlineHidden ?? false)); panel(toggleInspector, 'logic-inspector-hidden', !(remembered?.inspectorHidden ?? false));
   toggleOutline.onclick = () => panel(toggleOutline, 'logic-outline-hidden', layout.classList.contains('logic-outline-hidden'));
   toggleInspector.onclick = () => panel(toggleInspector, 'logic-inspector-hidden', layout.classList.contains('logic-inspector-hidden'));
-  const caption = node => node.kind === 'patrol' ? `${node.waiting ? 'Po signálu · ' : ''}${node.recipe.pace === 'walk' ? 'Chůze' : 'Běh'} · zastávky: ${node.recipe.waypoints.length} · ${node.recipe.loop ? 'opakovaně' : 'jednou'}` : node.kind === 'follow' ? `${node.waiting ? 'Po signálu · ' : ''}${node.recipe.destinationName ? `Cíl ${node.recipe.destinationName}` : 'Bez cíle'}` : node.kind === 'choice' ? `${node.waiting ? 'Po signálu · ' : ''}${node.recipe.answers.length} odpovědi · ${node.recipe.controller}` : node.recipe ? `${node.waiting ? 'Po signálu · ' : ''}${node.trigger === 'use' ? 'Akce hráče' : node.trigger === 'area' ? `Oblast · ${node.recipe.triggerRadius}` : 'Po načtení'}` : logicKinds[node.kind];
+  const caption = node => node.kind === 'patrol' ? `${node.waiting ? 'Po signálu · ' : ''}${node.recipe.pace === 'walk' ? 'Chůze' : 'Běh'} · zastávky: ${node.recipe.waypoints.length} · ${node.recipe.loop ? 'opakovaně' : 'jednou'}` : node.kind === 'follow' ? `${node.waiting ? 'Po signálu · ' : ''}${node.recipe.destinationName ? `Cíl ${node.recipe.destinationName}` : 'Bez cíle'}` : node.kind === 'drive' ? `${node.waiting ? 'Po signálu · ' : ''}${node.recipe.carName} · zastávky: ${node.recipe.stops.length} · ${node.recipe.loop ? 'opakovaně' : 'jednou'}` : node.kind === 'choice' ? `${node.waiting ? 'Po signálu · ' : ''}${node.recipe.answers.length} odpovědi · ${node.recipe.controller}` : node.recipe ? `${node.waiting ? 'Po signálu · ' : ''}${node.trigger === 'use' ? 'Akce hráče' : node.trigger === 'area' ? `Oblast · ${node.recipe.triggerRadius}` : 'Po načtení'}` : logicKinds[node.kind];
   function select(id) {
     selected = id;
     for (const [nodeId, card] of cards) { card.classList.toggle('selected', nodeId === id); card.setAttribute('aria-pressed', String(nodeId === id)); }
@@ -36,9 +36,10 @@ export function renderMissionLogic(main, file, remembered, { element, projectRoo
     if (node.recipe) {
       inspector.append(element('p', caption(node)));
       const details = [];
-      if (node.kind === 'patrol' || node.kind === 'follow') {
+      if (['patrol', 'follow', 'drive'].includes(node.kind)) {
         details.push(['Prodleva', `${node.recipe.delaySeconds} s`], ['Čekání na signál', node.recipe.startSignal ?? 'Po načtení mise']);
         if (node.kind === 'patrol') details.push(['Zastávky', node.recipe.waypoints.map(stop => `ID ${stop.id} (${stop.pauseSeconds} s)`).join(' → ')]);
+        else if (node.kind === 'drive') details.push(['Auto', node.recipe.carName], ['Nástup', node.recipe.boarding === 'walk' ? 'Dojít a nastoupit' : 'Začít na sedadle řidiče'], ['Zastávky', node.recipe.stops.map(stop => `${stop.name} (${stop.pauseSeconds} s)`).join(' → ')]);
         else if (node.recipe.destinationName) details.push(['Cíl doprovodu', `${node.recipe.destinationName} · poloměr ${node.recipe.destinationRadius}`]);
         inspector.append(element('p', 'NPC čte signál vybraného bodu; přerušovaná hrana neznamená, že se čeká na dokončení programu tohoto bodu. Chování, navigaci a překážky ověřte ve hře.', 'notice'));
       }

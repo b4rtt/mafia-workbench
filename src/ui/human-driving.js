@@ -1,5 +1,6 @@
 import { humanDrivingTargets, resolveHumanDriving } from '../shared/human-driving.js';
 import { missionTaskVehicles } from '../shared/mission-task.js';
+import { missionFlowTargets } from '../shared/mission-flow.js';
 
 export function humanDrivingFields({element,file,roads,owner,initial,onChange}){
   const root=element('section'),fields=element('div',undefined,'mission-fields'),rows=element('div'),add=element('button','Přidat cíl jízdy'),cars=missionTaskVehicles(file),stops=initial?.stops?.map(stop=>({...stop}))??[];
@@ -10,6 +11,13 @@ export function humanDrivingFields({element,file,roads,owner,initial,onChange}){
   if(initial?.carName)car.value=initial.carName;
   for(const [value,label]of [['walk','Dojít a nastoupit jako řidič'],['seated','Začít na sedadle řidiče']]){const option=element('option',label);option.value=value;boarding.append(option);}boarding.value=initial?.boarding??'walk';
   delay.type='number';delay.required=true;delay.min='0';delay.max='86400';delay.step='any';delay.value=String(initial?.delaySeconds??0);loop.type='checkbox';loop.checked=initial?.loop??false;
+  const signalField=(label,empty,value)=>{
+    const select=field(label,element('select')),none=element('option',empty);none.value='';select.append(none);
+    const targets=missionFlowTargets(file);for(const target of targets){const option=element('option',target.name);option.value=target.name;select.append(option);}
+    if(value&&!targets.some(target=>target.name===value)){const option=element('option',`${value} · nedostupné`);option.value=value;select.append(option);}
+    select.value=value??'';return select;
+  };
+  const start=signalField('Spustit jízdu po signálu bodu','Po načtení mise',initial?.startSignal),complete=signalField('Po dokončení jízdy poslat signál bodu','Bez návaznosti',initial?.onComplete);
   let targetKey=null;
   const list=element('datalist');list.id=`driving-targets-${crypto.randomUUID()}`;
   function render(){
@@ -23,7 +31,7 @@ export function humanDrivingFields({element,file,roads,owner,initial,onChange}){
     });
   }
   add.type='button';add.onclick=()=>{const targets=humanDrivingTargets(file,owner(),car.value);if(!targets.length||stops.length>=32)return;stops.push({name:targets[stops.length%targets.length].name,pauseSeconds:1});render();onChange();};
-  for(const input of [car,boarding,delay,loop]){input.oninput=onChange;input.onchange=onChange;}
-  root.append(element('h3','Trasa vozidla'),fields,element('p','Cíle jsou názvy nepohyblivých objektů nebo skriptových bodů. Umístěte auto i cíle blízko silniční sítě a na průchozí povrch. Volba začátku na sedadle přesune NPC přímo do auta; sedadlo musí být volné.'),rows,list,add);render();
-  return {root,options(){return resolveHumanDriving(file,owner(),{mode:'drive',carName:car.value,boarding:boarding.value,delaySeconds:delay.value===''?NaN:Number(delay.value),loop:loop.checked,stops:stops.map(stop=>({...stop})),roadHash:roads?.sha256},roads);},setActive(active){root.style.display=active?'':'none';for(const input of root.querySelectorAll('input,select'))input.disabled=!active;if(!active){add.disabled=true;return;}const nextKey=JSON.stringify([owner(),car.value]);if(targetKey!==nextKey){targetKey=nextKey;list.replaceChildren(...humanDrivingTargets(file,owner(),car.value).map(frame=>{const option=element('option');option.value=frame.name;return option;}));}add.disabled=!list.children.length||stops.length>=32;}};
+  for(const input of [car,boarding,delay,loop,start,complete]){input.oninput=onChange;input.onchange=onChange;}
+  root.append(element('h3','Trasa vozidla'),fields,element('p','Cíle jsou názvy nepohyblivých objektů nebo skriptových bodů. Umístěte auto i cíle blízko silniční sítě a na průchozí povrch. Nástup začne až po případném signálu a prodlevě; začátek na sedadle přesune NPC přímo do auta. Sedadlo musí být volné. Dokončení lze poslat jen po jednorázové jízdě a posledním čekání. Návaznosti najdete v Logice mise.'),rows,list,add);render();
+  return {root,options(){return resolveHumanDriving(file,owner(),{mode:'drive',carName:car.value,boarding:boarding.value,delaySeconds:delay.value===''?NaN:Number(delay.value),loop:loop.checked,stops:stops.map(stop=>({...stop})),startSignal:start.value||null,onComplete:complete.value||null,roadHash:roads?.sha256},roads);},setActive(active){root.style.display=active?'':'none';for(const input of root.querySelectorAll('input,select'))input.disabled=!active;if(!active){add.disabled=true;return;}const nextKey=JSON.stringify([owner(),car.value]);if(targetKey!==nextKey){targetKey=nextKey;list.replaceChildren(...humanDrivingTargets(file,owner(),car.value).map(frame=>{const option=element('option');option.value=frame.name;return option;}));}add.disabled=!list.children.length||stops.length>=32;}};
 }
