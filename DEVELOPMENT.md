@@ -2,6 +2,12 @@
 
 Aktualizace: 15. října 2026. Vývoj pokračuje; komplexní editor není dokončený. Implementace, datové testy, ověření UI a ověření ve hře jsou různé úrovně dokončení; neoznačovat jednu za druhou. Podrobnosti existujících funkcí a jejich omezení jsou v README.md a research/formats.md. Původní hra se nemění, úpravy mají kontrolu verze, zálohu, export a undo. Herní data a soukromé reference nepatří do veřejného repozitáře.
 
+## Úkol s příchodem NPC do cíle (2026-10-15)
+
+- Úkol/configure nabízí Příchod vybrané NPC: jednoznačný Human, stálý cíl a poloměr se započtením výšky. Samotný hráč nestačí, jeho přítomnost u cíle se nevyžaduje. NPC musí mít energii >0; program NPC ani navigace se nemění, pohyb se nastaví odděleně. Zachované aktivace, TextDB, checkpoint, timeout/ochrana, signály a konce. Stávající programy stejné; přesné nové zdroje obnoví formulář a Logika mise uvádí NPC. Core kontroluje vazby/scene/geometry/texts, zapisuje jen úkolový program s jedním undo.
+- Oddělený Electron: přepnutí pěšího úkolu na First, nulový výběr disabled, skutečné save/reopen/nezměněný disabled Save a přesný export. Tři potvrzené GOG 1.2 varianty: hráč uvnitř/NPC daleko nedokončí; doprovázející živá First ve vzdálenosti 1,82 dokončí; mrtvá First v cíli vede s ochranou do neúspěchu, bez ochrany neuspěje a čeká na limit. Po 6/11/22 s programového čekání byly flagy success/failure živé 0/0,0/0,1/0; smrti 0/0,0/1,0/1; pouze timeru 0/0,0/0,0/1. Přesuny a smrt řízené diagnosticky. Podrobnosti a hranice v research/mission-escort.md.
+- 487/487 testů, check/build; legacy zdroje/raw zachování, sloty a podmínky všech aktivací, configure/přidání, cílové vazby, export/reopen/undo, stale geometrie a rollback. Vlastní aplikace/hry a save/index obnovené, celá auditní příprava/UI vrácená na historii 12; všechny baseline a chráněné hashe stejné. První pomocné pokusy čekaly krátce na save a zkusily přesun mrtvé NPC; testovací režie opravena, produkce to nevyžadovala. Ruční úplná mise a checkpoint této varianty zůstávají neověřené. Goal pokračuje; AI městský plugin stále čeká na svůj předpoklad.
+
 ## Pěší doprovod NPC (2026-10-15)
 
 - Nová i existující postava: Doprovod hráče s volitelným startovním signálem, prodlevou, statickým cílem/poloměrem a signálem po příchodu. Skutečný Player Tommy, jednoznačné detektory/frame, kontrola scény/geometrie při publikaci. Přesný recept obnoví formulář, vlastní odchylky zůstanou vlastními; mění se jen program NPC, jediná transakce/export/undo.

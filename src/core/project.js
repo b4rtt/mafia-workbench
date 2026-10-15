@@ -12,7 +12,7 @@ import { inspectCache, editCache } from './cache.js';
 import { parseItems, editItems } from './items.js';
 import { pickupParameters } from '../shared/pickups.js';
 import { resolveMissionFlow } from '../shared/mission-flow.js';
-import { missionTaskScript, missionTaskVehicles, editableMissionTask } from '../shared/mission-task.js';
+import { missionTaskScript, missionTaskVehicles, resolveMissionTaskEscort, editableMissionTask } from '../shared/mission-task.js';
 import { inspectMissionDestination } from './mission-destination.js';
 import { createTerrain } from './terrain.js';
 import { createRoadSurface } from './road-surface.js';
@@ -511,6 +511,11 @@ export class ModProject {
         vehicle={...vehicle,name:car.name};
         dependencies.push({path:geometryPath,data:geometryBytes,expectedHash:hash(geometryBytes)});
       }
+      let escort=task.escort??null,targetName=task.targetName;
+      if(escort){
+        const resolved=resolveMissionTaskEscort({...inspectScene(before),geometry},task);escort=resolved.escort;targetName=resolved.targetName;
+        dependencies.push({path:geometryPath,data:geometryBytes,expectedHash:hash(geometryBytes)});
+      }
       let failure=task.failure??null;
       if(failure){
         if(!texts.slice(0,-1).some(entry=>entry.id===failure.textId&&entry.text.trim()))throw new Error('Úkol: neúspěch potřebuje existující neprázdný text.');
@@ -524,7 +529,7 @@ export class ModProject {
         for(const file of destination.files)if(task.nextMissionHashes?.[file.path]!==file.expectedHash)throw new Error('Další mise: data se od výběru změnila. Vyberte misi znovu.');
         dependencies.push(...destination.files);nextMission=destination.name;
       }
-      const code=missionTaskScript({...task,nextMission,failure,vehicle,inventory,flow:resolveMissionFlow({...inspectScene(before),geometry},task.flow,current?.entry.value.name??operation.name)});
+      const code=missionTaskScript({...task,targetName,nextMission,failure,vehicle,inventory,escort,flow:resolveMissionFlow({...inspectScene(before),geometry},task.flow,current?.entry.value.name??operation.name)});
       if(current){choiceScene=editScene(before,current.entry.id,{...current.entry.value,code});dependencies.push({path:geometryPath,data:geometryBytes,expectedHash:hash(geometryBytes)});}
       else request={...operation,mask:1,code};
     }

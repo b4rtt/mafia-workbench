@@ -32,6 +32,7 @@ export function renderMissionLogic(main, file, remembered, { element, projectRoo
       inspector.append(element('p', caption(node)));
       const details = [];
       if (node.recipe.targetName) details.push(['Cíl', node.recipe.targetName]);
+      if (node.recipe.escort) details.push(['Příchod NPC', node.recipe.escort.humanName]);
       if (node.recipe.vehicle) details.push(['Auto', node.recipe.vehicle.name]);
       if (node.recipe.inventory) details.push(['Předmět', `ID ${node.recipe.inventory.itemId}${node.recipe.inventory.consume ? ' · odevzdat' : ''}`]);
       if (node.recipe.targets) details.push(['Protivníci', node.recipe.targets.join(', ')]);
