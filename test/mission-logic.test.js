@@ -1,0 +1,83 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { missionLogic, layoutMissionLogic } from '../src/shared/mission-logic.js';
+import { missionTaskScript } from '../src/shared/mission-task.js';
+import { missionDialogueScript } from '../src/shared/mission-dialogue.js';
+import { missionCombatScript } from '../src/shared/mission-combat.js';
+import { missionChoicePrograms } from '../src/shared/mission-choice.js';
+import { changeSceneObject, inspectScene, editScene } from '../src/core/scene.js';
+
+const base = { objectiveId:10, interactionId:20, nextObjectiveId:30, completeId:40, targetName:'Destination', targetRadius:3 };
+const chunk = (type, data) => { const header=Buffer.alloc(6);header.writeUInt16LE(type);header.writeUInt32LE(data.length+6,2);return Buffer.concat([header,data]); };
+function fixture() {
+  let bytes=chunk(0x4c53,chunk(0x4000,Buffer.alloc(0)));
+  const choice=missionChoicePrograms({name:'CHOICE',controller:'NPC',waitForSignal:true,answers:[{textId:50,target:'Combat'},{textId:60,target:'Menu'}]});
+  bytes=changeSceneObject(bytes,{kind:'add-human',name:'NPC',model:'human.i3d',position:[0,0,0],rotation:[1,0,0,0],scale:[1,1,1],parameters:{},code:choice.controller.code});
+  const programs=[
+    ['Destination','end'],['Raw','dim_act 1\nfindactor 0, "Quest"\ndetector_setsignal 0, 1\nend'],
+    ['Quest',missionTaskScript({...base,inventory:{itemId:23,atTarget:true,consume:true},failure:{timeoutSeconds:20,textId:70},flow:{waitForSignal:true,onComplete:'Dialogue',onFailure:'Combat'}})],
+    ['Dialogue',missionDialogueScript({trigger:'load',lines:[{speaker:'NPC',textId:80}],flow:{onComplete:'CHOICE'}})],
+    ['Combat',missionCombatScript({trigger:'load',targets:['NPC'],objectiveId:10,completeId:40,failure:{timeoutSeconds:10,textId:70,endMission:true},flow:{waitForSignal:true,onComplete:'Quest'}})],
+    ['Menu',missionTaskScript({...base,nextMission:'Next'})],
+    ['Waiting',missionDialogueScript({trigger:'load',lines:[{speaker:'NPC',textId:80}],flow:{waitForSignal:true}})],
+    ...choice.nodes.map(node=>[node.name,node.code])
+  ];
+  for(const [name,code]of programs)bytes=changeSceneObject(bytes,{kind:'add-detector',name,position:[0,0,0],mask:name.startsWith('CHOICE')?0:1,code});
+  return {...inspectScene(bytes),geometry:{meshes:[]},bytes};
+}
+const named=(graph,name)=>graph.nodes.find(node=>node.name===name);
+test('logic shows exact task/dialogue/combat/choice flow, exits, activation and collapses only owned helpers',()=>{
+  const scene=fixture(),before=JSON.stringify(scene),graph=missionLogic(scene);
+  assert.deepEqual(['Quest','Dialogue','Combat','CHOICE'].map(name=>named(graph,name).kind),['task','dialogue','combat','choice']);
+  assert.equal(named(graph,'Quest').recipe.inventory.itemId,23);
+  assert.equal(named(graph,'Dialogue').trigger,'load');assert.equal(named(graph,'Quest').trigger,'use');assert.equal(named(graph,'CHOICE').waiting,true);
+  assert.deepEqual(graph.edges.filter(edge=>edge.from===named(graph,'Quest').id).map(edge=>[edge.kind,edge.targetName]),[['success','Dialogue'],['failure','Combat']]);
+  assert.deepEqual(graph.edges.filter(edge=>edge.from===named(graph,'CHOICE').id).map(edge=>[edge.kind,edge.targetName,edge.label]),[['answer','Combat','Odpověď 1 · text 50'],['answer','Menu','Odpověď 2 · text 60']]);
+  assert.equal(named(graph,'NPC'),undefined);assert.equal(named(graph,'CHOICE_ANSWER1'),undefined);assert.deepEqual(named(graph,'CHOICE').members,['CHOICE','CHOICE_CLAIM','CHOICE_ANSWER1','CHOICE_ANSWER2']);
+  assert.equal(named(graph,'Next').kind,'mission');assert.equal(named(graph,'Neúspěšné ukončení').kind,'ending');
+  assert(named(graph,'Waiting').warnings.some(warning=>warning.includes('Může jej spouštět vlastní skript')));
+  assert(named(graph,'Quest').warnings.some(warning=>warning.startsWith('Cyklus')));assert(!named(graph,'CHOICE').warnings.some(warning=>warning.includes('odesílatele')));
+  assert.equal(named(graph,'Raw').kind,'custom');assert(!graph.edges.some(edge=>edge.from===named(graph,'Raw').id));assert.equal(JSON.stringify(scene),before);
+});
+test('CRLF is recognized, but altered programs, masks and choice controllers stay custom without guessed edges',()=>{
+  const scene=fixture(),quest=scene.entries.find(entry=>entry.actorScript&&entry.value.name==='Quest');
+  let bytes=editScene(scene.bytes,quest.id,{...quest.value,code:quest.value.code.replaceAll('\n','\r\n')});assert.equal(named(missionLogic({...inspectScene(bytes),geometry:scene.geometry}),'Quest').kind,'task');
+  bytes=editScene(scene.bytes,quest.id,{...quest.value,code:quest.value.code+'\n// custom'});let graph=missionLogic({...inspectScene(bytes),geometry:scene.geometry});assert.equal(named(graph,'Quest').kind,'custom');assert(!graph.edges.some(edge=>edge.from===named(graph,'Quest').id));
+  const actor=scene.actors.find(actor=>actor.name==='Quest'),mask=scene.entries.find(entry=>entry.detectorParameter&&entry.id.startsWith(actor.id+'/'));
+  graph=missionLogic({...inspectScene(editScene(scene.bytes,mask.id,0)),geometry:scene.geometry});assert.equal(named(graph,'Quest').kind,'custom');
+  const controller=scene.entries.find(entry=>entry.actorScript&&entry.value.name==='NPC');graph=missionLogic({...inspectScene(editScene(scene.bytes,controller.id,{...controller.value,code:controller.value.code+'\nwait 10'})),geometry:scene.geometry});
+  assert.equal(named(graph,'CHOICE').kind,'custom');assert.equal(named(graph,'CHOICE_ANSWER1').kind,'custom');assert.equal(named(graph,'NPC').kind,'custom');
+});
+test('references resolve case-insensitively; missing, ambiguous and unbound targets are explicit placeholders',()=>{
+  const scene=fixture(),entry=scene.entries.find(entry=>entry.actorScript&&entry.value.name==='Dialogue');
+  const code=missionDialogueScript({trigger:'load',lines:[{speaker:'NPC',textId:80}],flow:{onComplete:'raw'}});
+  const current={...inspectScene(editScene(scene.bytes,entry.id,{...entry.value,code})),geometry:scene.geometry};let graph=missionLogic(current);
+  assert.equal(graph.edges.find(edge=>edge.from===named(graph,'Dialogue').id).to,named(graph,'Raw').id);
+  graph=missionLogic({...current,actors:[...current.actors,{...current.actors.find(actor=>actor.name==='Raw'),name:'RAW'}]});assert.equal(named(graph,'raw').kind,'unresolved');assert(named(graph,'raw').warnings[0].includes('jednoznačný'));
+  graph=missionLogic({...current,actors:current.actors.filter(actor=>actor.name!=='Raw')});assert.equal(named(graph,'raw').kind,'unresolved');assert(named(graph,'raw').warnings[0].includes('chybí'));
+  graph=missionLogic({...current,objects:current.objects.filter(object=>object.name!=='Raw')});assert.equal(named(graph,'raw').kind,'unresolved');
+});
+test('direct references to choice helpers preserve their exact target and do not imply activation of the owner',()=>{
+  const scene=fixture(),entry=scene.entries.find(entry=>entry.actorScript&&entry.value.name==='Dialogue'),code=missionDialogueScript({trigger:'load',lines:[{speaker:'NPC',textId:80}],flow:{onComplete:'CHOICE_ANSWER1'}});
+  const graph=missionLogic({...inspectScene(editScene(scene.bytes,entry.id,{...entry.value,code})),geometry:scene.geometry}),edge=graph.edges.find(edge=>edge.from===named(graph,'Dialogue').id);
+  assert.equal(edge.targetName,'CHOICE_ANSWER1');assert.equal(edge.to,named(graph,'CHOICE').id);assert.equal(edge.helper,true);assert(named(graph,'Dialogue').warnings.some(warning=>warning.includes('pomocný bod')));assert(named(graph,'CHOICE').warnings.some(warning=>warning.includes('odesílatele')));
+});
+test('standalone scripts remain inspectable custom source and cannot become detector targets merely by name',()=>{
+  const scene=fixture(),extra={id:'standalone',kind:'script',value:{name:'Quest',code:'detector_setsignal -1, 1'}};
+  const graph=missionLogic({...scene,entries:[...scene.entries,extra]});assert.equal(graph.nodes.find(node=>node.id==='script:standalone').kind,'custom');assert(!graph.nodes.find(node=>node.id==='script:standalone').actor);assert.equal(graph.edges.find(edge=>edge.from===named(graph,'Combat').id).to,named(graph,'Quest').id);
+});
+test('two choices on the same controller remain distinct; modifying one group leaves its source visible',()=>{
+  const scene=fixture(),controller=scene.entries.find(entry=>entry.actorScript&&entry.value.name==='NPC'),plan=missionChoicePrograms({name:'SECOND_CHOICE',controller:'NPC',answers:[{textId:90,target:'Menu'},{textId:100,target:'Combat'}]},[{owner:'CHOICE',names:['CHOICE_ANSWER1','CHOICE_ANSWER2']}]);
+  let bytes=editScene(scene.bytes,controller.id,{...controller.value,code:plan.controller.code});
+  for(const node of plan.nodes)bytes=changeSceneObject(bytes,{kind:'add-detector',name:node.name,position:[0,0,0],mask:0,code:node.code});
+  let current={...inspectScene(bytes),geometry:scene.geometry},graph=missionLogic(current);
+  assert.equal(graph.nodes.filter(node=>node.kind==='choice').length,2);assert.equal(named(graph,'NPC'),undefined);assert.equal(named(graph,'SECOND_CHOICE').members.length,4);
+  const answer=current.entries.find(entry=>entry.actorScript&&entry.value.name==='SECOND_CHOICE_ANSWER1');bytes=editScene(bytes,answer.id,{...answer.value,code:answer.value.code+'\n// custom'});graph=missionLogic({...inspectScene(bytes),geometry:scene.geometry});
+  assert.equal(named(graph,'CHOICE').kind,'choice');assert.equal(named(graph,'SECOND_CHOICE').kind,'custom');assert.equal(named(graph,'SECOND_CHOICE_ANSWER1').kind,'custom');assert.equal(named(graph,'NPC').kind,'custom');
+});
+test('layout is stable for disconnected points, branching and cycles; long chains do not recurse',()=>{
+  const nodes=Array.from({length:12000},(_,index)=>({id:String(index)})),edges=nodes.slice(1).map((node,index)=>({from:String(index),to:node.id}));
+  const result=layoutMissionLogic({nodes,edges});assert.equal(result.positions.size,12000);assert.equal(result.cycles.length,0);assert(result.positions.get('11999').x>result.positions.get('0').x);
+  const graph={nodes:[{id:'a'},{id:'b'},{id:'c'},{id:'d'},{id:'isolated'}],edges:[{from:'a',to:'b'},{from:'b',to:'c'},{from:'c',to:'b'},{from:'c',to:'d'},{from:'isolated',to:'isolated'}]};
+  const first=layoutMissionLogic(graph);assert.deepEqual(first,layoutMissionLogic(graph));assert.equal(first.positions.get('b').x,first.positions.get('c').x);assert(first.positions.get('d').x>first.positions.get('c').x);assert.equal(first.cycles.length,2);
+});

@@ -6,6 +6,10 @@ export class MissionViews {
   clear() { this.views.clear(); }
   remember(view) {
     if (!view || view.disposed || !view.projectRoot) return;
+    if (view.logicPath) {
+      this.views.set(missionViewKey(view.projectRoot, view.logicPath, 'logic'), view.captureLogic());
+      return;
+    }
     let path, type, value;
     if (view.mapPath) {
       path=view.mapPath;type='map';value={selectedName:view.selectedName,mode:view.gizmo.mode,backdrop:view.backdrop?.visible,collisions:view.collisionOverlay?.visible,sounds:view.soundExtentVisible,lights:view.lightPreviewVisible};

@@ -50,6 +50,7 @@ import { Drafts } from './drafts.js';
 import { missionParts } from '../shared/mission-parts.js';
 import { MissionViews } from './mission-views.js';
 import { renderCollisions } from './collision-editor.js';
+import { renderMissionLogic } from './mission-logic.js';
 const api = window.workbench;
 const shell = initializeWorkspace();
 const missionViews = new MissionViews();
@@ -73,6 +74,7 @@ function buttons() {
   $('import-model').title = state.texts.size ? 'Nejdřív uložte rozepsané změny.' : 'Importovat vlastní 4DS a BMP textury do projektu.';
   $('stop-level').disabled = state.busy;
   for (const part of document.querySelectorAll('[data-mission-part]')) part.disabled = state.busy;
+  for (const action of document.querySelectorAll('[data-logic-action]')) action.disabled = state.busy;
   for(const rebuild of document.querySelectorAll('[data-collision-rebuild]')){
     rebuild.disabled=state.busy||Boolean(state.texts.size)||rebuild.dataset.collisionRebuild==='unavailable';
     rebuild.title=state.texts.size?'Nejdřív uložte rozepsané změny.':rebuild.dataset.collisionRebuild==='unavailable'?'Mise nemá platné generované kolize.':'Přepočítat kolize vytvořené editorem z aktuálních modelů; původní a ruční kolize zachovat.';
@@ -171,8 +173,8 @@ function renderMissionParts(main, file) {
       if (active || !await discard()) return;
       status(`Načítám: ${part.label}…`);
       // Keep the current editor and drafts if loading the destination fails.
-      const next = await (part.type === 'map' ? api.map(part.path) : api.inspect(part.path));
-      state.texts.clear(); state.textIndex = 0; state.file = next;
+      const next = await (['map','logic'].includes(part.type) ? api.map(part.path) : api.inspect(part.path));
+      state.texts.clear(); state.textIndex = 0; state.file = part.type === 'logic' ? {...next,type:'logic'} : next;
       renderDetail(); renderFiles(); status(`Otevřeno: ${part.path}`);
     });
     button.onkeydown = event => {
@@ -211,7 +213,7 @@ function renderDetail() {
   const trackView=file.type==='track'&&previous?.trackPath===file.path&&previous.projectRoot===state.project.root?{camera:previous.captureCamera(),model:previous.trackModel,animation:previous.trackAnimation,time:previous.time,search:previous.trackSearch()}:null;
   state.viewport?.dispose(); state.viewport = null;
   for (const audio of $('detail').querySelectorAll('audio')) { audio.pause(); audio.removeAttribute('src'); audio.load(); }
-  const main = $('detail'); main.replaceChildren(); main.classList.remove('spatial-detail','view-focus');
+  const main = $('detail'); main.replaceChildren(); main.classList.remove('spatial-detail','view-focus','logic-detail');
   const badges = { roads: 'ROAD · SILNIČNÍ SÍŤ', difference: 'CHG · OBJEKTY A SKRIPTY', track: 'TCK · POHYBOVÁ STOPA', navigation: 'CHECK · NAVIGACE', items: 'PŘEDMĚTY · ZBRANĚ', textdb: 'TEXTDB · EDITACE', scene: 'SCÉNA · EDITACE', cache: 'CACHE · STATICKÉ MODELY', map: 'MAPA · 3D EDITACE', model: '4DS · 3D EDITACE', animation: '5DS · ANIMACE', image: 'OBRÁZEK · NÁHLED', audio: 'ZVUK · PŘEHRÁVAČ' };
   badges.replay = 'REP · ČASOVÁ OSA';
   badges.vehicles = 'AUTA · FYZIKA A PŘEVODY';
@@ -219,6 +221,7 @@ function renderDetail() {
   badges['effect-types'] = 'EFEKTY · EMITORY A FÁZE';
   badges.collision = 'KLZ · 3D KOLIZE';
   badges.lip = 'LIP DAT · POHYB ÚST';
+  badges.logic = 'LOGIKA MISE';
   if(file.bitmap)badges.image='BMP · EDITACE TEXTURY';
   const head = element('div', undefined, 'file-header'); head.append(element('h2', file.path), element('span', badges[file.type] ?? 'BINÁRNÍ SOUBOR', 'badge')); main.append(head);
   renderMissionParts(main, file);
@@ -226,9 +229,9 @@ function renderDetail() {
   main.append(element('div', `${file.size.toLocaleString('cs')} bajtů · ${source?.archive} · ${source?.variants ?? 1} variant archivů`, 'file-meta'));
   const toolbar = element('div', undefined, 'tools');
   const restore = element('button', source?.created ? 'Obnovit výchozí verzi' : 'Obnovit originál');
-  restore.onclick = () => run(async () => { if (!await discard()) return; state.file = await api.restore(file.path); state.texts.clear(); await refresh(); renderDetail(); status(source?.created ? 'Výchozí verze obnovena; obnovení lze také vrátit.' : 'Originál obnoven; obnovení lze také vrátit.'); });
+  restore.onclick = () => run(async () => { if (!await discard()) return; state.file = await api.restore(file.path); if(file.type==='logic')state.file={...await api.map(file.path),type:'logic'}; state.texts.clear(); await refresh(); renderDetail(); status(source?.created ? 'Výchozí verze obnovena; obnovení lze také vrátit.' : 'Originál obnoven; obnovení lze také vrátit.'); });
   const replace = element('button', 'Nahradit souborem…');
-  replace.onclick = () => run(async () => { if (!await discard()) return; const replacement = await api.replace(file.path); if (!replacement) return; state.file = replacement; state.texts.clear(); await refresh(); renderDetail(); status('Soubor nahrazen se zálohou.'); });
+  replace.onclick = () => run(async () => { if (!await discard()) return; const replacement = await api.replace(file.path); if (!replacement) return; state.file = replacement; if(file.type==='logic')state.file={...await api.map(file.path),type:'logic'}; state.texts.clear(); await refresh(); renderDetail(); status('Soubor nahrazen se zálohou.'); });
   toolbar.append(restore, replace); main.append(toolbar);
   if (/^missions\/[^/]+\//i.test(file.path)) {
     const launch = element('button', 'Spustit level', 'primary');
@@ -272,10 +275,29 @@ function renderDetail() {
   else if (file.type === 'track') renderTrack(main, file, trackView);
   else if (file.type === 'difference') renderDifference(main, file);
   else if (file.type === 'replay') renderReplay(main, file);
-  else if (file.type === 'scene') renderProperties(main, file, api.saveScene);
+  else if (file.type === 'scene') {
+    const properties=renderProperties(main,file,api.saveScene);
+    if(state.logicSourceEntry){properties.select(state.logicSourceEntry);delete state.logicSourceEntry;}
+  }
   else if (file.type === 'cache') renderCache(main, file);
   else if (file.type === 'model') renderModel(main, file, modelView);
   else if (file.type === 'map') renderMap(main, file, mapView);
+  else if (file.type === 'logic') {
+    main.classList.add('logic-detail');
+    state.viewport = renderMissionLogic(main,file,remembered,{element,projectRoot:state.project.root,
+      edit:node=>run(async()=>{
+        const onCreated=async result=>{state.file={...result,type:'logic'};await refresh();renderDetail();status('Nastavení bodu uložené se zálohou a jedním undo.');};
+        if(node.kind==='task')detectorDialog(file,undefined,node.name);
+        else if(node.kind==='dialogue')dialogueDialog(file,undefined,node.name);
+        else if(node.kind==='combat')missionCombatDialog({api,assets:state.project.assets,file,target:node.name,element,run,flowFields:missionFlowFields,onCreated});
+        else if(node.kind==='choice')missionChoiceDialog({api,assets:state.project.assets,file,target:node.name,element,run,onCreated});
+      }),
+      source:node=>run(async()=>{state.file=await api.inspect(file.path);state.logicSourceEntry=node.entryId;renderDetail();status(`Zdrojový program: ${node.name}`);}),
+      scene:node=>run(async()=>{state.file=await api.map(file.path);state.selectSceneName=node.name;renderDetail();status(`3D objekt: ${node.name}`);})
+    });
+    main.querySelector('.file-meta').hidden=true;
+    const tools=main.querySelector(':scope>.tools');head.append(tools);tools.prepend(actionMenu('Soubor',[restore,replace]));tools.classList.add('file-actions');
+  }
   else if (file.type === 'animation') renderAnimation(main, file, animationView);
   else if (file.type === 'image' || file.type === 'audio') renderMedia(main, file);
   else {
@@ -288,7 +310,7 @@ function renderDetail() {
     }
     main.append(element('pre', rows, 'binary'));
   }
-  shell.spatial(spatialWorkspace(main,file,()=>state.viewport));
+  shell.spatial(spatialWorkspace(main,file,()=>state.viewport)||file.type==='logic');
   buttons();
 }
 function renderReplay(main, file) {
@@ -1490,7 +1512,7 @@ function dialogueDialog(file,position=[0,0,0],target=null){
     const move=direction=>{const index=lines.indexOf(line),other=index+direction;if(other<0||other>=lines.length)return;[lines[index],lines[other]]=[lines[other],lines[index]];repaint();};up.onclick=()=>move(-1);down.onclick=()=>move(1);remove.onclick=()=>{audio.pause();lines=lines.filter(other=>other!==line);repaint();};speaker.onchange=listener.onchange=validate;input.oninput=()=>{update();load();};validate();repaint();if(loading)load();
   };
   name.oninput=update;trigger.onchange=camera.onchange=update;interaction.oninput=update;language.onchange=load;add.onclick=()=>addLine();cancel.onclick=()=>dialog.close();
-  form.onsubmit=event=>{event.preventDefault();if(!form.reportValidity()||state.busy||save.disabled||saving)return;run(async()=>{saving=true;save.disabled=cancel.disabled=add.disabled=true;fields.inert=rows.inert=true;try{const dialogue=options(),request=editing?{kind:'configure-dialogue',target:name.value}:{kind:'add-detector',name:name.value,position:xyz.map(input=>Number(input.value)),mask:1};state.file=await api.changeSceneObject(file.path,{...request,dialogue},file.sha256);state.selectSceneName=name.value;dialog.close();await refresh();renderDetail();status(editing?'Rozhovor uložený se zálohou a jedním undo. Spusťte misi znovu.':'Rozhovor vytvořený v modu se zálohou a jedním undo.');}catch(error){message.textContent=error.message;throw error;}finally{saving=false;fields.inert=rows.inert=false;cancel.disabled=false;if(!closed){const failure=message.textContent;update();message.textContent=failure;}}});};
+  form.onsubmit=event=>{event.preventDefault();if(!form.reportValidity()||state.busy||save.disabled||saving)return;run(async()=>{saving=true;save.disabled=cancel.disabled=add.disabled=true;fields.inert=rows.inert=true;try{const dialogue=options(),request=editing?{kind:'configure-dialogue',target:name.value}:{kind:'add-detector',name:name.value,position:xyz.map(input=>Number(input.value)),mask:1};state.file=await api.changeSceneObject(file.path,{...request,dialogue},file.sha256);if(file.type==='logic')state.file={...state.file,type:'logic'};state.selectSceneName=name.value;dialog.close();await refresh();renderDetail();status(editing?'Rozhovor uložený se zálohou a jedním undo. Spusťte misi znovu.':'Rozhovor vytvořený v modu se zálohou a jedním undo.');}catch(error){message.textContent=error.message;throw error;}finally{saving=false;fields.inert=rows.inert=false;cancel.disabled=false;if(!closed){const failure=message.textContent;update();message.textContent=failure;}}});};
   form.append(fields,rows,add,element('p','Výsledný program'),preview,message,element('p','Bod se ve hře nevykresluje. Kameru používejte pro účastníky poblíž sebe. Rozhovor nepozastavuje ostatní skripty ani nedoplňuje pohyb rtů; titulky řeči řídí nastavení hry. Návazný bod může pokračovat dalším úkolem nebo rozhovorem; volby odpovědí a opakování upravujte ve výsledném programu v inspektoru.'),actions);dialog.append(element('h2',editing?`Nastavit rozhovor · ${name.value}`:'Přidat rozhovor'),...(editing?[element('p','Změní se pouze program vybraného rozhovoru, s jedním undo. Název a polohu upravujte ve vlastnostech. Jazyk není uložený v programu: vyberte TextDB pro kontrolu a náhled ID. Změna se projeví při novém spuštění mise.')]:[]),form);
   dialog.addEventListener('cancel',event=>{if(saving||state.busy)event.preventDefault();});dialog.addEventListener('close',()=>{closed=true;revision++;for(const line of lines){line.audio.pause();line.audio.removeAttribute('src');line.audio.load();}dialog.remove();},{once:true});document.body.append(dialog);if(editing){for(const line of initial.lines)addLine(line,false);load();}else addLine();dialog.showModal();if(editing)trigger.focus();else name.select();
 }
@@ -1546,7 +1568,7 @@ function detectorDialog(file,position=[0,0,0],owner=null){
   form.onsubmit=event=>{event.preventDefault();if(!form.reportValidity()||state.busy||submit.disabled||saving)return;run(async()=>{saving=true;submit.disabled=cancel.disabled=true;fields.inert=taskFields.inert=true;try{
     const value=Number(mask.value);if(mode.value==='proximity'&&value===0)throw new Error('Detektor: zvolte nenulovou masku typů postav.');
     const task=mode.value==='task'?taskOptions():undefined;if(task&&(!textFile||textFile.path!==language.value))throw new Error('Úkol: nejprve načtěte jazykovou tabulku.');const program=task?missionTaskScript(task):mode.value==='proximity'?proximityDetectorScript(Number(radius.value),code.value):code.value;
-    const request=editing?{kind:'configure-task',target:name.value}:{kind:'add-detector',name:name.value,position:xyz.map(input=>Number(input.value)),mask:value,code:program};state.file=await api.changeSceneObject(file.path,{...request,...(task?{task}:{})},file.sha256);state.selectSceneName=name.value;dialog.close();await refresh();renderDetail();status(editing?'Úkol uložený se zálohou a jedním undo. Spusťte misi znovu.':'Skriptový bod vytvořen v modu se zálohou.');
+    const request=editing?{kind:'configure-task',target:name.value}:{kind:'add-detector',name:name.value,position:xyz.map(input=>Number(input.value)),mask:value,code:program};state.file=await api.changeSceneObject(file.path,{...request,...(task?{task}:{})},file.sha256);if(file.type==='logic')state.file={...state.file,type:'logic'};state.selectSceneName=name.value;dialog.close();await refresh();renderDetail();status(editing?'Úkol uložený se zálohou a jedním undo. Spusťte misi znovu.':'Skriptový bod vytvořen v modu se zálohou.');
   }catch(error){message.textContent=error.message;throw error;}finally{saving=false;fields.inert=taskFields.inert=false;cancel.disabled=false;if(!closed){const failure=message.textContent;update();message.textContent=failure;}}});};
   const restore=(select,value)=>{if(![...select.options].some(option=>option.value===value)){const option=element('option',`${value} · nedostupné`);option.value=value;option.dataset.unavailable='true';select.append(option);}select.value=value;};
   if(editing){mode.value='task';mode.disabled=true;mode.parentElement.style.display='none';for(const input of xyz){input.disabled=true;input.parentElement.style.display='none';}for(const[key,{input}]of Object.entries(taskInputs))input.value=String(initial[key]);if(initial.targetName)restore(target,initial.targetName);targetRadius.value=String(initial.targetRadius??3);completion.value=initial.inventory?(initial.inventory.atTarget?'item-delivery':'item'):initial.vehicle?'vehicle':'walk';consumeItem.checked=initial.inventory?.consume??false;if(initial.vehicle){restore(vehicle,initial.vehicle.name);driverOnly.checked=initial.vehicle.driverOnly;}exit.checked=initial.exitToMenu;if(initial.nextMission)restore(nextMission,initial.nextMission);checkpoint.checked=initial.checkpointId!==null;checkpointId.value=String(initial.checkpointId??5599);timed.checked=initial.failure?.timeoutSeconds!=null;seconds.value=String(initial.failure?.timeoutSeconds??60);watched.checked=initial.failure?.humanName!=null;if(watched.checked)restore(human,initial.failure.humanName);failureId.value=String(initial.failure?.textId??90000);gameover.checked=initial.failure?.endMission??false;}
@@ -1630,14 +1652,14 @@ for (const [id, action] of [['open', api.open], ['create', api.create]]) $(id).o
   const project = await action(); if (!project) { status('Zrušeno'); return; }
   state.viewport?.dispose(); state.viewport = null;
   missionViews.clear();
-  state.texts.clear(); state.file = null; shell.spatial(false); $('detail').classList.remove('spatial-detail','view-focus'); $('detail').replaceChildren(element('h2', 'Projekt je připravený'), element('p', 'Vyberte soubor vlevo. České texty najdete filtrem Texty.'));
+  state.texts.clear(); state.file = null; shell.spatial(false); $('detail').classList.remove('spatial-detail','view-focus','logic-detail'); $('detail').replaceChildren(element('h2', 'Projekt je připravený'), element('p', 'Vyberte soubor vlevo. České texty najdete filtrem Texty.'));
   await refresh(project); status('Projekt otevřený; původní hra zůstala zachovaná.');
 });
 $('undo').onclick = () => run(async () => {
   if (!await discard()) return;
   const project = await api.undo(); state.texts.clear(); await refresh(project);
-  if (state.file && project.assets.some(a => a.path === state.file.path)) await openFile(state.file.path);
-  else if (state.file) { state.viewport?.dispose(); state.viewport = null; state.file = null; shell.spatial(false); $('detail').classList.remove('spatial-detail','view-focus'); $('detail').replaceChildren(element('h2', 'Vytvoření mise vráceno'), element('p', 'Vyberte soubor vlevo.')); }
+  if (state.file && project.assets.some(a => a.path === state.file.path)) { if(state.file.type==='logic'){state.file={...await api.map(state.file.path),type:'logic'};renderDetail();}else await openFile(state.file.path); }
+  else if (state.file) { state.viewport?.dispose(); state.viewport = null; state.file = null; shell.spatial(false); $('detail').classList.remove('spatial-detail','view-focus','logic-detail'); $('detail').replaceChildren(element('h2', 'Vytvoření mise vráceno'), element('p', 'Vyberte soubor vlevo.')); }
   status('Poslední uložená změna vrácena.');
 });
 $('new-mission').onclick = () => run(async () => {

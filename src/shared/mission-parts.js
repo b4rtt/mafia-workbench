@@ -1,6 +1,7 @@
 const canonical = value => value.replaceAll('\\', '/').normalize('NFC').toLowerCase();
 const definitions = [
   ['scene2.bin', 'map', '3D scéna'],
+  ['scene2.bin', 'logic', 'Logika mise'],
   ['scene2.bin', 'scene', 'Vlastnosti scény'],
   ['scene.4ds', 'model', 'Geometrie'],
   ['check.bin', 'navigation', 'Navigace'],

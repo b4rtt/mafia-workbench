@@ -2,6 +2,13 @@
 
 Aktualizace: 15. října 2026. Vývoj pokračuje; komplexní editor není dokončený. Implementace, datové testy, ověření UI a ověření ve hře jsou různé úrovně dokončení; neoznačovat jednu za druhou. Podrobnosti existujících funkcí a jejich omezení jsou v README.md a research/formats.md. Původní hra se nemění, úpravy mají kontrolu verze, zálohu, export a undo. Herní data a soukromé reference nepatří do veřejného repozitáře.
 
+## Společný pohled logiky mise (2026-10-15)
+
+- Nová část mise Logika mise: přesné úkolové, rozhovorové, bojové a větvené recepty, známé signály dokončení/neúspěchu, odpovědi, přechod do mise a konce. Pomocné body voleb seskupené jen při shodě celé skupiny; vlastní změněné programy a neúplné řadiče zůstávají jako zdroj. Nejde o interpreter LS3D ani analýzu všech původních skriptů.
+- Vybraný bod otevře stávající nastavení, přesný zdroj nebo odpovídající 3D objekt. Změna používá existující ověřené zapisovače; save, undo, restore a náhrada ponechají pohled. Výběr, hledání, posun a viditelnost panelů se pamatují odděleně od kamer jiných částí a projektů. Dlouhé a zpětné vazby vedou mimo karty, cykly mají stabilní rozvržení bez rekurze.
+- Oddělený Electron: pět receptů a sedm větví; skutečná změna dokončení úkolu rozhovor → volba, jediná transakce scény, přesný export a UI undo. Zdroj vybral přímo program úkolu, 3D otevřelo jeho objekt. Otevření nastavení všech čtyř druhů, schování panelů a zachování výběru po návratu ověřené. Žádná nová herní kompilace ani nativní průchod nebyly pro tento přehled testované.
+- 471/471 testů, check a build prošly. Audit vrácen přes undo na historii 12; hashe všech částí mise, TextDB a chráněných souborů stejné. Vlastní aplikace ukončená. Podrobnosti v research/mission-logic.md. Goal pokračuje; městský plugin čeká na kompletní hratelnou misi. Uživatel potvrdil nynější vzhled vozovky a odložil ladění krajnice/reálné silnice na OSM.
+
 ## Získání a odevzdání předmětu (2026-10-15)
 
 - Lineární úkol nově nabízí samotné získání konkrétního ID nebo přinesení k cíli. Explicitní nabídka z aktuální tables/predmety.def, výchozí prázdný výběr, volitelné odebrání výchozí vypnuté. Již vlastněný předmět se započítá; jiný ne. Počty/munice ani odložený automobilový slot se nekontrolují. Pickup se přidává samostatně. Omezení v UI a research/inventory-tasks.md, podklady v MSDR a primárním exportu enginu.

@@ -4,9 +4,16 @@ import { missionParts } from '../src/shared/mission-parts.js';
 import { MissionViews } from '../src/ui/mission-views.js';
 
 const assets = ['MISSIONS/TUTORIAL/SCENE2.BIN','missions/tutorial/scene.4ds','Missions/Tutorial/CHECK.bin','missions/TUTORIAL/road.bin','missions/tutorial/effects.bin','missions/tutorial/tree.klz','missions/OTHER/check.bin','models/scene.4ds'].map(path=>({path}));
+test('logic keeps selection, scroll and panels separately from the 3D camera and other projects',()=>{
+  const saved=new MissionViews(),value={selectedId:'script:0/1',search:'Quest',all:false,left:300,top:25,outlineHidden:true,inspectorHidden:false};
+  saved.remember({projectRoot:'/project',logicPath:'missions/tutorial/scene2.bin',captureLogic:()=>({...value})});
+  assert.deepEqual(saved.get('/project',{path:'MISSIONS/TUTORIAL/SCENE2.BIN',type:'logic'}),value);
+  assert.equal(saved.get('/project',{path:'missions/tutorial/scene2.bin',type:'map'}),null);
+  assert.equal(saved.get('/another',{path:'missions/tutorial/scene2.bin',type:'logic'}),null);
+});
 test('mission links resolve the exact mixed-case manifest paths and exclude other missions and unavailable parts',()=>{
   const parts=missionParts(assets,'missions\\tutorial\\SCENE2.bin');
-  assert.deepEqual(parts.map(part=>part.type),['map','scene','model','navigation','roads','effects','collision']);
+  assert.deepEqual(parts.map(part=>part.type),['map','logic','scene','model','navigation','roads','effects','collision']);
   assert.equal(parts.find(part=>part.type==='navigation').path,'Missions/Tutorial/CHECK.bin');
   assert.equal(parts.find(part=>part.type==='map').path,parts.find(part=>part.type==='scene').path);
   assert.equal(parts.some(part=>/other|models\//i.test(part.path)),false);
