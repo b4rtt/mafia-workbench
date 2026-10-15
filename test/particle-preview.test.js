@@ -8,7 +8,7 @@ const entries = values => Object.entries(values).map(([key, value]) => ({ key, v
 const phase = values => ({ entries: entries({ duration: 1000, scale: [1,1,1], alpha: 1, flags: 0, ...values }), children: [] });
 const emitter = (values = {}, phases = [phase()], id = 'emitter') => ({ id, entries: entries({ frame: 'Part', burst: 1, lifetime: 0, position: [0,0,0], direction: [1,0,0], speed: 2, scale: [1,1,1], alpha: 1, ...values }), children: phases });
 const effect = (emitters = [emitter()], values = {}) => ({ entries: entries(values), children: emitters });
-const snapshot = simulation => simulation.particles.map(p => ({ id:p.id, emitter:p.emitter.definition.id, phase:p.phase, remaining:p.remaining, position:p.position.toArray(), velocity:p.velocity.toArray(), scale:p.scale.toArray(), alpha:p.alpha, rotation:p.rotation.toArray() }));
+const snapshot = simulation => simulation.particles.map(p => ({ id:p.id, age:p.age, emitter:p.emitter.definition.id, phase:p.phase, remaining:p.remaining, position:p.position.toArray(), velocity:p.velocity.toArray(), scale:p.scale.toArray(), alpha:p.alpha, rotation:p.rotation.toArray() }));
 const close = (actual, expected) => assert.ok(Math.abs(actual - expected) < 1e-7, `${actual} != ${expected}`);
 
 test('burst motion, phase interpolation, hidden phases and final retirement follow elapsed time', () => {
@@ -94,4 +94,16 @@ test('particle rendering uses only own geometry at emitter positions, independen
 
 test('continuous preview frames its emitted geometry once and restart keeps that camera',()=>{
   const p=preview();try{p.view.prepare(effect([emitter({burst:0,lifetime:10})]));assert.equal(p.view.simulation.time,0);assert.equal(p.view.instances.size,0);const camera=p.view.captureCamera();assert.ok(Math.abs(camera.target[0])<10);p.view.seek(100);p.view.restart();assert.deepEqual(p.view.captureCamera(),camera);}finally{p.dispose();}
+});
+
+test('texture animation follows each particle age, supports independent new births, backwards seek and restart',()=>{
+  const p=preview(),frames=Array.from({length:5},()=>({map:new THREE.Texture(),alphaMap:new THREE.Texture()}));
+  try {
+    p.view.textureAnimations=new Map([[p.source.material[0],{delay:180,names:frames.map((_,i)=>String(i)),frames}]]);
+    p.view.prepare(effect([emitter({lifetime:10},[phase({duration:5000})])]));
+    const material=id=>p.view.instances.get(id).children[0].material[0];
+    assert.equal(material(0).map,frames[0].map);p.view.seek(180);assert.equal(material(0).map,frames[1].map);assert.equal(material(1).map,frames[0].map);assert.equal(material(0).alphaMap,frames[1].alphaMap);
+    p.view.seek(360);assert.equal(material(0).map,frames[2].map);p.view.seek(180);assert.equal(material(0).map,frames[1].map);assert.equal(material(1).map,frames[0].map);
+    p.view.seek(900);assert.equal(material(0).map,frames[0].map);p.view.restart();assert.equal(material(0).map,frames[0].map);assert.equal(p.source.material[0].map,p.texture);
+  }finally{p.dispose();for(const frame of frames){frame.map.dispose();frame.alphaMap.dispose();}}
 });

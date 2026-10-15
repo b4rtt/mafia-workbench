@@ -131,8 +131,9 @@ export function parseFourDs(source, geometry = false) {
     const texture = reader.field(`${base}/texture`, 'Diffuse textura', 'string8');
     let alphaTexture;
     if (texture && (flags & 0x40000000) && !(flags & 0x1000000)) alphaTexture = reader.field(`${base}/alphaTexture`, 'Alpha textura', 'string8');
-    const animationOffset=reader.pos;if (flags & 0x4000000) reader.skip(18);
-    materials.push({ flags, ambient, diffuse, emission, opacity, texture, alphaTexture, reflection, environmentTexture, layout:{start,length:reader.pos-start,animationOffset,animationLength:reader.pos-animationOffset} });
+    const animationOffset=reader.pos;
+    const animation=flags&0x4000000?{frames:reader.u32(),unknown:reader.u16(),delay:reader.u32(),unknown2:reader.u32(),unknown3:reader.u32()}:undefined;
+    materials.push({ flags, ambient, diffuse, emission, opacity, texture, alphaTexture, reflection, environmentTexture, ...(animation?{animation}:{}), layout:{start,length:reader.pos-start,animationOffset,animationLength:reader.pos-animationOffset} });
   }
   const meshCountOffset=reader.pos, meshCount = reader.u16(), framesOffset=reader.pos, meshes = [];
   for (let i = 0; i < meshCount; i++) {

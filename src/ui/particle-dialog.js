@@ -11,7 +11,7 @@ export function particleDialog({ element, api, assets, type, emitterId = null, d
   const duration = element('select'); for (const value of [5, 10, 30, 60]) { const option = element('option', `${value} s`); option.value = String(value * 1000); duration.append(option); } duration.value = '10000';
   tools.append(play, restart, fit, field('Rychlost', speed), field('Zobrazit', emitter), field('Délka náhledu', duration));
   const timeRow = element('div', undefined, 'particle-timeline'); timeRow.append(timeline, clock);
-  dialog.append(element('h2', `Přehrávání efektu · ${type.name || type.index}`), tools, area, timeRow, message, element('p', 'Náhled uložené definice: dávka a průběžná emise, pohyb, fáze, velikost, průhlednost, rotace a gravitace. Jde o přiblížení původního enginu bez kolizí, prostředí a pohybujícího se rodiče. Animované textury zatím používají první snímek. Limit je 256 současných částic; čas lze vracet i posouvat. Přehrávání nemění herní soubory.', 'notice'), close);
+  dialog.append(element('h2', `Přehrávání efektu · ${type.name || type.index}`), tools, area, timeRow, message, element('p', 'Náhled uložené definice: dávka a průběžná emise, pohyb, fáze, velikost, průhlednost, rotace a gravitace. Jde o přiblížení původního enginu bez kolizí, prostředí a pohybujícího se rodiče. Podporované číslované BMP sekvence se přehrávají od narození každé částice; neúplné nebo nerozpoznané sekvence zůstanou na prvním snímku s upozorněním. Limit je 256 současných částic; čas lze vracet i posouvat. Přehrávání nemění herní soubory.', 'notice'), close);
   let view = null, closed = false, playing = false, time = 0, previous = null, lastStatus = -1;
   const update = () => {
     play.textContent = playing ? 'Pozastavit efekt' : 'Přehrát efekt'; timeline.value = String(time); clock.textContent = `${(time / 1000).toFixed(2)} / ${Number(duration.value) / 1000} s`;
@@ -34,6 +34,7 @@ export function particleDialog({ element, api, assets, type, emitterId = null, d
       if (!asset) throw Error('Model efektu není v projektu.');
       const model = await api.inspect(asset.path); if (closed) return; if (model.type !== 'model') throw Error('Model nemá podporovaný formát.');
       view = new ParticleViewport(area); view.load(model); await view.loadTextures(resolveTexture); if (closed) return;
+      await view.loadTextureAnimations(resolveTexture); if (closed) return;
       view.prepare(type, { direction }); view.emitterId = emitter.value; view.sync();
       view.onFrame = now => {
         if (playing && !document.hidden) {

@@ -168,7 +168,7 @@ export class Viewport {
       line.material.color.set(portal === null ? sector.flags[0] & 1 ? 0x36c5d0 : 0x81909a : sector.portals[portal].flags & 4 ? 0xc58bff : 0x81909a);
     }
   }
-  async loadTextures(resolveUrl, selection = null) {
+  async loadTextures(resolveUrl, selection = null, candidates = this.materials) {
     const loader = new THREE.TextureLoader(), cache = new Map(), variants = new Map(), warnings = new Set();
     const load = name => {
       const key = name.toLowerCase();
@@ -179,7 +179,7 @@ export class Viewport {
       })());
       return cache.get(key);
     };
-    const materials = [...this.materials].filter(material => !selection || material.userData.materialIndex === selection.index && material.userData.modelKey === (selection.modelKey ?? ''));
+    const materials = [...candidates].filter(material => !selection || material.userData.materialIndex === selection.index && material.userData.modelKey === (selection.modelKey ?? ''));
     await Promise.all(materials.map(async material => {
       const name = material.userData.texture; if (!name) return;
       const revision=material.userData.revision??0,valid=()=>!this.disposed&&(material.userData.revision??0)===revision;

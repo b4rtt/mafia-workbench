@@ -51,7 +51,7 @@ export class ParticleSimulation {
       const d = emitter.definition, direction = vector(d.direction ?? zero);
       if (direction.lengthSq() < 1e-16) direction.copy(this.direction);
       direction.add(this.varied(emitter, zero, d.directionSpread ?? zero)).multiplyScalar((d.speed ?? 1) + this.random(emitter) * (d.speedSpread ?? 0));
-      const particle = { id: this.nextId++, emitter, phase: -1, position: this.varied(emitter, d.position ?? zero, d.positionSpread ?? zero).add(vector(this.definition.vector1 ?? zero)), velocity: direction, scale: this.varied(emitter, d.scale ?? one, d.scaleSpread ?? zero, true), alpha: clamp((d.alpha ?? 1) + this.random(emitter) * (d.alphaSpread ?? 0)), rotation: new Quaternion() };
+      const particle = { id: this.nextId++, emitter, phase: -1, age: 0, position: this.varied(emitter, d.position ?? zero, d.positionSpread ?? zero).add(vector(this.definition.vector1 ?? zero)), velocity: direction, scale: this.varied(emitter, d.scale ?? one, d.scaleSpread ?? zero, true), alpha: clamp((d.alpha ?? 1) + this.random(emitter) * (d.alphaSpread ?? 0)), rotation: new Quaternion() };
       this.beginPhase(particle); this.particles.push(particle);
     }
   }
@@ -72,6 +72,7 @@ export class ParticleSimulation {
   }
   move(particle, ms) {
     const phase = particle.emitter.definition.phases[particle.phase], dt = ms / 1000;
+    particle.age += ms;
     particle.remaining -= ms; const fraction = 1 - particle.remaining / particle.duration;
     if (particle.turn) {
       const speed = particle.velocity.length();
