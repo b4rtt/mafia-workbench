@@ -257,3 +257,12 @@ body.spatial-open .workspace>aside { position: absolute; inset: 0 auto 0 0; z-in
 .mission-check-issue small { display:block; overflow-wrap:anywhere; color:var(--muted); }
 .mission-check-issue button { margin-top:8px; }
 .mission-check-dialog details p { font:11px/1.5 ui-monospace,monospace; overflow-wrap:anywhere; }
+.effect-model-dialog{width:min(1100px,calc(100vw - 40px));max-width:1100px}
+.effect-model-workspace{display:grid;grid-template-columns:minmax(220px,1fr) minmax(0,2fr);gap:18px;align-items:start}
+.effect-model-workspace .mission-fields{grid-template-columns:minmax(0,1fr);max-height:440px;overflow:auto;padding:2px}
+.effect-model-workspace>section{min-width:0}
+.effect-model-workspace .tools{justify-content:flex-start;align-items:center;margin-top:0}
+.effect-model-workspace .viewport{height:340px;min-height:220px;margin:8px 0}
+.effect-model-workspace .notice{margin-bottom:0}
+.effect-model-dialog .mission-form>.tools{position:sticky;bottom:-24px;background:var(--panel);padding:12px 0;margin-bottom:-24px}
+@media(max-width:760px){.effect-model-workspace{grid-template-columns:minmax(0,1fr)}.effect-model-workspace .mission-fields{max-height:200px}.effect-model-workspace .viewport{height:280px}}

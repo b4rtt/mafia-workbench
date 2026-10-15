@@ -2,6 +2,17 @@
 
 Aktualizace: 15. října 2026. Vývoj pokračuje; komplexní editor není dokončený. Implementace, datové testy, ověření UI a ověření ve hře jsou různé úrovně dokončení; neoznačovat jednu za druhou. Podrobnosti existujících funkcí a jejich omezení jsou v README.md a research/formats.md. Původní hra se nemění, úpravy mají kontrolu verze, zálohu, export a undo. Herní data a soukromé reference nepatří do veřejného repozitáře.
 
+## 3D výběr modelové části efektu (2026-10-15)
+
+- Model a části… nyní obsahuje texturovaný statický 3D náhled LOD 0, izolaci aktivního emitoru, celý model s obrysem vybrané části, přiblížení a přiřazení kliknutím. Zachovává hierarchii transformací; zobrazí i skrytý zdroj klonované částice, pomocné objemy skryje. Žádný manipulátor ani změna modelových dat. Pohyb, emise, billboardy a fáze se nesimulují.
+- Nový test používá skutečné Three objekty: skrytý rodič a visual, vnořený vzdálený potomek, nativní reflexe Z, přesné hranice/přiblížení pouze vlastní geometrie, nezměněná kamera při výběru, obrys mimo picking root a žádný gizmo. 23/23 cílených testů, check/build prošly. Dřívější baseline selhání znění chyby v mission-dialogue.test.js se nemění; plná sada se v tomto UI bloku neopakovala.
+- Produkční renderer nad odděleným projektem: výběr emitoru, izolace/obrys, přiřazení Mesh07 kliknutím, save/reopen/no-op, přesný export a UI undo 54→53. Změna na fire_effect blokovala neúplné vazby; opakované načtení zachovalo draft, zrušení ho nezapsalo. Nový model 2dollar měl texturovaný detail. Kontrola 720px rozložení bez vodorovného přetečení; po zrušení nezůstal canvas a konzole neobsahovala chyby. Skutečný Electron přes produkční IPC ověřil stejný dialog, textury, přepnutí emitoru a obrys/přiblížení; pouze čtení, poté zavřený. Herní test se neopakoval, protože tento blok nemění engine ani ukládaný formát.
+- Obnovena testovací historie, hash tabulky a dalších 19 sledovaných assetů; všech 11 chráněných souborů přesných. Soukromá evidence local/effect-preview-ui.json, effect-model-preview-ui.png a effect-model-preview-electron.png. Goal plného editoru pokračuje.
+
+## Otevření odpovědí po řeči: hranice původního dispatcheru (2026-10-15)
+
+- Přetrvávající nutnost dalšího stisku akce je nedotažená návaznost dialogu. Předčasné Speed 0 již odstraněné v ukázce/výchozí nové volbě; automatické otevření není hotové. Těla player_ai / player_do_action_button_on_foot a úplná tabulka 391 opcode potvrzují vazbu nabídky na nativní vstup akce, ale neposkytují přímý skriptový příkaz pro její otevření. Podrobné primární podklady a další hranice v research/dialogue-choices.md. Žádná emulace vstupu ani zásah do EXE/runtime v tomto kroku.
+
 ## Modelové vazby částicových efektů (2026-10-15)
 
 - effects.tbl → Model a části…: společný výběr modelu a všech částí emitorů vybraného typu. Neplatná část má prázdný výběr a disabled save; názvy částí musí být přesné, jednoznačné visualy. Parametrické drafty se nejdřív ukládají. Změna modelu se promítne do společné tabulky, modelové a texturové soubory se nemění.
