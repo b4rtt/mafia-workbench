@@ -2,6 +2,12 @@
 
 Aktualizace: 15. října 2026. Vývoj pokračuje; komplexní editor není dokončený. Implementace, datové testy, ověření UI a ověření ve hře jsou různé úrovně dokončení; neoznačovat jednu za druhou. Podrobnosti existujících funkcí a jejich omezení jsou v README.md a research/formats.md. Původní hra se nemění, úpravy mají kontrolu verze, zálohu, export a undo. Herní data a soukromé reference nepatří do veřejného repozitáře.
 
+## Ruční kontrola pohybu při konverzaci (2026-10-15)
+
+- Uživatel potvrdil, že během mluvené repliky se hráč pohybovat nemůže. Po přechodu do nabídky odpovědí může spustit animaci běhu, ale jeho poloha se nemění. To odpovídá omezení současného Speed 0 workaroundu: blokuje přesun, nikoli animaci vyvolanou drženou klávesou. Animace při nabídce zůstává otevřený UX nedostatek; není důvod kvůli ní nahrazovat fungující zámek mluvené fáze.
+- Znovu porovnány původní programy Ralph v MISE04-SALIERY a HlidacBob v MISE05-MESTO s generátorem, aktuální uloženou ukázkou a její herní kopií. Jejich scéna i ostatní baseline/protected hashe zůstaly přesné. Dřívější native důkaz obnovuje rychlost 73 po odpovědi, souběžných nabídkách i checkpointu. Fyzický návrat chůze po hráčově výběru odpovědi je zatím samostatná nezodpovězená kontrola.
+- Dodatečný pokus s nulovou rychlostí i během řeči nebyl publikovaný; po upřesnění uživatele byl odložený. Jeho izolovaný Wine běh skončil před kontrolními checkpointy, takže nejde o nový runtime důkaz. Původní hra, rozehraná ukázka a její projekt se neměnily. Goal pokračuje, navazující AI/OSM modul stále čeká na úplnou vlastní misi.
+
 ## Společný světový posun objektů mise (2026-10-15)
 
 - 3D scéna → Objekt → Společný posun…: více objektů s filtrem, zachováním výběru, světovým XYZ, živým náhledem a společným rámováním. Kompaktní dialog ponechá mapu viditelnou. Cancel/Escape vrací náhled bez zápisu; jeden save chrání obě revize a zahrne generované kolize v jednom undo. Rodič/potomek se neposouvají dvakrát, podporované jsou i rotované/škálované rodičovské transformace. Původní kolize, navigace, silnice, efekty, cache a samostatná geometrie se zde nemění; rozsah je explicitně uvedený.
