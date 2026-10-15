@@ -48,6 +48,7 @@ import { populationControl } from './population.js';
 import { renderLip } from './lip.js';
 import { EffectsViewport } from './effects.js';
 import { renderEffectDefinitions } from './effect-types.js';
+import { particleDialog } from './particle-dialog.js';
 import { AnimationPreview } from './animation.js';
 import { renderAnimationTimeline } from './animation-timeline.js';
 import { toLs3dRotation } from './transforms.js';
@@ -988,11 +989,11 @@ function renderEffects(main,file,previous=null){
   const tools=element('div',undefined,'tools'),objects=element('select'),viewport=element('div',undefined,'viewport'),notice=element('p','','notice');objects.setAttribute('aria-label','Efekt mise');
   objects.append(element('option','Vyberte efekt…'));for(const effect of file.effects){const option=element('option',label(effect));option.value=effect.id;objects.append(option);}
   center.append(tools,objects,notice,viewport);
-  const add=element('button','Přidat efekt…'),configure=element('button','Nastavit efekt…'),duplicate=element('button','Duplikovat efekt'),remove=element('button','Odstranit efekt'),fit=element('button','Zarámovat efekty'),focus=element('button','Zarámovat efekt'),geometry=element('button','Zobrazit geometrii mise');
-  configure.disabled=duplicate.disabled=remove.disabled=focus.disabled=true;add.disabled=!context.items.some(item=>item.available);geometry.setAttribute('aria-pressed','false');tools.append(add,configure,duplicate,remove,fit,focus,geometry);
+  const preview=element('button','Přehrát efekt…'),add=element('button','Přidat efekt…'),configure=element('button','Nastavit efekt…'),duplicate=element('button','Duplikovat efekt'),remove=element('button','Odstranit efekt'),fit=element('button','Zarámovat efekty'),focus=element('button','Zarámovat efekt'),geometry=element('button','Zobrazit geometrii mise');
+  preview.disabled=configure.disabled=duplicate.disabled=remove.disabled=focus.disabled=true;add.disabled=!context.items.some(item=>item.available);geometry.setAttribute('aria-pressed','false');tools.append(add,configure,preview,duplicate,remove,fit,focus,geometry);
   let properties,selected=null,geometryRevision=0;
   const view=new EffectsViewport(viewport,frame=>{
-    selected=file.effects.find(effect=>effect.id===frame.id);objects.value=frame.id;configure.disabled=duplicate.disabled=remove.disabled=focus.disabled=false;
+    selected=file.effects.find(effect=>effect.id===frame.id);preview.disabled=!types.get(selected.effectId)?.available;objects.value=frame.id;configure.disabled=duplicate.disabled=remove.disabled=focus.disabled=false;
     if(selected.frame||!selected.bindingEditable)geometryRevision++;
     notice.textContent=selected.bindingEditable?selected.frame?`Vazba: ${selected.frame}. Značka ukazuje uložené lokální souřadnice; pro tento výběr je pozadí skryté.`:'Umístění ve světových souřadnicích. Šipka ukazuje uložený směr efektu.':'Vazba má nerozpoznaná data. Značka ukazuje uložené souřadnice bez převodu na svět.';
     const visible=Boolean(view.contextGeometry?.visible);geometry.setAttribute('aria-pressed',String(visible));geometry.textContent=visible?'Skrýt geometrii mise':'Zobrazit geometrii mise';properties?.select(selected.fields.position);
@@ -1017,6 +1018,7 @@ function renderEffects(main,file,previous=null){
     if(value)notice.textContent='Pozadí zobrazuje samotnou scene.4ds. Efekty vázané na objekty jsou skryté, protože jejich souřadnice jsou lokální.';
   }
   geometry.onclick=()=>run(()=>showGeometry(!view.contextGeometry?.visible));
+  preview.onclick=()=>run(async()=>{if(state.texts.size)throw Error('Nejdřív uložte rozepsané parametry efektů.');if(!selected)return;const table=await api.inspect('tables/effects.tbl'),type=table.records?.find(record=>record.index===selected.effectId);if(!type)throw Error('Definice tohoto efektu není dostupná.');particleDialog({element,api,assets:state.project.assets,type,direction:selected.direction});});
   const grouped={...file,objects:file.effects.map(effect=>({id:effect.id,name:label(effect)})),entries:file.entries.map(entry=>({...entry,context:label(file.effects.find(effect=>entry.id.startsWith(effect.id+'/')))}))};
   properties=renderProperties(inspector,grouped,(name,changes,hash)=>api.saveEffects(name,changes,hash,context),(entry,value)=>{
     const effect=file.effects.find(effect=>[effect.fields.position,effect.fields.direction].includes(entry.id));if(effect&&Array.isArray(value)&&value.length===3&&value.every(Number.isFinite))view.updateEffect(effect.id,{[entry.id===effect.fields.position?'position':'direction']:value});
@@ -1031,7 +1033,7 @@ function renderEffects(main,file,previous=null){
     state.nextEffectId=action==='duplicate'?result.effects.at(-1).id:null;state.file=result;await refresh();renderDetail();status('Seznam efektů uložený do modu se zálohou.');
   }
   duplicate.onclick=()=>run(()=>structural('duplicate'));remove.onclick=()=>run(()=>structural('delete'));
-  center.append(element('p','Značky upravují umístění a směr, nikoli simulaci částic. Typy se čtou z tables/effects.tbl. Oheň, kouř a další částice vykreslí hra po novém načtení mise. Definice emitorů se tímto panelem nemění.','notice'));
+  center.append(element('p','Značky upravují umístění a směr, nikoli simulaci částic. Typy se čtou z tables/effects.tbl. Přehrát efekt… otevře samostatný přibližný náhled vybraného typu s uloženým směrem; nezobrazuje jeho vazbu ani okolí mise. Definice emitorů se tímto panelem nemění.','notice'));
   for(const warning of context.warnings)center.append(element('p',warning,'notice'));
   if(file.unknownChunks||file.tailBytes)center.append(element('p',`${file.unknownChunks} nerozpoznaných bloků · ${file.tailBytes} doplňkových bajtů za hlavním blokem. Data se zachovají; jejich podporu ve hře nelze potvrdit.`,'notice'));
 }

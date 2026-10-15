@@ -168,3 +168,13 @@ test('binding writes reject ambiguous names, changed dependencies and publicatio
   const publish=p.saveManifest;p.saveManifest=async()=>{throw Error('Publish failed');};await assert.rejects(()=>p.saveEffectDefinitions(name,changes,hash(source),dependencies),/Publish failed/);p.saveManifest=publish;
   assert.equal(p.manifest.history.length,baseline);assert.deepEqual(await p.read(name),source);assert.deepEqual(await p.read(modelPath),model);
 });
+
+
+test('preview reads the serialized repeat delay without making it writable or changing bytes',()=>{
+  const bytes=fixture(),before=parseEffectDefinitions(bytes),emitter=before.records[0].children[0];
+  const delayOffset=entry(emitter,'parameter88').offsets[0]+4;bytes.writeFloatLE(125,delayOffset);
+  const parsed=parseEffectDefinitions(bytes),node=parsed.records[0].children[0];assert.equal(node.preview.startDelay,125);
+  assert.match(entry(node,'lifetime').label,/částic\/s/);assert.match(entry(node,'decay').label,/částic\/s²/);
+  assert.equal(node.entries.some(e=>e.key==='startDelay'),false);assert.deepEqual(editEffectDefinitions(bytes,[]),bytes);
+  const changed=editEffectDefinitions(bytes,[{id:entry(node,'burst').id,value:15}]);assert.equal(parseEffectDefinitions(changed).records[0].children[0].preview.startDelay,125);
+});

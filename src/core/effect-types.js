@@ -16,8 +16,8 @@ const schemas = {
     scalar('speed','Počáteční rychlost',80), scalar('speedSpread','Rozptyl rychlosti',84),
     vector('scale','Počáteční měřítko XYZ',88), vector('scaleSpread','Rozptyl měřítka XYZ',100),
     scalar('alpha','Počáteční neprůhlednost',112,'float',{min:0,max:1}), scalar('alphaSpread','Rozptyl neprůhlednosti',116,'float',{min:0}),
-    scalar('lifetime','Doba emitoru (ms)',120,'float',{min:0}), scalar('burst','Počet částic při startu',124,'int',{min:0}),
-    scalar('decay','Interval emise – původní hodnota',128,'float',{min:0}),
+    scalar('lifetime','Rychlost emise (částic/s)',120,'float',{min:0}), scalar('burst','Počet částic při startu',124,'int',{min:0}),
+    scalar('decay','Útlum rychlosti emise (částic/s²)',128,'float',{min:0}),
     scalar('parameter84','Původní parametr 0x84',132), scalar('parameter88','Původní parametr 0x88',136),
     scalar('mode','Původní režim 0x90',144,'uint'), scalar('parameter94','Původní parametr 0x94',148), scalar('flags','Příznaky emitoru',152,'uint')],
   102: [scalar('name','Název fáze',8,'string'), vector('direction','Cílový směr',12), vector('directionSpread','Rozptyl cílového směru',24),
@@ -25,7 +25,7 @@ const schemas = {
     scalar('duration','Délka fáze (ms)',48,'int',{min:1}), scalar('durationSpread','Rozptyl délky (ms)',52,'int',{min:0}),
     vector('scale','Cílové měřítko XYZ',56), vector('scaleSpread','Rozptyl cílového měřítka XYZ',68),
     scalar('alpha','Cílová neprůhlednost',80,'float',{min:0,max:1}), scalar('alphaSpread','Rozptyl neprůhlednosti',84,'float',{min:0}),
-    scalar('spin','Cílová rotace – původní hodnota',88), scalar('spinSpread','Rozptyl rotace',92),
+    scalar('spin','Zrychlení podél pohybu – původní jednotky',88), scalar('spinSpread','Rozptyl zrychlení',92),
     scalar('flags','Příznaky fáze',96,'uint'), scalar('gravity','Gravitace – původní hodnota',100)],
 };
 function layout(source) {
@@ -80,6 +80,7 @@ function layout(source) {
         }
       }
     }
+    if(node.type===101){const delay=assignments.get(140);node.preview={startDelay:delay?bytes.readFloatLE(delay.offset):0};}
     for(const field of schemas[node.type]){
       const slots=Array.from({length:field.kind==='vec3'?3:1},(_,i)=>assignments.get(field.target+i*4));
       if(slots.some(slot=>!slot))continue; // Constructor defaults without serialized bytes are not editable.
@@ -94,7 +95,7 @@ function layout(source) {
   return {bytes,nodes,entries,roots};
 }
 export function parseEffectDefinitions(source) {
-  const parsed=layout(source),flatten=node=>({id:node.id,kind:node.type===100?'effect':node.type===101?'emitter':'phase',name:node.name,entries:node.entries,warnings:node.warnings,children:node.children.filter(child=>child.container).map(flatten)});
+  const parsed=layout(source),flatten=node=>({id:node.id,kind:node.type===100?'effect':node.type===101?'emitter':'phase',name:node.name,entries:node.entries,warnings:node.warnings,...(node.preview?{preview:node.preview}:{}),children:node.children.filter(child=>child.container).map(flatten)});
   return {records:parsed.roots.map((node,index)=>({...flatten(node),index})),entries:parsed.entries.map(({slots,...entry})=>entry)};
 }
 function encode(value) {

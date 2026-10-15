@@ -1,4 +1,5 @@
 import {effectModelDialog} from './effect-model.js';
+import {particleDialog} from './particle-dialog.js';
 
 export function renderEffectDefinitions(main,file,{element,state,api,run,refresh,renderDetail,status}) {
   const all=file.records.flatMap(record=>[record,...record.children.flatMap(emitter=>[emitter,...emitter.children])]);
@@ -53,6 +54,7 @@ export function renderEffectDefinitions(main,file,{element,state,api,run,refresh
     newType.disabled=!selected;const parent=selected&&parentOf(selected),index=parent?.children.indexOf(selected)??-1;duplicate.disabled=!parent;duplicate.textContent=selected?.kind==='phase'?'Kopírovat fázi…':'Kopírovat emitor…';up.disabled=!parent||index===0;down.disabled=!parent||index===parent.children.length-1;remove.disabled=!parent||parent.children.length<2;
     if(!selected)return;remember();form.replaceChildren();
     form.append(element('h3',`${selected.kind==='effect'?'Typ efektu':selected.kind==='emitter'?'Emitor':'Fáze'} · ${title(selected)||'(bez názvu)'}`));
+    const preview=element('button','Přehrát efekt…');preview.onclick=()=>run(()=>{guard();let type=selected;while(parentOf(type))type=parentOf(type);const emitter=selected.kind==='emitter'?selected:selected.kind==='phase'?parentOf(selected):null;particleDialog({element,api,assets:state.project.assets,type,emitterId:emitter?.id});});form.append(preview);
     if(selected.kind!=='phase'){
       const binding=element('button','Model a části…');binding.onclick=()=>run(()=>{guard();let type=selected;while(parentOf(type))type=parentOf(type);effectModelDialog({element,api,assets:state.project.assets,file,type,run,onSaved:async result=>{state.file=result;await refresh();renderDetail();status('Modelové vazby efektu uložené s jedním undo.');}});});form.append(binding);
     }
@@ -90,7 +92,7 @@ export function renderEffectDefinitions(main,file,{element,state,api,run,refresh
       target.append(label);
     }
     if(advancedFields.childElementCount)form.append(advanced);
-    form.append(element('p','XYZ jsou herní souřadnice. Neprůhlednost: 0 = průhledné, 1 = neprůhledné. Původní parametry a bitové příznaky nemají všechny významy ověřené. Model a části všech emitorů nastavte společně přes Model a části… Náhled částic zatím vykresluje hra.','notice'));
+    form.append(element('p','XYZ jsou herní souřadnice. Neprůhlednost: 0 = průhledné, 1 = neprůhledné. Původní parametry a bitové příznaky nemají všechny významy ověřené. Model a části všech emitorů nastavte společně přes Model a části… Přehrát efekt… otevře přibližný náhled uložených emitorů a fází bez změny dat.','notice'));
     save.onclick=()=>run(async()=>{
       if([...state.texts.values()].some(value=>value?.invalid))throw new Error('Opravte neplatné hodnoty před uložením.');
       state.file=await api.saveEffectDefinitions(file.path,[...state.texts].map(([id,value])=>({id,value})),file.sha256);state.texts.clear();await refresh();renderDetail();status('Definice efektů uložené do modu se zálohou.');
