@@ -2,6 +2,7 @@ import { HUMAN_IDLE_SCRIPT } from './human-program.js';
 import { dialogueSpeakers } from './mission-dialogue.js';
 import { humanDrivingScript, inspectHumanDriving } from './human-driving.js';
 import { humanFollowingScript, inspectHumanFollowing } from './human-following.js';
+import { missionFlowTargets } from './mission-flow.js';
 
 const key = name => name.normalize('NFC').toLowerCase();
 const validName = name => typeof name === 'string' && name.trim() && name.length <= 255 && !/["\x00-\x1f]/.test(name);
@@ -18,7 +19,7 @@ export function humanRoutePoints(navigation) {
 }
 
 export function validateHumanRoute(options, navigation) {
-  humanBehaviorScript('', options);
+  validatePatrol(options);
   const available = humanRoutePoints(navigation), selected = options.waypoints.map(stop => available.find(point => point.id === stop.id));
   if (selected.some(point => !point)) throw new Error('Trasa: každý bod musí mít jednoznačné ID a kategorii pro chodce v check.bin této mise.');
   const byIndex = new Map(navigation.points.map(point => [point.index, point]));
@@ -36,6 +37,25 @@ export function validateHumanRoute(options, navigation) {
   for (const [from, to] of legs) if (!reachable(from, to)) throw new Error(`Trasa: mezi ID ${from.id} a ${to.id} chybí průchozí navigační spojení pro chodce.`);
 }
 
+function validatePatrol(options) {
+  if (!Array.isArray(options.waypoints) || options.waypoints.length < 1 || options.waypoints.length > 32 || options.waypoints.some(stop => !stop || !integer(stop.id, 0, 65535) || !Number.isFinite(stop.pauseSeconds) || stop.pauseSeconds < 0 || stop.pauseSeconds > 86400)) throw new Error('Trasa: zadejte 1–32 bodů s platným ID a zastávkami 0–86400 sekund.');
+  if (!['walk', 'run'].includes(options.pace) || typeof options.loop !== 'boolean' || !Number.isFinite(options.delaySeconds) || options.delaySeconds < 0 || options.delaySeconds > 86400) throw new Error('Trasa: vyberte chůzi/běh, opakování a platnou počáteční prodlevu.');
+  if (options.loop && new Set(options.waypoints.map(stop => stop.id)).size < 2) throw new Error('Trasa: opakování potřebuje alespoň dva různé body.');
+  for (const name of [options.startSignal, options.onComplete]) if (name != null && !validName(name)) throw new Error('Trasa: neplatný název skriptového bodu.');
+  if (options.loop && options.onComplete != null) throw new Error('Trasa: signál dokončení patří pouze jednorázovému průchodu.');
+}
+
+export function resolveHumanPatrol(scene, owner, options) {
+  humanBehaviorScript(owner, options);
+  const targets = new Map(missionFlowTargets(scene).map(actor => [key(actor.name), actor.name])), result = { ...options };
+  for (const field of ['startSignal', 'onComplete']) if (result[field] != null) {
+    const name = targets.get(key(result[field]));
+    if (!name || key(name) === key(owner)) throw new Error('Trasa: vyberte jiný jednoznačný skriptový bod této mise.');
+    result[field] = name;
+  }
+  return result;
+}
+
 export function humanBehaviorScript(owner, options) {
   if (!options || !['idle', 'custom', 'attack', 'patrol', 'drive', 'follow'].includes(options.mode)) throw new Error('Postava: vyberte platné chování.');
   if (options.mode === 'follow') return humanFollowingScript(owner, options);
@@ -46,10 +66,14 @@ export function humanBehaviorScript(owner, options) {
     return options.code;
   }
   if (options.mode === 'patrol') {
-    if (!Array.isArray(options.waypoints) || options.waypoints.length < 1 || options.waypoints.length > 32 || options.waypoints.some(stop => !stop || !integer(stop.id, 0, 65535) || !Number.isFinite(stop.pauseSeconds) || stop.pauseSeconds < 0 || stop.pauseSeconds > 86400)) throw new Error('Trasa: zadejte 1–32 bodů s platným ID a zastávkami 0–86400 sekund.');
-    if (!['walk', 'run'].includes(options.pace) || typeof options.loop !== 'boolean' || !Number.isFinite(options.delaySeconds) || options.delaySeconds < 0 || options.delaySeconds > 86400) throw new Error('Trasa: vyberte chůzi/běh, opakování a platnou počáteční prodlevu.');
-    if (options.loop && new Set(options.waypoints.map(stop => stop.id)).size < 2) throw new Error('Trasa: opakování potřebuje alespoň dva různé body.');
-    return ['// Mafia Workbench human patrol v1', 'wait 2000', `wait ${Math.round(options.delaySeconds * 1000)}`, 'label 1', ...options.waypoints.flatMap(stop => [`enemy_move ${stop.id}, ${options.pace}`, `wait ${Math.round(stop.pauseSeconds * 1000)}`]), ...(options.loop ? ['wait 100', 'goto 1'] : ['label 2', 'wait 1000', 'goto 2']), ''].join('\r\n');
+    validatePatrol(options);
+    const names = [...new Map([options.startSignal, options.onComplete].filter(name => name != null).map(name => [key(name), name])).values()];
+    if (names.length && (!validName(owner) || names.some(name => key(name) === key(owner)))) throw new Error('Trasa: vyberte skriptový bod odlišný od postavy.');
+    const slot = name => names.findIndex(other => key(other) === key(name));
+    return [`// Mafia Workbench human patrol v${names.length ? 2 : 1}`, ...(names.length ? [`dim_act ${names.length}`] : []), 'wait 2000', ...names.map((name, i) => `findactor ${i}, "${name}"`),
+      ...(options.startSignal == null ? [] : ['label 100', `detector_issignal ${slot(options.startSignal)}, 200, -1`, 'wait 100', 'goto 100', 'label 200']),
+      `wait ${Math.round(options.delaySeconds * 1000)}`, 'label 1', ...options.waypoints.flatMap(stop => [`enemy_move ${stop.id}, ${options.pace}`, `wait ${Math.round(stop.pauseSeconds * 1000)}`]),
+      ...(options.loop ? ['wait 100', 'goto 1'] : [...(options.onComplete == null ? [] : [`detector_setsignal ${slot(options.onComplete)}, 1`]), 'label 2', 'wait 1000', 'goto 2']), ''].join('\r\n');
   }
   if (!validName(owner) || !validName(options.targetName) || key(owner) === key(options.targetName)) throw new Error('Postava: útok potřebuje jinou cílovou postavu.');
   if (!integer(options.itemId, 1, 65535) || !integer(options.clip, 1, 100000) || !integer(options.reserve, 0, 100000)) throw new Error('Postava: zadejte zbraň a platnou munici; zásobník musí být neprázdný.');
@@ -65,6 +89,13 @@ export function inspectHumanBehavior(owner, code) {
   const following=inspectHumanFollowing(owner,code);if(following)return following;
   if (normalized === HUMAN_IDLE_SCRIPT.replaceAll('\r\n', '\n')) return { mode: 'idle' };
   const lines = normalized.split('\n');
+  if (lines[0] === '// Mafia Workbench human patrol v2') {
+    const actors = new Map([...normalized.matchAll(/^findactor (\d+), "([^"\x00-\x1f]+)"$/gm)].map(match => [Number(match[1]), match[2]]));
+    const start = /^detector_issignal (\d+), 200, -1$/m.exec(normalized), complete = /^detector_setsignal (\d+), 1$/m.exec(normalized), delay = /^wait (\d+)\nlabel 1$/m.exec(normalized);
+    const moves = [...normalized.matchAll(/^enemy_move (\d+), (walk|run)\nwait (\d+)$/gm)];
+    const options = { mode: 'patrol', waypoints: moves.map(move => ({ id: Number(move[1]), pauseSeconds: Number(move[3]) / 1000 })), pace: moves[0]?.[2], loop: normalized.includes('wait 100\ngoto 1\n'), delaySeconds: Number(delay?.[1]) / 1000, startSignal: start ? actors.get(Number(start[1])) : null, onComplete: complete ? actors.get(Number(complete[1])) : null };
+    try { if (humanBehaviorScript(owner, options).replaceAll('\r\n', '\n') === normalized) return options; } catch { /* Altered source stays custom. */ }
+  }
   if (lines[0] === '// Mafia Workbench human patrol v1') {
     const waypoints = [], delay = /^wait (\d+)$/.exec(lines[2] ?? ''); let pace, at = 4;
     while (/^enemy_move /.test(lines[at] ?? '')) {

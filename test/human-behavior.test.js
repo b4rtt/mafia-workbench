@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { humanAttackTargets, humanBehaviorScript, inspectHumanBehavior, humanRoutePoints, validateHumanRoute } from '../src/shared/human-behavior.js';
+import { humanAttackTargets, humanBehaviorScript, inspectHumanBehavior, humanRoutePoints, validateHumanRoute, resolveHumanPatrol } from '../src/shared/human-behavior.js';
 import { HUMAN_IDLE_SCRIPT } from '../src/shared/human-program.js';
 import { ModProject } from '../src/core/project.js';
 import { parseNavigation, changeNavigationConnection } from '../src/core/navigation.js';
@@ -143,6 +143,51 @@ test('concurrent navigation changes and publication failures cannot partially sa
   const save = project.saveManifest; project.saveManifest = async () => { throw new Error('patrol publication failure'); };
   await assert.rejects(project.changeSceneObject(name, { kind: 'configure-human', target: 'Guard', behavior }, hash(scene)), /patrol publication failure/);
   project.saveManifest = save; assert.equal(project.manifest.history.length, history); assert.deepEqual(await project.read(name), scene); assert.deepEqual(await project.read(navName), before);
+});
+
+test('signal patrols wait before movement and signal only after the final stop, with exact legacy preservation', () => {
+  const old = humanBehaviorScript('Guard', patrol);
+  assert.equal(humanBehaviorScript('Guard', { ...patrol, startSignal: null, onComplete: null }), old);
+  for (const startSignal of [null, 'Start']) for (const onComplete of [null, 'Done', 'Start']) for (const loop of [false, true]) {
+    if (loop && onComplete) continue;
+    const options = { ...patrol, loop, startSignal, onComplete }, code = humanBehaviorScript('Guard', options);
+    assert.deepEqual(inspectHumanBehavior('Guard', code), startSignal || onComplete ? options : { ...patrol, loop });
+    assert.deepEqual(inspectHumanBehavior('Guard', code.replaceAll('\r\n', '\n')), inspectHumanBehavior('Guard', code));
+    const labels = [...code.matchAll(/^label (\d+)\r?$/gm)].map(m => m[1]); assert.equal(labels.length, new Set(labels).size);
+    assert.doesNotMatch(code, /^end$/m); assert.doesNotMatch(code, /detector_setsignal .* 0/);
+    if (startSignal) assert(code.indexOf('detector_issignal') < code.indexOf('wait 1000\r\nlabel 1\r\nenemy_move'));
+    if (onComplete) { assert(code.indexOf('enemy_move 17, walk\r\nwait 500') < code.indexOf('detector_setsignal')); assert(code.indexOf('detector_setsignal') < code.indexOf('label 2\r\n')); }
+    for (const changed of [code + '// own edit', code.replace('enemy_move 17, walk', 'enemy_move 17, run'), code.replace('goto 2', 'end')]) if (changed !== code) assert.equal(inspectHumanBehavior('Guard', changed).mode, 'custom');
+    validateHumanRoute(options, parseNavigation(navigation()));
+  }
+  const both = humanBehaviorScript('Guard', { ...patrol, loop: false, startSignal: 'Start', onComplete: 'sTART' }); assert.match(both, /dim_act 1\r\n/);
+  for (const invalid of [{ startSignal: 'gUARD' }, { onComplete: 'A"\nend' }, { startSignal: '' }, { startSignal: 5 }, { onComplete: 'Done', loop: true }]) assert.throws(() => humanBehaviorScript('Guard', { ...patrol, loop: false, ...invalid }), /Trasa/);
+});
+
+test('patrol signal references require unique detector actors and preserve the supplied scene', () => {
+  const scene = { actors: [{ name: 'Start', kind: 5 }, { name: 'Done', kind: 5 }, { name: 'Guard', kind: 27 }], objects: [{ name: 'Start' }, { name: 'Done' }, { name: 'Guard' }], geometry: { meshes: [] } }, original = structuredClone(scene);
+  const options = { ...patrol, loop: false, startSignal: 'start', onComplete: 'DONE' };
+  assert.deepEqual(resolveHumanPatrol(scene, 'Guard', options), { ...options, startSignal: 'Start', onComplete: 'Done' }); assert.deepEqual(scene, original);
+  for (const extra of [{ startSignal: 'Absent' }, { onComplete: 'Guard' }]) assert.throws(() => resolveHumanPatrol(scene, 'Guard', { ...options, ...extra }), /Trasa/);
+  for (const extra of [{ actors: [...scene.actors, { name: 'START', kind: 5 }] }, { objects: [...scene.objects, { name: 'DONE' }] }, { actors: scene.actors.map(a => a.name === 'Start' ? { ...a, kind: 27 } : a) }]) assert.throws(() => resolveHumanPatrol({ ...scene, ...extra }, 'Guard', options), /jednoznačný/);
+});
+
+test('signal patrol configuration and creation retain dependencies, export/reopen and one-step undo', async t => {
+  const { project, root, name } = await fixture(t);
+  for (const target of ['Start', 'Done']) await project.changeSceneObject(name, { kind: 'add-detector', name: target, position: [0, 0, 0], mask: 0, code: 'end' }, hash(await project.read(name)));
+  const before = await project.read(name), history = project.manifest.history.length, navName = 'missions/NPC/check.bin', nav = await project.read(navName), behavior = { ...patrol, loop: false, startSignal: 'sTART', onComplete: 'done', navigationHash: hash(nav) };
+  for (const extra of [{ startSignal: 'Target' }, { onComplete: 'Absent' }, { navigationHash: 'stale' }, { loop: true }]) await assert.rejects(project.changeSceneObject(name, { kind: 'configure-human', target: 'Guard', behavior: { ...behavior, ...extra } }, hash(before)));
+  assert.deepEqual(await project.read(name), before); assert.equal(project.manifest.history.length, history);
+  await project.changeSceneObject(name, { kind: 'configure-human', target: 'Guard', behavior }, hash(before));
+  const after = await project.read(name), parsed = inspectScene(after), expected = { ...patrol, loop: false, startSignal: 'Start', onComplete: 'Done' };
+  assert.deepEqual(inspectHumanBehavior('Guard', parsed.actorScripts[0].code), expected);
+  assert.deepEqual(parsed.actorScripts.slice(1), inspectScene(before).actorScripts.slice(1)); assert.deepEqual(parsed.entries.filter(e => !e.actorScript).map(e => e.value), inspectScene(before).entries.filter(e => !e.actorScript).map(e => e.value));
+  assert.deepEqual(project.manifest.history.at(-1).files.map(f => f.path), [name]); assert.deepEqual(await project.read(navName), nav);
+  const reopened = await ModProject.open(root); await reopened.export(path.join(root, 'signal-export')); assert.deepEqual(await fs.readFile(path.join(root, 'signal-export', name)), after);
+  await reopened.undo(); assert.deepEqual(await reopened.read(name), before); assert.equal(reopened.manifest.history.length, history);
+  await reopened.changeSceneObject(name, { kind: 'add-human', name: 'NewWalker', model: 'models/Human.4ds', position: [0, 0, 0], rotation: [1, 0, 0, 0], scale: [1, 1, 1], parameters: {}, behavior }, hash(before));
+  assert.deepEqual(inspectHumanBehavior('NewWalker', inspectScene(await reopened.read(name)).actorScripts.at(-1).code), expected);
+  await reopened.undo(); assert.deepEqual(await reopened.read(name), before); assert.deepEqual(await reopened.read(navName), nav);
 });
 
 const drive={mode:'drive',carName:'Car',boarding:'walk',stops:[{name:'Finish',pauseSeconds:2},{name:'Start',pauseSeconds:.5}],loop:true,delaySeconds:1};

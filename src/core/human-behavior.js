@@ -1,6 +1,6 @@
 import { hash } from './files.js';
 import { inspectScene } from './scene.js';
-import { humanAttackTargets, humanBehaviorScript, humanWeapons, validateHumanRoute } from '../shared/human-behavior.js';
+import { humanAttackTargets, humanBehaviorScript, humanWeapons, validateHumanRoute, resolveHumanPatrol } from '../shared/human-behavior.js';
 import { parseNavigation } from './navigation.js';
 import { parseRoads } from './roads.js';
 import { resolveHumanDriving } from '../shared/human-driving.js';
@@ -22,6 +22,7 @@ export async function prepareHumanBehavior(project, before, geometry, operation,
     dependencies.push({path:asset.path,data,expectedHash:options.roadHash});
   }
   if (options.mode === 'patrol') {
+    options = resolveHumanPatrol(scene, name, options);
     const navigationName = scenePath.replace(/scene2\.bin$/i, 'check.bin'), asset = project.asset(navigationName), data = await project.read(asset.path);
     if (options.navigationHash !== hash(data)) throw new Error('Trasa: navigace se od otevření změnila. Otevřete dialog znovu.');
     validateHumanRoute(options, parseNavigation(data));
