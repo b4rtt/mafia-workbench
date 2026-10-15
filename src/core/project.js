@@ -47,6 +47,7 @@ import { inspectModelGeometry, editModelGeometry } from './model-geometry.js';
 import { appendSector } from './sector-create.js';
 import { inspectSectorLinks, linkSectorPortal, changeSectorPortalPair } from './sector-link.js';
 import { inspectSceneSectors, assignSceneSectors } from './scene-sectors.js';
+import { planSceneTranslation } from '../shared/scene-translation.js';
 import { inspectProjectCollision, saveProjectCollision } from './collision-project.js';
 import { modelImportPlan, importModel } from './model-import.js';
 
@@ -400,6 +401,18 @@ export class ModProject {
     const collision=moved&&collisionOwnership(this.manifest,name).length?await prepareSceneCollision(this,name,before,after):null;
     const files=new Map([{path:name,data:after,expectedHash},{path:geometryPath,data:geometry,expectedHash:geometryHash},...(collision?.files??[])].map(file=>[key(file.path),file]));
     await this.changeBatch([...files.values()],'Přiřazení objektu do sektorů',collision?.ownership);
+  }
+  async translateSceneObjects(name,request,expectedHash,geometryHash) {
+    if(!/^missions\/[^/]+\/scene2\.bin$/i.test(name))throw Error('Vyberte scene2.bin mise.');
+    if(!request||typeof request!=='object'||Object.keys(request).some(key=>!['ids','offset'].includes(key)))throw Error('Společný posun: neplatný požadavek.');
+    const before=await this.read(name),geometryPath=name.slice(0,name.lastIndexOf('/'))+'/scene.4ds',geometry=await this.read(geometryPath);
+    if(hash(before)!==expectedHash||hash(geometry)!==geometryHash)throw Error('Scéna nebo geometrie se od otevření změnila. Otevřete dialog znovu.');
+    const plan=planSceneTranslation(inspectScene(before),parseFourDs(geometry),request);
+    if(!plan.changes.length)return;
+    let after=before;for(const change of plan.changes)after=editScene(after,change.id,change.value);
+    const collision=collisionOwnership(this.manifest,name).length?await prepareSceneCollision(this,name,before,after):null;
+    const files=new Map([...(collision?.files??[]),{path:name,data:after,expectedHash},{path:geometryPath,data:geometry,expectedHash:geometryHash}].map(file=>[key(file.path),file]));
+    await this.changeBatch([...files.values()],'Společný posun objektů',collision?.ownership);
   }
   async rebuildSceneCollision(name, expectedHash, collisionHash) {
     if(!/^missions\/[^/]+\/scene2\.bin$/i.test(name))throw new Error('Vyberte scene2.bin mise.');

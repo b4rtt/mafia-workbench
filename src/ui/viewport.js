@@ -237,16 +237,17 @@ export class Viewport {
     return reload;
   }
   fit(object = this.root, resetAngle = false) {
-    object.updateWorldMatrix(true, true); const box = new THREE.Box3();
+    const targets=Array.isArray(object)?object:[object],box=new THREE.Box3();
+    if(!targets.length)return;
+    targets.forEach(target=>target.updateWorldMatrix(true,true));
     // Hidden backdrop geometry must not expand the map bounds or enclose its camera.
-    const visit = node => {
+    const visit = (node,bounds) => {
       if (!node.visible || node.userData.backdrop) return;
-      if (node.isInstancedMesh) { node.computeBoundingBox(); box.union(node.boundingBox.clone().applyMatrix4(node.matrixWorld)); }
-      else if (node.geometry) { node.geometry.computeBoundingBox(); box.union(node.geometry.boundingBox.clone().applyMatrix4(node.matrixWorld)); }
-      for (const child of node.children) visit(child);
+      if (node.isInstancedMesh) { node.computeBoundingBox(); bounds.union(node.boundingBox.clone().applyMatrix4(node.matrixWorld)); }
+      else if (node.geometry) { node.geometry.computeBoundingBox(); bounds.union(node.geometry.boundingBox.clone().applyMatrix4(node.matrixWorld)); }
+      for (const child of node.children) visit(child,bounds);
     };
-    visit(object);
-    if (box.isEmpty()) box.setFromCenterAndSize(object.getWorldPosition(new THREE.Vector3()), new THREE.Vector3(1, 1, 1));
+    targets.forEach(target=>{const bounds=new THREE.Box3();visit(target,bounds);if(bounds.isEmpty())bounds.setFromCenterAndSize(target.getWorldPosition(new THREE.Vector3()),new THREE.Vector3(1,1,1));box.union(bounds);});
     const center = box.getCenter(new THREE.Vector3()), size = Math.max(box.getSize(new THREE.Vector3()).length(), .1);
     const direction = object === this.root || resetAngle ? new THREE.Vector3(.9,.6,1.1) : this.camera.position.clone().sub(this.controls.target);
     if (direction.lengthSq() < 1e-10) direction.set(.9,.6,1.1);

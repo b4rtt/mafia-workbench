@@ -21,6 +21,8 @@ npm run extract -- /cesta/ke/hre /existujici/rodic/novy-projekt
 
 ## Aktuální funkce
 
+- **Společný posun objektů** ve **3D scéně → Objekt → Společný posun…**: vyberte více objektů, zadejte světový posun XYZ a zkontrolujte živý náhled. Výběr lze filtrovat a společně zarámovat. Děti se s rodičem přesunou pouze jednou; generované kolize se přepočítají ve stejném kroku undo. Původní kolize, navigace, silniční síť, efekty a samostatná geometrie se tímto nástrojem neposouvají. Nejvýše 256 objektů s upravitelnou pozicí; rozepsané vlastnosti nejdřív uložte.
+
 - **Zakončení mise**: v **Logice mise → Přidat → Přidat zakončení mise…** nebo ve 3D vytvořte samostatný konec bez pomocného úkolu či prostorového cíle. Úspěch, neúspěch s vlastním TextDB textem nebo přechod do jiné ověřené mise; výchozí čekání na signál, volitelně tlačítko akce nebo příchod hráče do oblasti. Nastavení lze znovu otevřít, změna má jedno undo a export. Přechod začíná s hráčem další mise, nepřenáší inventář ani auto. Všechny tři výsledky jsou ověřené v původní hře; podrobnosti v [research/mission-finish.md](research/mission-finish.md).
 - **Oblasti úkolu ve 3D**: po výběru bodu úkolu, rozhovoru, boje nebo zakončení se zobrazí modrá koule jeho prostorového spuštění a u úkolu zelená koule cíle. Popisek nad mapou uvádí objekty a poloměry. **Zobrazení → Oblasti úkolu / Zarámovat oblasti** skryje nebo přiblíží obrysy; nastavení se při přepínání částí mise pamatuje. Oblasti sledují rozepsaný posun a světovou polohu rodiče, jejich poloměr zahrnuje výšku a nepřebírá měřítko objektu. Pouze náhled přesně rozpoznaných receptů; vlastní programy se neodhadují a běhový stav mise se nesimuluje. Podrobnosti v [research/mission-activation.md](research/mission-activation.md).
 

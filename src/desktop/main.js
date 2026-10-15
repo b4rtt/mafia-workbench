@@ -180,6 +180,7 @@ app.whenReady().then(async () => {
   handle('asset:scene-object', (name, request, expectedHash) => operation(async () => { await current().changeSceneObject(name, request, expectedHash); return current().inspectMap(name); }));
   handle('asset:scene-sector-context',(name,id)=>current().sceneSectorContext(name,id));
   handle('asset:scene-sectors',(name,request,expectedHash,geometryHash)=>operation(async()=>{await current().assignSceneSectors(name,request,expectedHash,geometryHash);return current().inspectMap(name);}));
+  handle('asset:scene-translate',(name,request,expectedHash,geometryHash)=>operation(async()=>{await current().translateSceneObjects(name,request,expectedHash,geometryHash);return current().inspectMap(name);}));
   handle('asset:scene-collision-rebuild', (name, expectedHash, collisionHash) => operation(async () => { const result=await current().rebuildSceneCollision(name,expectedHash,collisionHash);return {...result,map:await current().inspectMap(name)}; }));
   handle('asset:model', (name, changes, expectedHash) => operation(async () => { await current().saveModel(name, changes, expectedHash); return current().inspect(name); }));
   handle('asset:model-geometry', (name, mesh) => current().modelGeometry(name,mesh));

@@ -1,31 +1,8 @@
-import { Box3, Matrix4, Quaternion, Vector3 } from 'three';
+import { Box3, Vector3 } from 'three';
 
-const key = name => name?.normalize('NFC').toLowerCase();
-function matrix(frame) {
-  const rotation=frame.rotation??[1,0,0,0];
-  if(rotation.length!==4||rotation.some(n=>!Number.isFinite(n))||Math.hypot(...rotation)<1e-8)throw new Error('Kolize: neplatná rotace frame.');
-  if([frame.position??[0,0,0],frame.scale??[1,1,1]].some(values=>values.length!==3||values.some(n=>!Number.isFinite(n))))throw new Error('Kolize: neplatná transformace frame.');
-  return new Matrix4().compose(new Vector3(...(frame.position??[0,0,0])),new Quaternion(-rotation[1],-rotation[2],-rotation[3],rotation[0]).normalize(),new Vector3(...(frame.scale??[1,1,1])));
-}
-
-export function sceneWorld(scene, geometry) {
-  const byName=new Map();
-  for(const frame of geometry.meshes){const name=key(frame.name),list=byName.get(name)??[];list.push({frame,geometry:true});byName.set(name,list);}
-  for(const frame of scene.objects){const name=key(frame.name),list=byName.get(name)??[];list.push({frame,geometry:false});byName.set(name,list);}
-  const resolveName=name=>{
-    const list=byName.get(key(name))??[],base=list.filter(item=>item.geometry),overrides=list.filter(item=>!item.geometry);
-    if(base.length>1||overrides.length>1||!list.length)throw new Error(`Kolize: chybějící nebo nejednoznačný rodič ${name}.`);
-    return {frame:base[0]?.frame,override:overrides[0]?.frame};
-  };
-  const world=(item,seen=new Set())=>{
-    const frame=item.override??item.frame,identity=key(frame.name);if(seen.has(identity))throw new Error('Kolize: cyklická hierarchie scény.');seen.add(identity);
-    const transform=matrix({...item.frame,...item.override});let parent;
-    if(item.override?.parent){if(!['primary sector','backdrop sector'].includes(key(item.override.parent)))parent=resolveName(item.override.parent);}
-    else if(item.frame?.parent){const parentFrame=geometry.meshes.find(mesh=>mesh.id===item.frame.parent);if(!parentFrame)throw new Error('Kolize: neplatná hierarchie geometrie.');parent=resolveName(parentFrame.name);}
-    return parent?world(parent,seen).multiply(transform):transform;
-  };
-  return name=>world(resolveName(name));
-}
+import { sceneWorld, frameMatrix } from '../shared/scene-world.js';
+export { sceneWorld } from '../shared/scene-world.js';
+const key=name=>name?.normalize('NFC').toLowerCase();
 
 // Native LS3D coordinates: the viewport's Z reflection is intentionally absent.
 function modelCollisionGeometry(model, object, scene, geometry, surface) {
@@ -35,7 +12,7 @@ function modelCollisionGeometry(model, object, scene, geometry, surface) {
   const meshWorld=(mesh,seen=new Set())=>{
     if(worlds.has(mesh.id))return worlds.get(mesh.id);if(seen.has(mesh.id))throw new Error('Kolize: cyklická hierarchie modelu.');seen.add(mesh.id);
     const parent=mesh.parent?model.meshes.find(m=>m.id===mesh.parent):null;if(mesh.parent&&!parent)throw new Error('Kolize: chybějící rodič modelu.');
-    const result=(parent?meshWorld(parent,seen):root.clone()).clone().multiply(matrix(mesh));worlds.set(mesh.id,result);
+    const result=(parent?meshWorld(parent,seen):root.clone()).clone().multiply(frameMatrix(mesh));worlds.set(mesh.id,result);
     enabled.set(mesh.id,(parent?enabled.get(parent.id):true)&&(mesh.culling===undefined||Boolean(mesh.culling&1)));return result;
   };
   const lod=(mesh,seen=new Set())=>{if(seen.has(mesh.id))throw new Error('Kolize: cyklická instance modelu.');seen.add(mesh.id);if(mesh.instance){const source=model.meshes[mesh.instance-1];if(!source)throw new Error('Kolize: chybějící instance modelu.');return lod(source,seen);}return mesh.lods?.[0];};

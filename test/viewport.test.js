@@ -11,6 +11,13 @@ function viewport() {
   return view;
 }
 function source(id, name, parent, position) { return { id, name, parent, position, fields: { position: id + '/position' } }; }
+test('framing a multiple selection covers all selected objects and excludes unrelated city geometry',()=>{
+  const view=viewport();view.controls.update=()=>view.camera.lookAt(view.controls.target);
+  const a=new THREE.Mesh(new THREE.BoxGeometry(3,2,1)),b=new THREE.Mesh(new THREE.BoxGeometry(2,3,4)),far=new THREE.Mesh(new THREE.BoxGeometry(1000,1000,1000));a.position.set(30,0,20);b.position.set(-20,10,40);far.position.set(10000,0,10000);view.root.add(a,b,far);view.camera.position.set(5,3,6);
+  view.fit([a,b]);view.camera.updateMatrixWorld();assert(view.camera.position.length()<200);
+  for(const object of [a,b]){const box=new THREE.Box3().setFromObject(object);for(const x of [box.min.x,box.max.x])for(const y of [box.min.y,box.max.y])for(const z of [box.min.z,box.max.z]){const point=new THREE.Vector3(x,y,z).project(view.camera);assert(Math.abs(point.x)<1&&Math.abs(point.y)<1);}}
+  const camera=view.captureCamera();view.fit([]);assert.deepEqual(view.captureCamera(),camera);assert.deepEqual(a.parent,view.root);assert.deepEqual(b.parent,view.root);
+});
 test('collision helpers reflect native Z without changing object picking or camera framing',()=>{
   const view=viewport();view.scene=new THREE.Scene();view.scene.add(view.root);view.root.add(new THREE.Mesh(new THREE.BoxGeometry(1,1,1)));view.fit();const before=view.captureCamera();
   view.showCollisionBoxes([{name:'far collision',min:[100,0,200],max:[101,1,201]}],true);view.fit();assert.deepEqual(view.captureCamera(),before);

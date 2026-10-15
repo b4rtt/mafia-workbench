@@ -26,6 +26,17 @@ async function setup(t){
 const operation={kind:'add-model',name:'WB_CRATE',model:'models/crate.4ds',position:[5,0,5],rotation:[1,0,0,0],scale:[1,1,1],collision:{kind:'aabb',material:7}};
 async function add(p,scene){await p.changeSceneObject(scenePath,operation,hash(scene));return p.read(scenePath);}
 
+test('common object translation regenerates both box and surface collisions in the same undo',async t=>{
+  const {p,scene,root}=await setup(t);await add(p,scene);await p.changeSceneObject(scenePath,{...operation,name:'WB_MESH',position:[10,0,5],collision:{kind:'mesh',material:11}},hash(await p.read(scenePath)));
+  const before=await p.read(scenePath),klz=await p.read(klzPath),owners=structuredClone(collisionOwnership(p.manifest,scenePath)),map=await p.inspectMap(scenePath),offset=[3,4,5],history=p.manifest.history.length;
+  await p.translateSceneObjects(scenePath,{ids:map.objects.map(o=>o.id),offset},map.sha256,map.geometry.sha256);
+  const moved=await p.inspectMap(scenePath);assert.equal(moved.collision.warning,undefined);assert.equal(p.manifest.history.length,history+1);
+  for(const axis of ['min','max'])assert.deepEqual(moved.collision.boxes[0][axis],map.collision.boxes[0][axis].map((v,i)=>v+offset[i]));
+  const previous=map.collision.surfaces[0].positions;assert.deepEqual(moved.collision.surfaces[0].positions,previous.map((v,i)=>v+offset[i%3]));
+  await p.export(root+'/group-export');assert.deepEqual(await fs.readFile(root+'/group-export/'+klzPath),await p.read(klzPath));
+  await p.undo();assert.deepEqual(await p.read(scenePath),before);assert.deepEqual(await p.read(klzPath),klz);assert.deepEqual(collisionOwnership(p.manifest,scenePath),owners);assert.equal(p.manifest.history.length,history);
+});
+
 test('sector reparent keeps generated model collisions at the same world position with one exact undo',async t=>{
   const {p,scene,root}=await setup(t);await add(p,scene);const geometryPath='missions/NEW/scene.4ds',context=await p.sectorContext(geometryPath);await p.createSector(geometryPath,{name:'ROOM',center:[0,0,0],size:[20,20,20]},context.sha256,context.sceneHash);
   const file=await p.inspect(geometryPath);await p.saveModel(geometryPath,[{id:'meshes/0/position',value:[13,4,-7]},{id:'meshes/0/rotation',value:[Math.SQRT1_2,0,Math.SQRT1_2,0]}],file.sha256);

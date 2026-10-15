@@ -83,6 +83,15 @@ Projekt před změnou nového/upraveného modelu ověří místní 4DS. Postava 
 
 Audit všech 179 původních generátorů/2 165 řádků: podporované layouty, přesné no-op a přestavba pořadí, zdrojové soubory beze změny. Nativní oddělené mise ověřily změny rodin taxi/arrow a počty aktivních chodců 3 → 5 → 2 → 0 v úplném checkpointu. Traffic save živé automobily neukládá; jejich rodiny/vypnutí ověřené obrazem. Další dva běhy potvrdily vypnutí při zachování modelových seznamů nové i existující mise. Ostatní herní AI chování a všechny kombinace flags nejsou tímto ověřené.
 
+## Společný posun scénových objektů
+
+`Objekt → Společný posun…` upravuje existující pole lokální pozice u modelů, světel, zvuků, dummy a vizuálů (typy 9/2/4/6/1), nejvýše 256 najednou. Světový posun se převede inverzí skutečné rodičovské matice včetně rotace, nerovnoměrného či záporného měřítka. Vybraný potomek vybraného předka nepřidává posun znovu. Hierarchie používá společný resolver scény a geometrie jako generování modelových kolizí. Nejednoznačné názvy, cyklus, singulární rodič nebo neuložitelný float32 se odmítnou. Původní neznámé bajty se zachovají; nevytvářejí se chybějící pozice ani nové rámce.
+
+Náhled neukládá projekt; zavření vrátí původní transformace. Zápis chrání hash scene2.bin i scene.4ds až do batch publikace a přegeneruje vlastněné modelové kolize v jediném undo. Navigace, road.bin, efekty, cache, samostatná geometrie a původní nevlastněné kolize se nepřesouvají; nejde o přesun celé mise. U aktéra jde o počáteční pozici rámce, jeho další skriptové cíle se nepřepisují.
+
+Datové testy pokrývají hierarchii, transformované rodiče, odmítnutí neplatných/stale vstupů, souběžnou změnu geometrie, rollback publikace, no-op, export/reopen a přesné undo. AABB i povrchová generovaná kolize se posunou společně. Produkční renderer nad oddělenou kopií ověřil filtrování s uchováním výběru, rámování více objektů, neplatný vstup, zrušení bez zápisu, save a skutečné UI undo. GOG 1.2/Wine načetl tři takto posunuté objekty na přesných souřadnicích potvrzených findframe/frm_getworldpos v úplném checkpointu. Tím není nově ověřen fyzický průchod změněnými kolizemi ani runtime případ transformovaného rodiče.
+
+
 ## Vytváření objektů scene2.bin
 
 Reference mEdit `SceneEditor::WriteFrame` a načítání `CT_MODIFICATION` v `SceneEditor.cpp` rozlišuje úpravu existujícího frame a jeho vytvoření: chunk `0x4011` (FRAME_TYPE) předchází názvu při tvorbě. Enum LS3D uvádí model = 9 a dummy = 6. Nový model obsahuje typ, jméno, lokální i světovou pozici, quaternion WXYZ, měřítko, odkaz na Primary sector a jméno modelu `.i3d` v chunku `0x2012`; odpovídá také zápisu modelu v DCED2 `Scene2.cpp`. Herní asset zůstává `.4ds`, přípona `.i3d` je odkaz používaný enginem.
