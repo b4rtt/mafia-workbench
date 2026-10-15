@@ -122,6 +122,8 @@ Společné změny více souborů používají formát projektu 2. Editor nadále
 
 Přímé spouštění zatím vyžaduje macOS, místní ověřený Wine runtime ve vedlejší složce `../.runtime` a přesnou GOG verzi Game.exe 1.2 (SHA-256 `303eb95ee2de3433511ce0cb518921dcb96b62b0f64ebfcc436723ff5083f298`). Jiná verze se odmítne. Editor upraví pouze kopii EXE v projektu `playtest/game`, vytvoří vlastní Wine prefix a samostatné uložené hry. První příprava kopíruje všechna projektová data; další starty kontrolují seznam souborů a čtou pouze změněné modifikace nebo chybějící data. Starší testovací kopie nejprve projde jedním úplným porovnáním. Příprava opakovaného startu na místním projektu klesla z 23,2 s na 0,83 s; jde o přípravu dat, nikoli dobu načítání enginu. Wine se spouští přes samostatný systémový shell; chyba grafického startu se hlásí i při návratovém kódu 0. Vlastní skriptované scény vybrané mise se přehrávají podle jejího nastavení; celé mise mohou vyžadovat stav z předchozího průchodu kampaní.
 
+Přetrvává občasné selhání inicializace grafického okna Wine, reprodukované i v čerstvém odděleném prefixu. Hlášení není důkaz chyby mise; samotné přidání prodlevy nebo ladicího logu není ověřená oprava. Aktuální měření a hranice testů jsou v [research/wine-startup.md](research/wine-startup.md).
+
 ## Ověření
 
 ```sh
