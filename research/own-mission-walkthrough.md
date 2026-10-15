@@ -68,7 +68,7 @@ Přes **Spustit level** zkoušejte uloženou misi v oddělené herní kopii. Ov�
 
 Exportujte mod do nové složky a porovnejte jeho soubory s uloženými modifikacemi. Pro běžný návrat k projektu použijte **Otevřít projekt** a vyberte jeho adresář, potom `missions/WB_DELIVERY_DEMO/scene2.bin`; neotvírejte samostatný export jako projekt Workbench.
 
-## Stav ověření
+## Původní stav ověření
 
 Příklad byl sestaven existujícími produkčními API projektu. Všech šest receptů se z uloženého zdroje obnoví do svých nastavení. Česká kontrola mise našla 0 chyb, 0 varování a jednu informaci o šesti neanalyzovaných vlastních programech. Export i znovuotevřený projekt mají stejné hashe jako uložené modifikace.
 
@@ -85,3 +85,13 @@ Tři integrační běhy v původní GOG 1.2 přes produkční Playtest doložily
 První pomocný průchod chybně přesouval rám modelu hráče příkazem `frm_setpos`. Měření bylo opraveno na `actor_setpos` a finální průchody opakované. Produkční šablony kvůli tomu nebylo potřeba měnit.
 
 Po každém běhu se diagnostické změny vrátily přes undo, soukromé save i index checkpointů se obnovily. Zůstává samostatný projekt s ukázkovou misí bez diagnostických řídicích programů; jeho soukromý index je `local/delivery-demo.json`. Kontrolované původní EXE, uživatelský projekt a předchozí auditní projekty mají shodné hashe. Nový integrační blok nevyžadoval změnu implementace editoru. Dokončení celého editoru a podmínka zahájení městského pluginu zůstávají otevřené do ověření skutečného hráčského průchodu.
+
+## Dodatečné ověření v Electronu a smrt příjemce (15. října 2026)
+
+Po odemčení Macu byla samostatná kopie stejného projektu otevřena ve skutečné aplikaci Electron. Česká kontrola ukázala **0 chyb, 0 upozornění, 6 šablon, 12 textových ID, 2 dabingy a 7 přečtených souborů**; šest vlastních programů zůstalo výslovně neanalyzovaných. Logika mise zobrazila šest šablon a osm návazností. Nastavení `WB_DELIVERY` správně obnovilo předmět 23, jeho odebrání, cíl `Cil`, poloměr 3, checkpoint 5001, hlídanou postavu `Prijemce`, neúspěšný text 91009 i úspěšný signál `WB_FINAL`. Nezměněné nastavení mělo uložení zakázané. Přechod **Ukázat ve 3D** vybral tentýž objekt. Kontroly byly pouze čtecí a zachovaly historii 42 i původní hashe projektu.
+
+Další běh skutečné GOG 1.2 přes produkční Playtest ověřil větev smrti příjemce. Dva dočasné diagnostické objekty přijaly první odpověď a po aktivaci doručení nastavily energii příjemce na nulu; původní recepty ukázky včetně kontroly smrti hráče zůstaly stejné. Úplný save v herním čase 13 750 ms potvrdil přijetí zakázky a signál `WB_DELIVERY`. Save v 19 054 ms po zjištěné smrti měl `WB_FINAL` i `WB_COMPLETE` stále 0. Následný snímek hry doložil obrazovku **Konec hry**, důvod **„Sam zemřel. Klíče už nemá kdo převzít.“** a nabídky Opakovat / Zpět do hlavního menu. Tím je nově doložená smrt příjemce a její koncová obrazovka, které původní průchody výše neověřily. Hodnota energie dekódovaná obecným přehledem save patří hráči; není vydávaná za přímé měření energie příjemce.
+
+První pomocný pokus pořizoval snímek před vytvořením herního okna. Pomocník dostal čekání na okno a delší čekání na koncovou obrazovku; produkční kód opravu nevyžadoval. Hotový běh ukončil pomocník až po zachycení výsledku. Obě diagnostické transakce byly vráceny přes undo na historii 42, soukromé save a index checkpointů obnovené, původní projekt i kontrolované chráněné soubory zůstaly shodné. Testovací hra i Electron byly ukončené. Soukromé výsledky a snímky jsou evidované v `local/delivery-verification.json` a nejsou součástí veřejného repozitáře.
+
+Jde o řízený integrační test, nikoli ruční hráčský průchod. Ruční volba odpovědi, sebrání fyzických klíčů, slyšitelná podoba vlastního dabingu, vizuální střih rozhovorů a restart z herního menu zůstávají otevřené. Celý editor ani předpoklad zahájení městského pluginu tím nejsou prohlášené za dokončené.

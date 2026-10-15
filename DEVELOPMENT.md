@@ -2,6 +2,12 @@
 
 Aktualizace: 15. října 2026. Vývoj pokračuje; komplexní editor není dokončený. Implementace, datové testy, ověření UI a ověření ve hře jsou různé úrovně dokončení; neoznačovat jednu za druhou. Podrobnosti existujících funkcí a jejich omezení jsou v README.md a research/formats.md. Původní hra se nemění, úpravy mají kontrolu verze, zálohu, export a undo. Herní data a soukromé reference nepatří do veřejného repozitáře.
 
+## Ukázková mise v Electronu a neúspěch při smrti příjemce (2026-10-15)
+
+- Skutečná aplikace Electron nad oddělenou kopií ukázky: česká kontrola 0 chyb / 0 upozornění, šest šablon, 12 textových ID, dva dabingy a sedm přečtených souborů. Logika šest šablon / osm hran, správná obnova všech podmínek doručení v Nastavit, disabled nezměněné uložení, přechod z logiky vybral WB_DELIVERY ve 3D. Čtecí kontrola zachovala historii 42 i baseline hashe.
+- GOG 1.2/Wine přes produkční Playtest: diagnostická NPC přijala první odpověď, pak nastavila energii příjemce na nulu. Dva dočasné objekty řídily a měřily průchod, původní recepty stejné. Úplné save před/po smrti mají aktivní WB_DELIVERY a nulové WB_FINAL/WB_COMPLETE; skutečný snímek následně doložil Konec hry s českým důvodem „Sam zemřel. Klíče už nemá kdo převzít.“. Energie v obecném přehledu save patří hráči, nikoli příjemci. Ruční ovládání, fyzický pickup, poslech vlastního dabingu a restart z menu stále nejsou ověřené.
+- První pomocník zachycoval snímek příliš brzy; doplněno čekání na herní okno a konec. Produkce se neměnila. Diagnostiky vrácené přes undo na historii 42, soukromé save/index obnovené, zdrojová ukázka a chráněné hashe shodné, vlastní hra/aplikace ukončené. Pouze doplnění důkazů, bez nového tvrzení o unit testech. Podrobnosti research/own-mission-walkthrough.md, soukromý index local/delivery-verification.json. Goal editoru pokračuje, AI/OSM plugin stále čeká na svůj předpoklad.
+
 ## Samostatné zakončení a přechod mise (2026-10-15)
 
 - Logika mise i 3D: Přidat/Nastavit zakončení mise, úspěch/neúspěch nebo ověřená další mise bez falešného úkolu a prostorového cíle. Výchozí čekání na signál, volitelné use/load/area, jednoznačné neprázdné TextDB ID, přesná obnova receptu a maska 1. Diagram ukazuje koncové hrany a příchozí vazby, kontrola mise ověřuje texty/cíl. Ukládání chrání čtené texty, geometrii a tři soubory cíle; configure mění jen program, jedna transakce/export/undo. Přechod nepřenáší inventář, zdraví ani auto. Návod research/mission-finish.md; vlastní walkthrough nově uvádí jednodušší koncové body bez přepisu uloženého příkladu.
