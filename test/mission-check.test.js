@@ -33,7 +33,7 @@ async function fixture(t) {
   for (const [name, code] of [['Finish', 'wait 777\nend'], ['Quest', missionTaskScript(task)], ['Talk', missionDialogueScript({ trigger: 'load', lines: [{ speaker: 'Companion', textId: 80 }] })]]) scene = changeSceneObject(scene, { kind: 'add-detector', name, position: [8, 0, 0], mask: 1, code });
   const geometry = Buffer.alloc(19); geometry.write('4DS\0'); geometry.writeUInt16LE(29, 4); geometry[18] = 1;
   const voice = Buffer.alloc(44); voice.write('RIFF'); voice.writeUInt32LE(36, 4); voice.write('WAVE', 8);
-  await project.createFiles([{ path: scenePath, data: scene }, { path: 'MISSIONS/TEST/SCENE.4DS', data: geometry }, { path: 'missions/test/tree.klz', data: collisionFixture() }, { path: textPath, data: textDb([10, 20, 30, 40, 80]) }, { path: 'tables/textdb_en.def', data: textDb([10, 20, 30, 40]) }, { path: 'SOUNDS/00000080.WAV', data: voice }]);
+  await project.createFiles([{ path: scenePath, data: scene }, { path: 'MISSIONS/TEST/SCENE.4DS', data: geometry }, { path: 'models/Human.4ds', data: geometry }, { path: 'missions/test/tree.klz', data: collisionFixture() }, { path: textPath, data: textDb([10, 20, 30, 40, 80]) }, { path: 'tables/textdb_en.def', data: textDb([10, 20, 30, 40]) }, { path: 'SOUNDS/00000080.WAV', data: voice }]);
   return { project, root, scene, geometry, voice };
 }
 async function script(project, name, code) {
@@ -47,7 +47,7 @@ test('saved mission check follows real overlay data and case-insensitive paths w
   for (const asset of project.manifest.assets) before.set(asset.path, await project.read(asset.path));
   const report = await project.checkMission('MISSIONS/TEST/SCENE.4DS');
   assert.deepEqual(errors(report), []); assert.equal(report.recipes, 2); assert.equal(report.textReferences, 5); assert.equal(report.voices, 1); assert.equal(report.textDb, textPath);
-  assert(report.custom > 0); assert(report.issues.some(issue => issue.code === 'custom')); assert.equal(report.files.length, 5);
+  assert(report.custom > 0); assert(report.issues.some(issue => issue.code === 'custom')); assert.equal(report.files.length, 6); assert.equal(report.models, 1); assert.equal(report.textures, 0);
   for (const file of report.files) assert.equal(file.sha256, hash(before.get(file.path)));
   assert.deepEqual(await fs.readFile(path.join(root, 'workbench.json')), manifest);
   for (const [name, bytes] of before) assert.deepEqual(await project.read(name), bytes);
@@ -149,4 +149,34 @@ test('following dependencies are checked while altered NPC programs remain expli
     await script(project,'Companion',humanBehaviorScript('Companion',{...options,...extra}));report=await project.checkMission(scenePath);const issue=errors(report).find(i=>i.code==='npc-follow');assert.equal(issue.object,'Companion');assert(issue.entryId);await project.undo();
   }
   await script(project,'Companion',humanBehaviorScript('Companion',options)+'// own');report=await project.checkMission(scenePath);assert.equal(report.recipes,2);assert(!errors(report).some(i=>i.code==='npc-follow'));assert(report.issues.some(i=>i.code==='custom'));
+});
+
+function texturedModel({texture='WALL.BMP',alpha='MASK.BMP',environment='REFLECT.BMP',animated=false}={}) {
+  const header=Buffer.alloc(16);header.write('4DS\0');header.writeUInt16LE(29,4);header.writeUInt16LE(1,14);
+  const values=Buffer.alloc(44);values.writeUInt32LE((alpha?0x40000000:0)|(environment?0x80000:0)|(animated?0x4000000:0));values.writeFloatLE(1,40);
+  const text=value=>Buffer.concat([Buffer.from([Buffer.byteLength(value)]),Buffer.from(value)]);
+  return Buffer.concat([header,values,...(environment?[Buffer.alloc(4),text(environment)]:[]),text(texture),...(alpha?[text(alpha)]:[]),...(animated?[Buffer.alloc(18)]:[]),Buffer.alloc(3)]);
+}
+test('mission assets include scene materials, direct models and every diffuse, alpha and reflection dependency without mutations',async t=>{
+  const {project,root}=await fixture(t),modelName='models/Human.4ds';
+  await project.change(modelName,texturedModel(),'Textured model');
+  await project.change('missions/Test/scene.4ds',texturedModel({texture:'maps/WALL.BMP',alpha:'',environment:''}),'Scene material');
+  let report=await project.checkMission(scenePath),missing=errors(report).filter(i=>i.code==='texture');
+  assert.equal(missing.length,4);assert(missing.some(i=>i.path===modelName&&i.message.includes('MASK.BMP')));assert(missing.some(i=>i.path===modelName&&i.message.includes('REFLECT.BMP')));assert(missing.some(i=>/SCENE.4DS$/.test(i.path)));
+  // Texture presence/readability, not image decoding, is the declared scope.
+  await project.createFiles(['wall.bmp','mask.bmp','reflect.bmp'].map(n=>({path:'MAPS/'+n,data:Buffer.from('image payload')})));
+  const manifest=await fs.readFile(root+'/workbench.json'),history=project.manifest.history.length,before=new Map(await Promise.all(project.manifest.assets.map(async a=>[a.path,await project.read(a.path)])));
+  report=await project.checkMission(scenePath);assert.deepEqual(errors(report),[]);assert.equal(report.models,1);assert.equal(report.textures,3);assert.equal(report.files.filter(f=>/^MAPS\//.test(f.path)).length,3);assert.equal(report.files.filter(f=>f.path===modelName).length,1);
+  assert.deepEqual((await(await ModProject.open(root)).checkMission(scenePath)).issues,report.issues);
+  assert.equal(project.manifest.history.length,history);assert.deepEqual(await fs.readFile(root+'/workbench.json'),manifest);for(const[n,b]of before)assert.deepEqual(await project.read(n),b);
+  const read=project.read.bind(project);let count=0;project.read=async n=>{const b=await read(n);return n==='MAPS/mask.bmp'&&++count===2?Buffer.concat([b,Buffer.from([0])]):b;};await assert.rejects(project.checkMission(scenePath),/během kontroly/);
+});
+test('model failures point to owning scene, unsafe references never escape asset lookup and animated sequences remain explicitly incomplete',async t=>{
+  const {project}=await fixture(t),scene=await project.inspect(scenePath),field=scene.objects.find(o=>o.name==='Companion').fields.model,baseline=await project.read(scenePath);
+  for(const name of ['Missing.i3d','../Human.i3d','/Human.4ds','C:\\Human.4ds','Human.txt']){
+    await project.change(scenePath,editScene(baseline,field,name),'Missing model');const report=await project.checkMission(scenePath),issue=errors(report).find(i=>i.code==='model');assert(issue.message.includes(name));assert.equal(issue.path,scenePath);assert.equal(issue.object,'Companion');await project.undo();
+  }
+  await project.change('models/Human.4ds',Buffer.from('broken'),'Damaged model');let report=await project.checkMission(scenePath),issues=errors(report).filter(i=>i.code==='model');assert.equal(issues.length,1);assert(issues[0].message.includes('Tommy, Companion'));await project.undo();
+  await project.change('models/Human.4ds',texturedModel({texture:'../outside.bmp',alpha:'',environment:'',animated:true}),'Animated material');report=await project.checkMission(scenePath);assert(errors(report).some(i=>i.code==='texture'&&i.path==='models/Human.4ds'));assert.equal(report.issues.filter(i=>i.code==='texture-animation').length,1);
+  await project.undo();assert.deepEqual(errors(await project.checkMission(scenePath)),[]);
 });

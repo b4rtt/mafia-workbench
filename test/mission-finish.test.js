@@ -25,7 +25,7 @@ async function fixture(t) {
   const geometry = Buffer.alloc(19); geometry.write('4DS\0'); geometry.writeUInt16LE(29, 4); geometry[18] = 1;
   let texts = Buffer.alloc(17); texts.writeUInt32LE(1); texts.writeUInt32LE(99999999, 8); texts.writeUInt32LE(16, 12);
   for (const [id, text] of [[10, 'Použít'], [20, 'Hotovo'], [30, 'Neúspěch'], [40, '   ']]) texts = addTextDbEntry(texts, textPath, { id, text });
-  await p.createFiles([{ path: name, data: scene }, { path: geometryPath, data: geometry }, { path: 'missions/Own/tree.klz', data: collisionFixture() }, { path: textPath, data: texts }, ...['scene2.bin', 'scene.4ds', 'tree.klz'].map((filename, i) => ({ path: `MISSIONS/Next/${filename}`, data: [scene, geometry, collisionFixture()][i] }))]);
+  await p.createFiles([{ path: name, data: scene }, { path: geometryPath, data: geometry }, { path: 'models/human.4ds', data: geometry }, { path: 'missions/Own/tree.klz', data: collisionFixture() }, { path: textPath, data: texts }, ...['scene2.bin', 'scene.4ds', 'tree.klz'].map((filename, i) => ({ path: `MISSIONS/Next/${filename}`, data: [scene, geometry, collisionFixture()][i] }))]);
   const request = finish => ({ kind: 'add-detector', name: 'WB_FINISH', position: [1, 2, 3], finish: { outcome: 'success', completeId: 20, textDb: textPath, textHash: hash(texts), ...finish } });
   return { p, root, scene, geometry, texts, request, history: p.manifest.history.length };
 }

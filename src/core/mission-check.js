@@ -16,7 +16,7 @@ import { parseNavigation } from './navigation.js';
 const key = name => name.replaceAll('\\', '/').normalize('NFC').toLowerCase();
 
 // A saved-data check, not an LS3D interpreter. Only exact editor recipes expose
-// dependencies; arbitrary scripts and their execution remain explicitly unknown.
+// script dependencies; arbitrary programs and their execution remain unknown.
 export async function checkMission(project, name, textDb = null) {
   const match = /^missions\/([^/]+)\/[^/]+$/i.exec(relativeAssetPath(name));
   if (!match) throw new Error('Vyberte soubor konkrétní mise.');
@@ -41,6 +41,40 @@ export async function checkMission(project, name, textDb = null) {
   const rawScene = await parsed(scenePath, inspectScene);
   const geometry = await parsed(`${folder}/scene.4ds`, bytes => parseFourDs(bytes, true));
   await parsed(`${folder}/tree.klz`, parseCollision);
+  const models = new Set(), textures = new Set();
+  async function materialFiles(model, modelPath) {
+    const references = new Map();
+    for (const [index, material] of model.materials.entries()) {
+      for (const field of ['texture', 'alphaTexture', 'environmentTexture']) if (material[field]) {
+        const name = material[field], uses = references.get(key(name)) ?? { name, materials: [] };
+        uses.materials.push(index + 1); references.set(key(name), uses);
+      }
+    }
+    for (const { name, materials } of references.values()) {
+      try {
+        const safe = relativeAssetPath(name), path = /^maps\//i.test(safe) ? safe : `maps/${safe}`;
+        textures.add(key(path)); await read(path);
+      } catch (error) { issue('error', 'texture', `Textura ${name} · materiály ${[...new Set(materials)].join(', ')}: ${error.message}`, { path: modelPath }); }
+    }
+    if (model.materials.some(material => material.flags & 0x04000000)) issue('info', 'texture-animation', 'Animované textury: kontrola zahrnuje pouze uložený základní název, další snímky sekvence se nekontrolují.', { path: modelPath });
+  }
+  if (geometry) await materialFiles(geometry, assets.get(key(`${folder}/scene.4ds`)).path);
+  if (rawScene) {
+    const references = new Map();
+    for (const object of rawScene.objects) if (object.frameType === 9 && object.model) {
+      const uses = references.get(key(object.model)) ?? { name: object.model, objects: [] };
+      uses.objects.push(object.name); references.set(key(object.model), uses);
+    }
+    for (const { name, objects } of references.values()) {
+      try {
+        const safe = relativeAssetPath(name.replace(/\.(?:i3d|4ds)$/i, '.4ds'));
+        if (!/\.4ds$/i.test(safe)) throw new Error('Odkaz nemá podporovanou příponu I3D/4DS.');
+        const path = /^models\//i.test(safe) ? safe : `models/${safe}`;
+        models.add(key(path)); const file = await read(path), model = parseFourDs(file.data);
+        await materialFiles(model, file.path);
+      } catch (error) { issue('error', 'model', `Model ${name} · objekty ${objects.slice(0, 8).join(', ')}${objects.length > 8 ? ` a dalších ${objects.length - 8}` : ''}: ${error.message}`, { path: scenePath, object: objects[0] }); }
+    }
+  }
   let recipes = 0, custom = 0, textReferences = 0, voices = 0;
   if (rawScene && geometry) {
     const scene = { ...rawScene, geometry }, speakers = dialogueSpeakers(scene), graph = missionLogic(scene);
@@ -123,6 +157,6 @@ export async function checkMission(project, name, textDb = null) {
   // presenting a successful check of files that never existed together.
   for (const file of reads.values()) if (hash(await project.read(file.path)) !== hash(file.data)) throw new Error('Data se během kontroly změnila. Spusťte kontrolu znovu.');
   if (project.busy || JSON.stringify(project.manifest) !== revision) throw new Error('Projekt se během kontroly změnil. Spusťte kontrolu znovu.');
-  return { name: match[1], path: scenePath, textDb, languages, recipes, custom, textReferences, voices, issues,
+  return { name: match[1], path: scenePath, textDb, languages, recipes, custom, textReferences, voices, models: models.size, textures: textures.size, issues,
     files: [...reads.values()].map(file => ({ path: file.path, sha256: hash(file.data) })) };
 }

@@ -2,6 +2,11 @@
 
 Aktualizace: 15. října 2026. Vývoj pokračuje; komplexní editor není dokončený. Implementace, datové testy, ověření UI a ověření ve hře jsou různé úrovně dokončení; neoznačovat jednu za druhou. Podrobnosti existujících funkcí a jejich omezení jsou v README.md a research/formats.md. Původní hra se nemění, úpravy mají kontrolu verze, zálohu, export a undo. Herní data a soukromé reference nepatří do veřejného repozitáře.
 
+## Kontrola modelů a textur vlastní mise (2026-10-15)
+
+- Zkontrolovat misi čte přímo uložené 4DS odkazy scénových modelů a textury diffuse/alpha/reflection jejich materiálů i geometrie mise. Case-insensitive cesty, sdílené čtení, odmítnutí unsafe cest, nálezy s vlastníkem/materiály a stejná ochrana proti smíšené revizi. Počty souborových závislostí v UI. Rozsah neobsahuje dekódování obrázků, dynamické skriptové zdroje ani snímky animovaných sekvencí; omezení jsou viditelná.
+- Dva nové testy, 17/17 cílených kontrol, check/build. Produkční prohlížeč nad oddělenou ukázkou: záměrná chybějící textura, otevření správného modelu, UI undo, opakovaná kontrola 0/0 při 6 modelech a 30 texturách. Historie 42 a všechny baseline/protected hashe obnovené, konzole čistá. Modelové/texturové závislosti dvou původních map datově bez nálezů. Podrobnosti research/mission-check.md, soukromé indexy local/mission-assets-audit.json a local/mission-assets-ui.json. Goal pokračuje; AI/OSM modul stále čeká na ověřený úplný hráčský průchod vlastní mise.
+
 ## Trasy a doprovod NPC v Logice a kontrole mise (2026-10-15)
 
 - Přesné recepty patrol v1/v2 a follow mají vlastní karty, detaily a vstup do stávajícího formuláře chování. Vyžadují jednoznačnou NPC Human/rám/program; vlastní nebo upravený zdroj se neodhaduje. Fialová přerušovaná hrana čte signál bodu, zelená posílá dokončení, pomocný název zůstává přesný. Čtení neplatí jako odesílatel. Chybějící/nejednoznačné vazby a čekání mají vysvětlení. Navigaci tras a cíl doprovodu navíc prověřuje čtecí kontrola mise, s odkazy na skutečný program a kontrolou verze čtených souborů.
