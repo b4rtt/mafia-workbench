@@ -2,6 +2,12 @@
 
 Aktualizace: 15. října 2026. Vývoj pokračuje; komplexní editor není dokončený. Implementace, datové testy, ověření UI a ověření ve hře jsou různé úrovně dokončení; neoznačovat jednu za druhou. Podrobnosti existujících funkcí a jejich omezení jsou v README.md a research/formats.md. Původní hra se nemění, úpravy mají kontrolu verze, zálohu, export a undo. Herní data a soukromé reference nepatří do veřejného repozitáře.
 
+## Kontrola uložené mise před testem (2026-10-15)
+
+- Zkontrolovat misi dostupné u částí mise, disabled při draftu/operaci. Samostatný přehled základních souborů, hráče, známých vazeb, textů vybraného jazyka a WAV hlaviček replik, předmětů a přechodů. Sdílené ID se nesčítá opakovaně; hraniční TextDB záznam není text. Nálezy otevřou zdrojový program či soubor. Cykly/čekání nejsou automaticky chyba; vlastní programy jsou výslovně neanalyzované. Bez úprav dat nebo vynucování úspěšné kontroly před testem.
+- Použití existujících parserů, receptů a vazeb; normalizace cest, aktuální vrstvy, opakované porovnání čtených hashů i manifestu. Změna během kontroly odmítne celý výsledek. Nejde o kontrolu všech modelů/textur nebo runtime hratelnosti. Rozsah v research/mission-check.md.
+- 493/493 testů, check/build. Oddělený Electron: tři připravené chyby nalezené; odkaz vybral správný program, draft disabled a návrat původního zdroje povolil kontrolu; volba angličtiny našla další čtyři chybějící překlady, opakování a odkaz do správné tabulky ověřené. Žádný nový herní běh ani zásah do programu hry. Goal plného editoru pokračuje; městský plugin stále čeká na kompletní vlastní hratelnou misi. Krajnice zůstává podle potvrzení uživatele odložená k přesnému profilu OSM.
+
 ## Úkol s příchodem NPC do cíle (2026-10-15)
 
 - Úkol/configure nabízí Příchod vybrané NPC: jednoznačný Human, stálý cíl a poloměr se započtením výšky. Samotný hráč nestačí, jeho přítomnost u cíle se nevyžaduje. NPC musí mít energii >0; program NPC ani navigace se nemění, pohyb se nastaví odděleně. Zachované aktivace, TextDB, checkpoint, timeout/ochrana, signály a konce. Stávající programy stejné; přesné nové zdroje obnoví formulář a Logika mise uvádí NPC. Core kontroluje vazby/scene/geometry/texts, zapisuje jen úkolový program s jedním undo.

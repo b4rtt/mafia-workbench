@@ -14,6 +14,7 @@ import { pickupParameters } from '../shared/pickups.js';
 import { resolveMissionFlow } from '../shared/mission-flow.js';
 import { missionTaskScript, missionTaskVehicles, resolveMissionTaskEscort, editableMissionTask } from '../shared/mission-task.js';
 import { inspectMissionDestination } from './mission-destination.js';
+import { checkMission } from './mission-check.js';
 import { createTerrain } from './terrain.js';
 import { createRoadSurface } from './road-surface.js';
 import { missionDialogueScript, dialogueSpeakers, editableMissionDialogue } from '../shared/mission-dialogue.js';
@@ -897,6 +898,7 @@ export class ModProject {
       return editCache(before, changes);
     }, 'Úprava statických modelů cache.bin');
   }
+  async checkMission(name, textDb = null) { return checkMission(this, name, textDb); }
   async inspectMap(name) {
     if (!/scene2\.bin$/i.test(name)) throw new Error('Vyberte scene2.bin mapy.');
     const scene = await this.inspect(name), folder = scene.path.slice(0, scene.path.lastIndexOf('/'));

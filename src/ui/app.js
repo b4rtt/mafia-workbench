@@ -52,6 +52,7 @@ import { MissionViews } from './mission-views.js';
 import { renderCollisions } from './collision-editor.js';
 import { missionActivationFields } from './mission-activation.js';
 import { renderMissionLogic } from './mission-logic.js';
+import { missionCheckDialog } from './mission-check.js';
 const api = window.workbench;
 const shell = initializeWorkspace();
 const missionViews = new MissionViews();
@@ -76,6 +77,10 @@ function buttons() {
   $('stop-level').disabled = state.busy;
   for (const part of document.querySelectorAll('[data-mission-part]')) part.disabled = state.busy;
   for (const action of document.querySelectorAll('[data-logic-action]')) action.disabled = state.busy;
+  for (const check of document.querySelectorAll('[data-check-mission]')) {
+    check.disabled = state.busy || Boolean(state.texts.size);
+    check.title = state.texts.size ? 'Nejdřív uložte rozepsané změny.' : 'Prověřit uložená data a rozpoznané návaznosti této mise.';
+  }
   for(const rebuild of document.querySelectorAll('[data-collision-rebuild]')){
     rebuild.disabled=state.busy||Boolean(state.texts.size)||rebuild.dataset.collisionRebuild==='unavailable';
     rebuild.title=state.texts.size?'Nejdřív uložte rozepsané změny.':rebuild.dataset.collisionRebuild==='unavailable'?'Mise nemá platné generované kolize.':'Přepočítat kolize vytvořené editorem z aktuálních modelů; původní a ruční kolize zachovat.';
@@ -235,6 +240,21 @@ function renderDetail() {
   replace.onclick = () => run(async () => { if (!await discard()) return; const replacement = await api.replace(file.path); if (!replacement) return; state.file = replacement; if(file.type==='logic')state.file={...await api.map(file.path),type:'logic'}; state.texts.clear(); await refresh(); renderDetail(); status('Soubor nahrazen se zálohou.'); });
   toolbar.append(restore, replace); main.append(toolbar);
   if (/^missions\/[^/]+\//i.test(file.path)) {
+    const check = element('button', 'Zkontrolovat misi'); check.dataset.checkMission = '';
+    check.onclick = () => run(async () => {
+      if (state.texts.size) throw new Error('Před kontrolou mise uložte rozepsané změny.');
+      status('Kontroluji uloženou misi…');
+      const report = await api.checkMission(file.path);
+      missionCheckDialog(report, { element, run, assets: state.project.assets, check: language => api.checkMission(file.path, language), open: async issue => {
+        if (!await discard()) return false;
+        const next = await api.inspect(issue.path);
+        state.texts.clear(); state.file = next;
+        if (issue.entryId) state.logicSourceEntry = issue.entryId;
+        if (issue.textId !== undefined && next.type === 'textdb') state.textIndex = Math.max(0, next.entries.findIndex(entry => entry.id === issue.textId));
+        renderDetail(); renderFiles(); status(`Otevřeno z kontroly mise: ${issue.path}${issue.textId !== undefined ? ` · ${issue.message}` : ''}`); return true;
+      } });
+      status('Kontrola uložených dat dokončená.');
+    }); toolbar.append(check);
     const launch = element('button', 'Spustit level', 'primary');
     launch.dataset.playLevel='';
     launch.onclick = () => run(async () => {

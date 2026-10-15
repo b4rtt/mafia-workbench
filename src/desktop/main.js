@@ -111,6 +111,7 @@ app.whenReady().then(async () => {
   handle('asset:inspect', name => current().inspect(name));
   handle('asset:map', name => current().inspectMap(name));
   handle('mission:destination', name => current().missionDestination(name));
+  handle('mission:check', (name, textDb) => operation(() => current().checkMission(name, textDb)));
   handle('model:terrain', (options,textureHash) => operation(async()=>{const active=current(),path=await active.createTerrain(options,textureHash);return {path,project:await active.list()};}));
   handle('model:road-surface', (name,options,expectedHash,textureHashes) => operation(async()=>{const active=current(),path=await active.createRoadSurface(name,options,expectedHash,textureHashes);return {path,project:await active.list()};}));
   handle('asset:car-models', () => current().carModels());
