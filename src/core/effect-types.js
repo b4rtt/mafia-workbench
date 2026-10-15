@@ -7,10 +7,10 @@ const fail = message => { throw new Error('Definice efektů: ' + message); };
 const scalar = (key, label, target, kind = 'float', limits = {}) => ({key, label, target, kind, ...limits});
 const vector = (key, label, target) => ({key, label, target, kind:'vec3'});
 const schemas = {
-  100: [scalar('name','Název efektu',8,'string'), scalar('model','Model částic',52,'string',{readOnly:true}),
+  100: [scalar('name','Název efektu',8,'string'), scalar('model','Model částic',52,'string'),
     vector('vector1','Původní vektor definice 1',28), vector('vector2','Původní vektor definice 2',40),
     scalar('rotateDirection','Otáčet směr podle rodiče',56,'boolean'), scalar('rotatePosition','Otáčet pozici podle rodiče',57,'boolean')],
-  101: [scalar('name','Název emitoru',8,'string'), scalar('frame','Část modelu částic',28,'string',{readOnly:true}),
+  101: [scalar('name','Název emitoru',8,'string'), scalar('frame','Část modelu částic',28,'string'),
     vector('position','Místní pozice',32), vector('positionSpread','Rozptyl pozice',44),
     vector('direction','Počáteční směr',56), vector('directionSpread','Rozptyl směru',68),
     scalar('speed','Počáteční rychlost',80), scalar('speedSpread','Rozptyl rychlosti',84),
@@ -103,7 +103,12 @@ function encode(value) {
 }
 function validate(entry,value) {
   if(entry.readOnly)fail('vlastnost je pouze ke čtení.');
-  if(entry.kind==='string'){encode(value);return;}
+  if(entry.kind==='string'){
+    encode(value);
+    if(['model','frame'].includes(entry.key)&&!value.trim())fail('model a část modelu nesmí být prázdné.');
+    if(entry.key==='model'&&!/^[^/\\:*?"<>|]+\.i3d$/i.test(value))fail('model musí být název souboru .I3D bez cesty nebo zástupných znaků.');
+    return;
+  }
   if(entry.kind==='boolean'){if(typeof value!=='boolean')fail('příznak musí být true nebo false.');return;}
   const values=entry.kind==='vec3'?value:[value];if(!Array.isArray(values)||values.length!==(entry.kind==='vec3'?3:1))fail('neplatný vektor.');
   for(const number of values){

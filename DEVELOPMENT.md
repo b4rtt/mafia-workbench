@@ -2,6 +2,13 @@
 
 Aktualizace: 15. října 2026. Vývoj pokračuje; komplexní editor není dokončený. Implementace, datové testy, ověření UI a ověření ve hře jsou různé úrovně dokončení; neoznačovat jednu za druhou. Podrobnosti existujících funkcí a jejich omezení jsou v README.md a research/formats.md. Původní hra se nemění, úpravy mají kontrolu verze, zálohu, export a undo. Herní data a soukromé reference nepatří do veřejného repozitáře.
 
+## Modelové vazby částicových efektů (2026-10-15)
+
+- effects.tbl → Model a části…: společný výběr modelu a všech částí emitorů vybraného typu. Neplatná část má prázdný výběr a disabled save; názvy částí musí být přesné, jednoznačné visualy. Parametrické drafty se nejdřív ukládají. Změna modelu se promítne do společné tabulky, modelové a texturové soubory se nemění.
+- Hash modelu se kontroluje jako čtená závislost i při publikaci. Všechny emitory typu se ověří společně; tabulka má jednu historii, export a přesné undo. Testy zahrnují chybějící/změněný model, dummy a duplicitní části, nesprávnou velikost písmen, neznámé suffixy, souběžnou změnu závislosti a rollback.
+- Audit: 93 typů / 169 emitorů / 31 modelů bez chybných vazeb, 262 přesných změn a návratů. Produkční renderer v místním prohlížeči ověřil výběr, invalid/no-op save, společné uložení a obnovení, export a obě přesná undo. Samostatný Electron navíc uložil část přes produkční IPC, obnovil dialog a přesný export a vrátil změnu přes UI undo. GOG 1.2/Wine nad přesnou UI tabulkou zobrazilo bankovky v efektu Fire přemapovaném na 2dollar/Rectangle01; checkpoint 650 potvrdil běh. Diagnostika vrácená, vlastní proces ukončený, chráněné soubory přesné. Podklady a limity v research/formats.md.
+- Cílené testy 22/22, check/build prošly. Celá sada 572/573: jediný známý baseline neúspěch mission-dialogue.test.js očekává /současně/ místo aktuálního „vyberte pouze jednu šablonu“. Tato změna danou hlášku ani test nemění. Simulace částic v editoru a plný editor dál nejsou dokončené.
+
 ## Viditelný přechod od řeči k odpovědím (2026-10-15)
 
 - Uživatel upřesnil, že po Paulieho řeči musí znovu stisknout akční tlačítko, teprve pak vidí odpovědi; po výběru lze chodit. Jde tedy o nevysvětlené čekání na nativní nabídku. Volba nyní může při připravení odpovědí jednou zobrazit vlastní text pokynu přes subtitle_add, bez duplicitního console_addtext. Nové volby mají pokyn výchozí zapnutý, starší se samy nemění. Nabídku nadále otevírá akční tlačítko; automatické otevření menu ani potlačení animace běhu na místě nejsou touto úpravou implementované.

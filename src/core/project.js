@@ -862,12 +862,27 @@ export class ModProject {
     await this.changeBatch([...files.values()],'Úprava částicových efektů mise');
   }
   async saveEffects(name,changes,expectedHash,dependencies) { await this.writeEffects(name,before=>editEffects(before,changes),expectedHash,dependencies); }
-  async saveEffectDefinitions(name,changes,expectedHash) {
+  async saveEffectDefinitions(name,changes,expectedHash,dependencies={}) {
     if(!/^tables\/effects\.tbl$/i.test(name))throw new Error('Soubor není tabulka efektů.');
-    await this.change(name,before=>{
-      if(hash(before)!==expectedHash)throw new Error('Soubor se od otevření změnil. Otevřete jej znovu.');
-      return editEffectDefinitions(before,changes);
-    },'Úprava definic částicových efektů');
+    const before=await this.read(name);
+    if(hash(before)!==expectedHash)throw new Error('Soubor se od otevření změnil. Otevřete jej znovu.');
+    const after=editEffectDefinitions(before,changes),original=parseEffectDefinitions(before),revised=parseEffectDefinitions(after),reads=new Map();
+    for(const type of revised.records){
+      const old=original.records[type.index],value=(node,key)=>node.entries.find(entry=>entry.key===key)?.value;
+      if(value(type,'model')===value(old,'model')&&type.children.every((emitter,i)=>value(emitter,'frame')===value(old.children[i],'frame')))continue;
+      const model=value(type,'model');
+      if(typeof model!=='string'||!model.trim()||!/^[^/\\:*?"<>|]+\.i3d$/i.test(model))throw new Error('Efekt potřebuje název modelu .I3D bez cesty.');
+      const asset=this.asset(`models/${model.replace(/\.i3d$/i,'.4ds')}`),bytes=await this.read(asset.path),expected=dependencies?.modelHashes?.[asset.path];
+      if(typeof expected!=='string'||hash(bytes)!==expected)throw new Error('Model částic se od výběru změnil nebo nebyl ověřen. Načtěte jeho části znovu.');
+      const frames=parseFourDs(bytes).meshes;
+      if(!type.children.length)throw new Error('Typ efektu nemá žádný emitor.');
+      for(const emitter of type.children){
+        const frame=value(emitter,'frame'),matches=frames.filter(mesh=>mesh.name===frame);
+        if(typeof frame!=='string'||!frame.trim()||matches.length!==1||matches[0].type!==1)throw new Error(`Emitor ${emitter.name||emitter.id}: vyberte jednoznačnou vykreslovanou část modelu ${model}.`);
+      }
+      reads.set(asset.path,{path:asset.path,expectedHash:expected});
+    }
+    await this.changeBatch([{path:name,data:after,expectedHash}],'Úprava definic částicových efektů',undefined,[...reads.values()]);
   }
   async changeEffectDefinition(name,request,expectedHash) {
     if(!/^tables\/effects\.tbl$/i.test(name))throw new Error('Soubor není tabulka efektů.');

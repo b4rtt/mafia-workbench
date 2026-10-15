@@ -1,3 +1,5 @@
+import {effectModelDialog} from './effect-model.js';
+
 export function renderEffectDefinitions(main,file,{element,state,api,run,refresh,renderDetail,status}) {
   const all=file.records.flatMap(record=>[record,...record.children.flatMap(emitter=>[emitter,...emitter.children])]);
   main.append(element('p',`${file.records.length} typů · ${all.filter(node=>node.kind==='emitter').length} emitorů · ${all.filter(node=>node.kind==='phase').length} fází. Definice jsou společné pro všechny mise. Nový typ vznikne kopií na konci tabulky; původní ID se nemění. Po změně hru znovu načtěte.`,'notice'));
@@ -51,6 +53,9 @@ export function renderEffectDefinitions(main,file,{element,state,api,run,refresh
     newType.disabled=!selected;const parent=selected&&parentOf(selected),index=parent?.children.indexOf(selected)??-1;duplicate.disabled=!parent;duplicate.textContent=selected?.kind==='phase'?'Kopírovat fázi…':'Kopírovat emitor…';up.disabled=!parent||index===0;down.disabled=!parent||index===parent.children.length-1;remove.disabled=!parent||parent.children.length<2;
     if(!selected)return;remember();form.replaceChildren();
     form.append(element('h3',`${selected.kind==='effect'?'Typ efektu':selected.kind==='emitter'?'Emitor':'Fáze'} · ${title(selected)||'(bez názvu)'}`));
+    if(selected.kind!=='phase'){
+      const binding=element('button','Model a části…');binding.onclick=()=>run(()=>{guard();let type=selected;while(parentOf(type))type=parentOf(type);effectModelDialog({element,api,assets:state.project.assets,file,type,run,onSaved:async result=>{state.file=result;await refresh();renderDetail();status('Modelové vazby efektu uložené s jedním undo.');}});});form.append(binding);
+    }
     for(const warning of selected.warnings)form.append(element('p',warning,'notice'));
     const fields=element('div',undefined,'item-fields'),advanced=element('details'),advancedFields=element('div',undefined,'item-fields');advanced.append(element('summary','Původní parametry a příznaky'),advancedFields);form.append(fields);
     const save=element('button',`Uložit změny (${state.texts.size})`,'primary');save.disabled=!state.texts.size;
@@ -67,9 +72,10 @@ export function renderEffectDefinitions(main,file,{element,state,api,run,refresh
     }
     for(const entry of selected.entries){
       const value=current(entry),label=element('div',undefined,'effect-definition-field'),caption=element('span',entry.label),target=/^(parameter|vector\d|flags$|mode$)/.test(entry.key)?advancedFields:fields;label.append(caption);
-      if(entry.readOnly)label.append(element('span','Pouze ke čtení','muted'));
+      const binding=['model','frame'].includes(entry.key),readOnly=entry.readOnly||binding;
+      if(readOnly)label.append(element('span',binding?'Změnit přes Model a části…':'Pouze ke čtení','muted'));
       if(entry.kind==='string'||entry.kind==='boolean'){
-        const input=element('input');input.type=entry.kind==='boolean'?'checkbox':'text';input.disabled=entry.readOnly;input.setAttribute('aria-label',entry.label);
+        const input=element('input');input.type=entry.kind==='boolean'?'checkbox':'text';input.disabled=readOnly;input.setAttribute('aria-label',entry.label);
         if(entry.kind==='boolean')input.checked=value;else input.value=value??'';
         input.oninput=()=>update(entry,entry.kind==='boolean'?input.checked:input.value,[input.value]);label.append(input);
       }else {
@@ -84,7 +90,7 @@ export function renderEffectDefinitions(main,file,{element,state,api,run,refresh
       target.append(label);
     }
     if(advancedFields.childElementCount)form.append(advanced);
-    form.append(element('p','XYZ jsou herní souřadnice. Neprůhlednost: 0 = průhledné, 1 = neprůhledné. Původní parametry a bitové příznaky nemají všechny významy ověřené. Model a vazba na jeho část jsou zde pouze ke čtení. Náhled částic zatím vykresluje hra.','notice'));
+    form.append(element('p','XYZ jsou herní souřadnice. Neprůhlednost: 0 = průhledné, 1 = neprůhledné. Původní parametry a bitové příznaky nemají všechny významy ověřené. Model a části všech emitorů nastavte společně přes Model a části… Náhled částic zatím vykresluje hra.','notice'));
     save.onclick=()=>run(async()=>{
       if([...state.texts.values()].some(value=>value?.invalid))throw new Error('Opravte neplatné hodnoty před uložením.');
       state.file=await api.saveEffectDefinitions(file.path,[...state.texts].map(([id,value])=>({id,value})),file.sha256);state.texts.clear();await refresh();renderDetail();status('Definice efektů uložené do modu se zálohou.');

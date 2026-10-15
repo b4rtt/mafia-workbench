@@ -59,13 +59,14 @@ test('foreign fallback blocks and NaN payloads are preserved and never offered a
   const bytes=fixture(),flag=parseEffectDefinitions(bytes).records[0].entries.find(entry=>entry.key==='rotateDirection');bytes[flag.offsets[0]]=2;assert.equal(parseEffectDefinitions(bytes).entries.find(entry=>entry.id===flag.id).readOnly,true);assert.deepEqual(editEffectDefinitions(bytes,[]),bytes);
 });
 
-test('malformed layouts, readonly references, duplicate IDs and invalid values are rejected before publication',()=>{
+test('malformed layouts, duplicate IDs and invalid values are rejected before publication',()=>{
   const bytes=fixture(),parsed=parseEffectDefinitions(bytes),phase=parsed.records[0].children[0].children[0],emitter=parsed.records[0].children[0];
   for(const source of [Buffer.alloc(1),chunk(100,Buffer.from([1])),chunk(100,chunk(106,Buffer.alloc(23))),chunk(100,chunk(101,chunk(106,Buffer.alloc(79)))),chunk(100,chunk(101,chunk(102,chunk(106,Buffer.alloc(71)))))])assert.throws(()=>parseEffectDefinitions(source),/Definice efektů/);
   for(const value of [0,-1,1.5,2**31,NaN,'100'])assert.throws(()=>editEffectDefinitions(bytes,[{id:entry(phase,'duration').id,value}]),/Definice efektů/);
   for(const value of [null,[],[1,2],[1,2,Infinity],[1,2,1e40],Array(3)])assert.throws(()=>editEffectDefinitions(bytes,[{id:entry(emitter,'position').id,value}]),/Definice efektů/);
   for(const value of ['x\0y','🔥','x'.repeat(999)])assert.throws(()=>editEffectDefinitions(bytes,[{id:entry(phase,'name').id,value}]),/název/);
-  assert.throws(()=>editEffectDefinitions(bytes,[{id:entry(emitter,'frame').id,value:'Absent'}]),/pouze ke čtení/);
+  for(const value of ['', '  ', 'x\0y','🔥'])assert.throws(()=>editEffectDefinitions(bytes,[{id:entry(emitter,'frame').id,value}]),/Definice efektů/);
+  for(const value of ['../particle.I3D','folder/particle.I3D','particle.4ds','*.I3D','x?.I3D','x:I3D',''])assert.throws(()=>editEffectDefinitions(bytes,[{id:entry(parsed.records[0],'model').id,value}]),/Definice efektů/);
   assert.throws(()=>editEffectDefinitions(bytes,[{id:entry(phase,'durationSpread').id,value:250}]),/rozptyl délky/);
   assert.throws(()=>editEffectDefinitions(bytes,[{id:entry(phase,'duration').id,value:100},{id:entry(phase,'duration').id,value:120}]),/opakovaná/);
   assert.throws(()=>editEffectDefinitions(bytes,[{id:'missing',value:1}]),/vlastnost/);
@@ -127,4 +128,43 @@ test('definition structure guards stale versions, publication rollback, export a
   const selection=await p.changeEffectDefinition(name,request,hash(source));assert.equal(selection,'types/1');assert.equal(p.manifest.history.length,history+1);
   const expected=changeEffectDefinition(source,request).data,reopen=await ModProject.open(root);assert.deepEqual(await reopen.read(name),expected);await reopen.export(root+'/export');assert.deepEqual(await fs.readFile(root+'/export/'+name),expected);
   await reopen.undo();assert.deepEqual(await reopen.read(name),source);assert.equal(reopen.manifest.history.length,history);assert.equal((await reopen.read('protected.bin')).toString(),'protected');
+});
+
+function particleModel(frames=[['Mesh',1]]){
+  const header=Buffer.alloc(14);header.write('4DS\0');header.writeUInt16LE(29,4);
+  const u16=value=>{const b=Buffer.alloc(2);b.writeUInt16LE(value);return b;},str=value=>{const b=iconv.encode(value,'windows-1250');return Buffer.concat([Buffer.from([b.length]),b]);};
+  const meshes=frames.map(([name,type])=>Buffer.concat([Buffer.from(type===1?[1,7,0,0]:[6]),u16(0),floats([0,0,0,1,1,1,1,0,0,0]),Buffer.from([0]),str(name),str(''),Buffer.alloc(type===1?4:24)]));
+  return Buffer.concat([header,u16(0),u16(meshes.length),...meshes,Buffer.from([0])]);
+}
+
+test('model and emitter references resize strings and ancestor lengths without changing suffixes or other types',()=>{
+  const source=Buffer.concat([fixture(),fixture({opaque:true})]),type=parseEffectDefinitions(source).records[0],emitter=type.children[0],changes=[{id:entry(type,'model').id,value:'VlastníČástice.I3D'},{id:entry(emitter,'frame').id,value:'Delší pojmenovaná část'}];
+  const result=editEffectDefinitions(source,changes),after=parseEffectDefinitions(result).records[0];
+  assert.equal(entry(after,'model').value,changes[0].value);assert.equal(entry(after.children[0],'frame').value,changes[1].value);assert.deepEqual(result.subarray(-fixture({opaque:true}).length),fixture({opaque:true}));
+  for(const suffix of ['type-suffix','emitter-suffix','phase-suffix'])assert(result.includes(Buffer.from(suffix)));
+  assert.deepEqual(editEffectDefinitions(result,[{id:changes[0].id,value:'particle.I3D'},{id:changes[1].id,value:'Mesh'}]),source);
+});
+
+test('project validates every emitter against the chosen model, retains dependencies and supports exact undo/export',async t=>{
+  const root=await fs.mkdtemp(path.join(os.tmpdir(),'mafia-effect-binding-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));await writeSafe(root,'workbench.json',JSON.stringify({format:'mafia-workbench',version:2,name:'Bindings',assets:[],history:[]}));
+  const p=await ModProject.open(root),name='tables/effects.tbl',source=changeEffectDefinition(fixture(),{action:'duplicate',id:parseEffectDefinitions(fixture()).records[0].children[0].id,name:'Second'}).data,modelPath='Models/new.4ds',model=particleModel([['New Mesh',1],['Dummy',6]]);
+  await p.createFiles([{path:name,data:source},{path:modelPath,data:model},{path:'protected.bin',data:Buffer.from('protected')}]);const baseline=p.manifest.history.length,type=parseEffectDefinitions(source).records[0],changes=[{id:entry(type,'model').id,value:'new.I3D'},...type.children.map(emitter=>({id:entry(emitter,'frame').id,value:'New Mesh'}))],dependencies={modelHashes:{[modelPath]:hash(model)}};
+  await assert.rejects(()=>p.saveEffectDefinitions(name,changes,hash(source)),/nebyl ověřen/);
+  await assert.rejects(()=>p.saveEffectDefinitions(name,changes,hash(source),{modelHashes:{[modelPath]:'stale'}}),/změnil/);
+  await assert.rejects(()=>p.saveEffectDefinitions(name,changes.slice(0,2),hash(source),dependencies),/Emitor Second/);
+  for(const value of ['missing','Dummy','new mesh'])await assert.rejects(()=>p.saveEffectDefinitions(name,[changes[0],...type.children.map(emitter=>({id:entry(emitter,'frame').id,value}))],hash(source),dependencies),/vykreslovanou část/);
+  assert.equal(p.manifest.history.length,baseline);assert.deepEqual(await p.read(name),source);
+  await p.saveEffectDefinitions(name,changes,hash(source),dependencies);const expected=editEffectDefinitions(source,changes);assert.deepEqual(await p.read(name),expected);assert.equal(p.manifest.history.length,baseline+1);assert.equal(p.manifest.history.at(-1).files.length,1);assert.deepEqual(await p.read(modelPath),model);
+  const reopened=await ModProject.open(root);await reopened.export(root+'/export');assert.deepEqual(await fs.readFile(root+'/export/'+name),expected);await reopened.saveEffectDefinitions(name,parseEffectDefinitions(expected).entries.map(({id,value})=>({id,value})),hash(expected));assert.equal(reopened.manifest.history.length,baseline+1);
+  await reopened.undo();assert.deepEqual(await reopened.read(name),source);assert.equal(reopened.manifest.history.length,baseline);assert.equal((await reopened.read('protected.bin')).toString(),'protected');assert.deepEqual(await reopened.read(modelPath),model);
+});
+
+test('binding writes reject ambiguous names, changed dependencies and publication failures atomically',async t=>{
+  const root=await fs.mkdtemp(path.join(os.tmpdir(),'mafia-effect-dependency-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));await writeSafe(root,'workbench.json',JSON.stringify({format:'mafia-workbench',version:2,name:'Bindings',assets:[],history:[]}));
+  const p=await ModProject.open(root),name='tables/effects.tbl',source=fixture(),modelPath='models/new.4ds',model=particleModel(),duplicatePath='models/ambiguous.4ds',duplicate=particleModel([['Mesh',1],['Mesh',1]]);await p.createFiles([{path:name,data:source},{path:modelPath,data:model},{path:duplicatePath,data:duplicate}]);const baseline=p.manifest.history.length,type=parseEffectDefinitions(source).records[0],changes=[{id:entry(type,'model').id,value:'new.I3D'}],dependencies={modelHashes:{[modelPath]:hash(model)}};
+  await assert.rejects(()=>p.saveEffectDefinitions(name,[{id:changes[0].id,value:'ambiguous.I3D'}],hash(source),{modelHashes:{[duplicatePath]:hash(duplicate)}}),/jednoznačnou/);
+  const read=p.read;let reads=0;p.read=async function(n){const b=await read.call(this,n);return n===modelPath&&++reads===3?Buffer.concat([b,Buffer.from([0])]):b;};await assert.rejects(()=>p.saveEffectDefinitions(name,changes,hash(source),dependencies),/Závislý soubor/);p.read=read;
+  assert.equal(p.manifest.history.length,baseline);assert.deepEqual(await p.read(name),source);
+  const publish=p.saveManifest;p.saveManifest=async()=>{throw Error('Publish failed');};await assert.rejects(()=>p.saveEffectDefinitions(name,changes,hash(source),dependencies),/Publish failed/);p.saveManifest=publish;
+  assert.equal(p.manifest.history.length,baseline);assert.deepEqual(await p.read(name),source);assert.deepEqual(await p.read(modelPath),model);
 });
