@@ -1,4 +1,5 @@
 import { missionFlow, missionFlowTargets } from './mission-flow.js';
+import { missionActivation, inspectMissionActivation } from './mission-activation.js';
 import { validMissionDestination } from './mission-destinations.js';
 
 const key = name => name.normalize('NFC').toLowerCase();
@@ -12,8 +13,10 @@ export function missionTaskVehicles(scene) {
 
 // A linear task uses one detector program. Each stage removes only its own
 // objective; other mission scripts retain their objectives and state.
-export function missionTaskScript({objectiveId, interactionId, nextObjectiveId, completeId, targetName, targetRadius = 3, exitToMenu = false, nextMission = null, checkpointId = null, failure = null, flow = null, vehicle = null, inventory = null} = {}) {
-  for (const id of [objectiveId, interactionId, nextObjectiveId, completeId]) if (!Number.isSafeInteger(id) || id < 0 || id > 0xffffffff) throw new Error('Úkol: ID textů musí být celá čísla 0–4294967295.');
+export function missionTaskScript({objectiveId, interactionId, nextObjectiveId, completeId, targetName, targetRadius = 3, trigger = 'use', triggerRadius = null, exitToMenu = false, nextMission = null, checkpointId = null, failure = null, flow = null, vehicle = null, inventory = null} = {}) {
+  const activation = missionActivation(trigger, triggerRadius, 'Úkol');
+  if (trigger !== 'use' && (objectiveId != null || interactionId != null)) throw new Error('Úkol: automatické spuštění nemá první zadání ani nabídku akce.');
+  for (const id of [nextObjectiveId, completeId, ...(trigger === 'use' ? [objectiveId, interactionId] : [])]) if (!Number.isSafeInteger(id) || id < 0 || id > 0xffffffff) throw new Error('Úkol: ID textů musí být celá čísla 0–4294967295.');
   if (inventory !== null && (typeof inventory !== 'object' || Array.isArray(inventory) || !Number.isSafeInteger(inventory.itemId) || inventory.itemId < 2 || inventory.itemId > 65535 || typeof inventory.atTarget !== 'boolean' || typeof inventory.consume !== 'boolean' || vehicle !== null)) throw new Error('Úkol: vyberte platný předmět, způsob získání a odevzdání; nelze jej kombinovat s převozem autem.');
   const spatial = inventory === null || inventory.atTarget;
   if (spatial && (typeof targetName !== 'string' || !targetName.trim() || targetName.length > 255 || /["\x00-\x1f]/.test(targetName))) throw new Error('Úkol: neplatný název cílového objektu.');
@@ -45,7 +48,7 @@ export function missionTaskScript({objectiveId, interactionId, nextObjectiveId, 
   const frames=spatial?`findframe 0, "${targetName}"\nfindframe 1, "${vehicle?.name??'Tommy'}"\n`:'';
   const distance=spatial?`frm_getworldpos 0, 0\nfrm_getworldpos 1, 3\nvect_sub_vect 0, 3\nvect_magnitude 0, 6\nif flt[6] < ${targetRadius}, 20, -1\n`:'';
   const consume=inventory?.consume?`human_delweapon ${player}, ${inventory.itemId}\n`:'';
-  return `${spatial?'dim_frm 2\n':''}dim_flt ${vehicle!==null?12:timeout!==null?10:human!==null?8:7}\n${actors?`dim_act ${actors}\n`:''}wait 2000\n${link.gate}${link.start}${frames}mission_objectives ${objectiveId}\nsubtitle_add ${objectiveId}\ndetector_waitforuse ${interactionId}\nmission_objectivesremove ${objectiveId}\nmission_objectives ${nextObjectiveId}\nsubtitle_add ${nextObjectiveId}\n${start}${checkpointId === null ? '' : `autosavegamefull ${checkpointId}, 1\n`}label 10\n${poll}${occupancy}${membership}${distance}${vehicle===null&&inventory===null?'':'label 15\n'}wait 100\ngoto 10\nlabel 20\n${consume}mission_objectivesremove ${nextObjectiveId}\nsubtitle_add ${completeId}\nconsole_addtext ${completeId}\nwait 4000\n${link.complete}${transition}${exitToMenu ? `endofmission 1, ${completeId}\n` : ''}end${failed}`;
+  return `${spatial?'dim_frm 2\n':''}dim_flt ${vehicle!==null?12:timeout!==null?10:human!==null?8:7}\n${actors?`dim_act ${actors}\n`:''}wait 2000\n${link.gate}${link.start}${activation}${frames}${trigger === 'use' ? `mission_objectives ${objectiveId}\nsubtitle_add ${objectiveId}\ndetector_waitforuse ${interactionId}\nmission_objectivesremove ${objectiveId}\n` : ''}mission_objectives ${nextObjectiveId}\nsubtitle_add ${nextObjectiveId}\n${start}${checkpointId === null ? '' : `autosavegamefull ${checkpointId}, 1\n`}label 10\n${poll}${occupancy}${membership}${distance}${vehicle===null&&inventory===null?'':'label 15\n'}wait 100\ngoto 10\nlabel 20\n${consume}mission_objectivesremove ${nextObjectiveId}\nsubtitle_add ${completeId}\nconsole_addtext ${completeId}\nwait 4000\n${link.complete}${transition}${exitToMenu ? `endofmission 1, ${completeId}\n` : ''}end${failed}`;
 }
 
 // Recovery is read-only until the entire source round trips through the wizard.
@@ -59,7 +62,8 @@ export function inspectMissionTask(code) {
   const occupancy=/^compareactors (\d+), \d+, 10$/m.exec(source),signal=part=>{const match=/^detector_setsignal (\d+), 1$/m.exec(part??'');return match?bindings.get(Number(match[1])):null;};
   const flow={waitForSignal:source.includes('label 1\ndetector_issignal -1, 2, -1\n'),onComplete:signal(parts[0]),onFailure:signal(parts[1])};
   const item=/^human_isweapon \d+, 6, (\d+)$/m.exec(source),inventory=item?{itemId:Number(item[1]),atTarget:Boolean(target),consume:/^human_delweapon \d+, \d+$/m.test(parts[0])}:null;
-  const task={objectiveId:Number(objective?.[1]),interactionId:Number(use?.[1]),nextObjectiveId:Number(next?.[1]),completeId:Number(complete?.[1]),targetName:target?.[1]??(inventory?null:undefined),targetRadius:radius?Number(radius[1]):inventory?null:NaN,checkpointId:checkpoint?Number(checkpoint[1]):null,nextMission:transition?.[1]??null,exitToMenu:/^endofmission 1, \d+$/m.test(parts[0]),
+  const activation=inspectMissionActivation(source);
+  const task={...(activation.trigger==='use'?{}:activation),objectiveId:use?Number(objective?.[1]):null,interactionId:use?Number(use[1]):null,nextObjectiveId:Number(use?next?.[1]:objective?.[1]),completeId:Number(complete?.[1]),targetName:target?.[1]??(inventory?null:undefined),targetRadius:radius?Number(radius[1]):inventory?null:NaN,checkpointId:checkpoint?Number(checkpoint[1]):null,nextMission:transition?.[1]??null,exitToMenu:/^endofmission 1, \d+$/m.test(parts[0]),
     vehicle:occupancy?{name:bindings.get(Number(occupancy[1])),driverOnly:/^human_getseatidx \d+, 11$/m.test(source)}:null,
     failure:failureText?{timeoutSeconds:timeout?Number(timeout[1])/1000:null,humanName:guard?bindings.get(Number(guard[1])):null,textId:Number(failureText[1]),endMission:/^endofmission 0, \d+$/m.test(parts[1]??'')}:null,flow:flow.waitForSignal||flow.onComplete||flow.onFailure?flow:null,...(inventory?{inventory}:{})};
   try{if(missionTaskScript(task)===source)return task;}catch{/* Do not replace unrecognized source. */}

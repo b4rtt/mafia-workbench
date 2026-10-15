@@ -1,3 +1,4 @@
+import { missionActivation, inspectMissionActivation } from './mission-activation.js';
 import { missionFlow, missionFlowTargets } from './mission-flow.js';
 
 const key=name=>name.normalize('NFC').toLowerCase();
@@ -14,8 +15,9 @@ export function dialogueSpeakers(scene){
     meshes.filter(other=>key(other.name)===key(actor.name)).length<=1&&
     [...objects,...meshes].some(other=>key(other.name)===key(actor.name)));
 }
-export function missionDialogueScript({trigger='use',interactionId,camera=false,lines,flow=null}={}){
-  if(!['use','load'].includes(trigger)||typeof camera!=='boolean')throw new Error('Rozhovor: neplatný způsob spuštění nebo kamera.');
+export function missionDialogueScript({trigger='use',triggerRadius=null,interactionId,camera=false,lines,flow=null}={}){
+  const activation=missionActivation(trigger,triggerRadius,'Rozhovor');
+  if(typeof camera!=='boolean')throw new Error('Rozhovor: neplatný způsob spuštění nebo kamera.');
   if(trigger==='use'&&!validId(interactionId))throw new Error('Rozhovor: ID akce musí být celé číslo 0–2147483647.');
   if(!Array.isArray(lines)||!lines.length||lines.length>32)throw new Error('Rozhovor: zadejte 1–32 replik.');
   const participants=[],indices=new Map();
@@ -26,7 +28,8 @@ export function missionDialogueScript({trigger='use',interactionId,camera=false,
     if(camera){if(!validName(line.listener)||key(line.listener)===key(line.speaker))throw new Error('Rozhovor: kamera potřebuje jiného posluchače než mluvčího.');index(line.listener);}
   }
   const link=missionFlow(flow,{actorOffset:participants.length});
-  const code=[`dim_act ${participants.length+link.actors}`,'wait 2000',...(link.gate+link.start).trimEnd().split('\n').filter(Boolean),...participants.map((name,i)=>`findactor ${i}, "${name}"`)];
+  const code=[`dim_act ${participants.length+link.actors}`,...(trigger==='area'?['dim_flt 1']:[]),'wait 2000',...(link.gate+link.start).trimEnd().split('\n').filter(Boolean),...participants.map((name,i)=>`findactor ${i}, "${name}"`)];
+  if(activation)code.push(activation.trimEnd());
   if(trigger==='use')code.push(`detector_waitforuse ${interactionId}`);
   if(camera)code.push(`dialog_begin 0, ${participants.length}`);
   for(const line of lines){if(camera)code.push(`dialog_camswitch ${index(line.listener)}, ${index(line.speaker)}`);code.push(`human_talk ${index(line.speaker)}, ${line.textId}`);}
@@ -42,7 +45,7 @@ export function inspectMissionDialogue(code){
   const source=code.replaceAll('\r\n','\n'),bindings=new Map([...source.matchAll(/^findactor (\d+), "([^"\x00-\x1f]+)"$/gm)].map(match=>[Number(match[1]),match[2]])),camera=/^dialog_begin \d+, \d+$/m.test(source);
   const lines=camera?[...source.matchAll(/^dialog_camswitch (\d+), (\d+)\nhuman_talk (\d+), (\d+)$/gm)].map(match=>({speaker:bindings.get(Number(match[3])),listener:bindings.get(Number(match[1])),textId:Number(match[4])})):[...source.matchAll(/^human_talk (\d+), (\d+)$/gm)].map(match=>({speaker:bindings.get(Number(match[1])),textId:Number(match[2])}));
   const use=/^detector_waitforuse (\d+)$/m.exec(source),signal=/^detector_setsignal (\d+), 1$/m.exec(source),waitForSignal=source.includes('label 1\ndetector_issignal -1, 2, -1\n'),onComplete=signal?bindings.get(Number(signal[1])):null;
-  const dialogue={trigger:use?'use':'load',...(use?{interactionId:Number(use[1])}:{}),camera,lines,flow:waitForSignal||onComplete?{waitForSignal,onComplete,onFailure:null}:null};
+  const dialogue={...inspectMissionActivation(source),...(use?{interactionId:Number(use[1])}:{}),camera,lines,flow:waitForSignal||onComplete?{waitForSignal,onComplete,onFailure:null}:null};
   try{if(missionDialogueScript(dialogue)===source)return dialogue;}catch{/* Unknown or modified programs are not wizard recipes. */}
   return null;
 }

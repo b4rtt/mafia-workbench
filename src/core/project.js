@@ -487,7 +487,7 @@ export class ModProject {
       const asset=this.asset(textPath),bytes=await this.read(asset.path);
       if(hash(bytes)!==task.textHash)throw new Error('Úkol: texty se od otevření změnily. Otevřete dialog znovu.');
       const texts=parseTextDb(bytes,asset.path).entries,ids=new Set(texts.map(entry=>entry.id));
-      if([task.objectiveId,task.interactionId,task.nextObjectiveId,task.completeId].some(id=>!ids.has(id)))throw new Error('Úkol: některé ID v jazykové tabulce neexistuje. Nejprve vytvořte vlastní texty.');
+      if([task.nextObjectiveId,task.completeId,...((task.trigger??'use')==='use'?[task.objectiveId,task.interactionId]:[])].some(id=>!ids.has(id)))throw new Error('Úkol: některé ID v jazykové tabulce neexistuje. Nejprve vytvořte vlastní texty.');
       if(task.checkpointId!=null && !texts.slice(0,-1).some(entry=>entry.id===task.checkpointId && entry.text.trim()))throw new Error('Úkol: checkpoint potřebuje existující neprázdný název v jazykové tabulce. Vytvořte text s ID 5000–5599.');
       if(!task.inventory || task.inventory.atTarget){
         const targets=[...inspectScene(before).objects,...geometry.meshes].filter(object=>key(object.name)===key(task.targetName));

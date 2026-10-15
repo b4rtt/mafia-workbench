@@ -31,7 +31,7 @@ export function missionLogic(scene) {
     const task = detector ? editableMissionTask(scene, name) : null, dialogue = detector && !task ? editableMissionDialogue(scene, name) : null, combat = detector && !task && !dialogue ? editableMissionCombat(scene, name) : null;
     const kind = task ? 'task' : dialogue ? 'dialogue' : combat ? 'combat' : 'custom';
     const recipe = task?.task ?? dialogue?.dialogue ?? combat?.combat ?? null;
-    const node = add({ id: `script:${entry.id}`, name, kind, entryId: entry.id, actor: Boolean(entry.actorScript), recipe, members: [name], trigger: kind === 'task' ? 'use' : recipe?.trigger ?? null, waiting: recipe?.flow?.waitForSignal ?? false });
+    const node = add({ id: `script:${entry.id}`, name, kind, entryId: entry.id, actor: Boolean(entry.actorScript), recipe, members: [name], trigger: recipe ? recipe.trigger ?? 'use' : null, waiting: recipe?.flow?.waitForSignal ?? false });
     if (entry.actorScript) alias(name, node);
   }
   const targets = new Set(missionFlowTargets(scene).map(actor => key(actor.name)));

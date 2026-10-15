@@ -2,6 +2,12 @@
 
 Aktualizace: 15. října 2026. Vývoj pokračuje; komplexní editor není dokončený. Implementace, datové testy, ověření UI a ověření ve hře jsou různé úrovně dokončení; neoznačovat jednu za druhou. Podrobnosti existujících funkcí a jejich omezení jsou v README.md a research/formats.md. Původní hra se nemění, úpravy mají kontrolu verze, zálohu, export a undo. Herní data a soukromé reference nepatří do veřejného repozitáře.
 
+## Spouštění receptů při příchodu hráče (2026-10-15)
+
+- Úkol, rozhovor a boj: use/load/area s kladným poloměrem koule, pouze hráč/maska 1, polling 100 ms, jednorázově po případném signálu. Běžný úkol nově load; bez prvního zadání a textu akce. Limit/checkpoint/kamera/řeč až po aktivaci; ostatní cíle, konce a signály zachované. Diagram uvádí aktivaci a poloměr. Přesné legacy recepty i vlastní source zachované, stejná kontrola závislostí/export/undo.
+- Oddělené UI uložilo oblasti všech tří receptů, neplatný poloměr zakázal save, graf ukázal 2,5/3/3. Jediný krok historie každého nastavení a přesný export. GOG 1.2 diagnostická zkouška: NPC uvnitř ve 3 s, signál v 8 s, hráč až ve 14 s. Save 11/21/32 s doložily čekání jen na hráče, rozhovor a neúspěchy až po osmivteřinových limitech od vstupu. Diagnostické varianty měly vlastní příjemce a limit; nejsou vydávané za ruční průchod. Podrobnosti v research/mission-activation.md.
+- 478/478 testů, check/build. Vlastní hry/aplikace ukončené, příprava a UI změny přes undo na historii 12; všechny části, TextDB a chráněné soubory shodné. 3D koule a opakované triggery zatím nepodporované; obnovení checkpointu oblasti zatím neověřené. Goal zůstává aktivní; kompletní mise a městský plugin nejsou dokončené.
+
 ## Společný pohled logiky mise (2026-10-15)
 
 - Nová část mise Logika mise: přesné úkolové, rozhovorové, bojové a větvené recepty, známé signály dokončení/neúspěchu, odpovědi, přechod do mise a konce. Pomocné body voleb seskupené jen při shodě celé skupiny; vlastní změněné programy a neúplné řadiče zůstávají jako zdroj. Nejde o interpreter LS3D ani analýzu všech původních skriptů.

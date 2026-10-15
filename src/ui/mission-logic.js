@@ -19,7 +19,7 @@ export function renderMissionLogic(main, file, remembered, { element, projectRoo
   panel(toggleOutline, 'logic-outline-hidden', !(remembered?.outlineHidden ?? false)); panel(toggleInspector, 'logic-inspector-hidden', !(remembered?.inspectorHidden ?? false));
   toggleOutline.onclick = () => panel(toggleOutline, 'logic-outline-hidden', layout.classList.contains('logic-outline-hidden'));
   toggleInspector.onclick = () => panel(toggleInspector, 'logic-inspector-hidden', layout.classList.contains('logic-inspector-hidden'));
-  const caption = node => node.kind === 'choice' ? `${node.waiting ? 'Po signálu · ' : ''}${node.recipe.answers.length} odpovědi · ${node.recipe.controller}` : node.recipe ? `${node.waiting ? 'Po signálu · ' : ''}${node.trigger === 'use' ? 'Akce hráče' : 'Po načtení'}` : logicKinds[node.kind];
+  const caption = node => node.kind === 'choice' ? `${node.waiting ? 'Po signálu · ' : ''}${node.recipe.answers.length} odpovědi · ${node.recipe.controller}` : node.recipe ? `${node.waiting ? 'Po signálu · ' : ''}${node.trigger === 'use' ? 'Akce hráče' : node.trigger === 'area' ? `Oblast · ${node.recipe.triggerRadius}` : 'Po načtení'}` : logicKinds[node.kind];
   function select(id) {
     selected = id;
     for (const [nodeId, card] of cards) { card.classList.toggle('selected', nodeId === id); card.setAttribute('aria-pressed', String(nodeId === id)); }

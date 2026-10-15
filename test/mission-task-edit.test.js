@@ -39,3 +39,11 @@ test('task editing checks geometry and texts at publication and rolls back faile
  for(const file of [geometryPath,textPath]){const original=await p.read(file);p.changeBatch=async function(files,...args){await this.change(file,Buffer.concat([original,Buffer.from([1])]),'Concurrent dependency');return batch.call(this,files,...args);};await assert.rejects(p.changeSceneObject(name,request,hash(scene)),/změnil/);assert.deepEqual(await p.read(name),scene);p.changeBatch=batch;await p.undo();assert.deepEqual(await p.read(file),original);}
  const save=p.saveManifest;p.saveManifest=async()=>{throw Error('Task edit publish failed');};await assert.rejects(p.changeSceneObject(name,request,hash(scene)),/publish failed/);p.saveManifest=save;assert.deepEqual(await p.read(name),scene);assert.equal(p.manifest.history.length,history);
 });
+test('automatic and area task settings use only their text IDs, preserve scene data, export and undo exactly',async t=>{
+ const {p,root,name,scene,textPath,text,request}=await fixture(t),history=p.manifest.history.length;
+ for(const trigger of ['load','area']){
+  const recipe={...request.task,objectiveId:null,interactionId:null,trigger,...(trigger==='area'?{triggerRadius:4.5}:{})},operation={...request,task:recipe};
+  await p.changeSceneObject(name,operation,hash(scene));const changed=await p.read(name),recognized=editableMissionTask(await p.inspectMap(name),'Quest');assert.equal(recognized.task.trigger,trigger);assert.equal(recognized.entry.value.code,missionTaskScript(recipe));assert.deepEqual(p.manifest.history.at(-1).files.map(f=>f.path),[name]);assert.deepEqual(await p.read(textPath),text);await p.export(root+'/activation-export-'+trigger);assert.deepEqual(await fs.readFile(root+'/activation-export-'+trigger+'/'+name),changed);await p.undo();assert.deepEqual(await p.read(name),scene);
+ }
+ await assert.rejects(p.changeSceneObject(name,{...request,task:{...request.task,objectiveId:null,interactionId:null,trigger:'area',triggerRadius:0}},hash(scene)),/poloměr/);assert.equal(p.manifest.history.length,history);
+});

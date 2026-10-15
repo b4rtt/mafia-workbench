@@ -1,3 +1,4 @@
+import { missionActivationFields } from './mission-activation.js';
 import { combatTargets, resolveMissionCombat, missionCombatScript, editableMissionCombat } from '../shared/mission-combat.js';
 
 export function missionCombatDialog({ api, assets, file, position = [0, 0, 0], target = null, element, run, flowFields, onCreated }) {
@@ -12,8 +13,7 @@ export function missionCombatDialog({ api, assets, file, position = [0, 0, 0], t
   const npc = (parent, label) => { const input = field(parent, label, element('select')); for (const actor of candidates) { const option = element('option', actor.name); option.value = actor.name; input.append(option); } return input; };
   const name = field(fields, 'Název bojového úkolu', element('input')); name.value = existing?.entry.value.name ?? 'WB_COMBAT'; name.required = true; name.maxLength = 63; name.disabled = editing;
   const xyz = ['X', 'Y', 'Z'].map((label, i) => { const input = numeric(label, position[i] ?? 0); input.step = 'any'; return input; });
-  const trigger = field(fields, 'Spuštění bojového úkolu', element('select'));
-  for (const [value, label] of [['use', 'Použití bodu tlačítkem akce'], ['load', 'Po načtení mise']]) { const option = element('option', label); option.value = value; trigger.append(option); }
+  const activation = missionActivationFields(element, (label, input) => field(fields, label, input), initial), trigger = activation.trigger;
   const language = field(fields, 'Jazyk textů', element('select'));
   for (const asset of assets.filter(asset => /^tables\/textdb_[a-z]{2}\.def$/i.test(asset.path))) { const option = element('option', asset.path); option.value = asset.path; language.append(option); }
   const cz = [...language.options].find(option => /textdb_cz\.def$/i.test(option.value)); if (cz) language.value = cz.value;
@@ -37,11 +37,11 @@ export function missionCombatDialog({ api, assets, file, position = [0, 0, 0], t
   let targets = [], textFile = null, closed = false, revision = 0, saving = false;
   const flow = flowFields(file, fields, name, () => update(), { failure: true, initial: initial?.flow });
   const id = input => input.value.trim() ? Number(input.value) : NaN;
-  const options = () => ({ targets: targets.map(target => target.select.value), trigger: trigger.value, interactionId: id(interaction), objectiveId: id(objective), completeId: id(complete), checkpointId: checkpoint.checked ? id(checkpointId) : null, exitToMenu: exit.checked, failure: timed.checked || guarded.checked ? { timeoutSeconds: timed.checked ? id(seconds) : null, humanName: guarded.checked ? guard.value : null, textId: id(failed), endMission: end.checked } : null, flow: flow.options() });
+  const options = () => ({ targets: targets.map(target => target.select.value), ...activation.options(), interactionId: id(interaction), objectiveId: id(objective), completeId: id(complete), checkpointId: checkpoint.checked ? id(checkpointId) : null, exitToMenu: exit.checked, failure: timed.checked || guarded.checked ? { timeoutSeconds: timed.checked ? id(seconds) : null, humanName: guarded.checked ? guard.value : null, textId: id(failed), endMission: end.checked } : null, flow: flow.options() });
   const toggle = (input, enabled) => { input.disabled = !enabled; input.parentElement.style.display = enabled ? '' : 'none'; };
   function update() {
     save.disabled = true; preview.value = ''; add.disabled = targets.length >= Math.min(16, candidates.length);
-    const hasFailure = timed.checked || guarded.checked;
+    const hasFailure = timed.checked || guarded.checked; activation.update();
     toggle(interaction, trigger.value === 'use'); toggle(seconds, timed.checked); toggle(guard, guarded.checked); toggle(failed, hasFailure); toggle(end, hasFailure); toggle(checkpointId, checkpoint.checked);
     flow.update({ hasFailure, exit: exit.checked, end: hasFailure && end.checked });
     for (const [i, target] of targets.entries()) { target.title.textContent = `Cíl ${i + 1}`; target.remove.disabled = targets.length <= 1; }

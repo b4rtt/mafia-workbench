@@ -26,6 +26,20 @@ function fixture() {
   return {...inspectScene(bytes),geometry:{meshes:[]},bytes};
 }
 const named=(graph,name)=>graph.nodes.find(node=>node.name===name);
+test('area and automatic recipes retain their activation and existing flow in the mission graph',()=>{
+  const scene=fixture(),original=missionLogic(scene);
+  for(const name of ['Quest','Dialogue','Combat']){
+    const node=named(original,name),entry=scene.entries.find(e=>e.actorScript&&e.value.name===name);
+    const generate={Quest:missionTaskScript,Dialogue:missionDialogueScript,Combat:missionCombatScript}[name];
+    for(const trigger of ['area','load']){
+      const recipe={...node.recipe,trigger,...(trigger==='area'?{triggerRadius:2.5}:{}),...(name==='Quest'?{objectiveId:null,interactionId:null}:{})};
+      const graph=missionLogic({...inspectScene(editScene(scene.bytes,entry.id,{...entry.value,code:generate(recipe)})),geometry:scene.geometry}),changed=named(graph,name);
+      assert.equal(changed.kind,node.kind);assert.equal(changed.trigger,trigger);assert.equal(changed.waiting,node.waiting);
+      if(trigger==='area')assert.equal(changed.recipe.triggerRadius,2.5);
+      assert.deepEqual(graph.edges.filter(e=>e.from===changed.id),original.edges.filter(e=>e.from===node.id));
+    }
+  }
+});
 test('logic shows exact task/dialogue/combat/choice flow, exits, activation and collapses only owned helpers',()=>{
   const scene=fixture(),before=JSON.stringify(scene),graph=missionLogic(scene);
   assert.deepEqual(['Quest','Dialogue','Combat','CHOICE'].map(name=>named(graph,name).kind),['task','dialogue','combat','choice']);

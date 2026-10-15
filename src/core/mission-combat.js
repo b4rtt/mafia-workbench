@@ -11,7 +11,7 @@ export async function prepareMissionCombat(project, source, geometry, operation)
   const asset = project.asset(textPath), bytes = await project.read(asset.path);
   if (hash(bytes) !== combat.textHash) throw new Error('Bojový úkol: texty se od otevření změnily. Otevřete formulář znovu.');
   const entries = parseTextDb(bytes, asset.path).entries.slice(0, -1);
-  const ids = [combat.objectiveId, combat.completeId, ...(combat.trigger !== 'load' ? [combat.interactionId] : []), ...(combat.failure ? [combat.failure.textId] : []), ...(combat.checkpointId != null ? [combat.checkpointId] : [])];
+  const ids = [combat.objectiveId, combat.completeId, ...((combat.trigger ?? 'use') === 'use' ? [combat.interactionId] : []), ...(combat.failure ? [combat.failure.textId] : []), ...(combat.checkpointId != null ? [combat.checkpointId] : [])];
   for (const id of ids) {
     const matches = entries.filter(entry => entry.id === id);
     if (matches.length !== 1 || !matches[0].text.trim()) throw new Error('Bojový úkol: každé ID potřebuje jednoznačný existující neprázdný text, nikoli hraniční záznam.');
