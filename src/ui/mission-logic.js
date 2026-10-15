@@ -1,6 +1,8 @@
 import { missionLogic, layoutMissionLogic, logicKinds } from '../shared/mission-logic.js';
+import { createdMissionLogicSelection } from '../shared/mission-logic-authoring.js';
+import { actionMenu } from './workspace.js';
 
-export function renderMissionLogic(main, file, remembered, { element, projectRoot, edit, source, scene }) {
+export function renderMissionLogic(main, file, remembered, { element, projectRoot, create, edit, source, scene }) {
   const graph = missionLogic(file), byId = new Map(graph.nodes.map(node => [node.id, node]));
   const layout = element('div', undefined, 'logic-workspace'), outline = element('section', undefined, 'logic-outline'), center = element('section', undefined, 'logic-center'), inspector = element('section', undefined, 'logic-inspector');
   const controls = element('div', undefined, 'logic-controls tools'), find = element('input'), all = element('input'), allLabel = element('label', 'Včetně samostatných vlastních skriptů'), list = element('div', undefined, 'logic-list'), scroll = element('div', undefined, 'logic-scroll'), canvas = element('div', undefined, 'logic-canvas');
@@ -8,11 +10,14 @@ export function renderMissionLogic(main, file, remembered, { element, projectRoo
   all.type = 'checkbox'; all.checked = remembered?.all ?? false; allLabel.prepend(all);
   scroll.tabIndex = 0; scroll.setAttribute('role', 'region'); scroll.setAttribute('aria-label', 'Diagram logiky mise'); scroll.append(canvas);
   const count = element('span', '', 'muted'), focus = element('button', 'Najít vybraný'), toggleOutline = element('button', 'Body'), toggleInspector = element('button', 'Podrobnosti');
-  controls.append(focus, toggleOutline, toggleInspector, count); center.append(controls, scroll);
+  const additions = Object.entries({ task: 'Přidat úkol…', dialogue: 'Přidat rozhovor…', choice: 'Přidat volbu odpovědi…', combat: 'Přidat bojový úkol…', custom: 'Přidat vlastní skript…' }).map(([kind, label]) => {
+    const button = element('button', label); button.dataset.logicAction = ''; button.dataset.logicCreate = ''; button.onclick = () => create(kind); return button;
+  });
+  controls.append(actionMenu('Přidat', additions), focus, toggleOutline, toggleInspector, count); center.append(controls, scroll);
   outline.append(element('h3', 'Body mise'), find, allLabel, list); layout.append(outline, center, inspector); main.append(layout);
   const note = element('p', 'Zelená: dokončení · červená: neúspěch · modrá: odpověď. Zobrazeny jsou přesně rozpoznané šablony editoru a jejich cíle. Vlastní skripty mohou přidávat další návaznosti; diagram nesimuluje hru.', 'logic-note'); center.append(note);
   let selected = byId.has(remembered?.selectedId) ? remembered.selectedId : graph.nodes.find(node => node.recipe && !graph.edges.some(edge => edge.to === node.id))?.id ?? graph.nodes.find(node => node.recipe)?.id ?? graph.nodes[0]?.id ?? null;
-  let cards = new Map(), rows = new Map(), lines = [];
+  let cards = new Map(), rows = new Map(), lines = [], focusSelection = false;
   function panel(button, className, visible) {
     layout.classList.toggle(className, !visible); button.setAttribute('aria-pressed', String(visible));
   }
@@ -88,14 +93,21 @@ export function renderMissionLogic(main, file, remembered, { element, projectRoo
       if (node.name.normalize('NFC').toLowerCase().includes(query)) { const row = element('button', `${node.name} · ${logicKinds[node.kind]}`); row.onclick = () => { select(node.id); reveal(); }; rows.set(node.id, row); list.append(row); }
     }
     count.textContent = `${nodes.filter(node => node.recipe).length} šablon · ${edges.length} návazností · ${graph.nodes.filter(node => node.kind === 'custom').length} vlastních skriptů`;
-    if (!nodes.length) canvas.append(element('p', 'Mise zatím nemá rozpoznané úkoly. Přidejte úkol, rozhovor, boj nebo volbu odpovědi ve 3D scéně.', 'notice'));
+    if (!nodes.length) canvas.append(element('p', 'Mise zatím nemá rozpoznané úkoly. Nabídkou Přidat vytvořte úkol, rozhovor, boj nebo volbu odpovědi.', 'notice'));
     if (selected && !ids.has(selected)) selected = nodes[0]?.id ?? null;
     select(selected);
   }
   find.oninput = draw; all.onchange = draw; focus.onclick = reveal;
   draw(); scroll.scrollLeft = remembered?.left ?? 0; scroll.scrollTop = remembered?.top ?? 0;
+  let disposed = false;
+  if (remembered?.focusSelection) requestAnimationFrame(() => { if (!disposed) reveal(); });
+  const capture = () => ({ selectedId: selected, search: find.value, all: all.checked, left: scroll.scrollLeft, top: scroll.scrollTop, outlineHidden: layout.classList.contains('logic-outline-hidden'), inspectorHidden: layout.classList.contains('logic-inspector-hidden'), ...(focusSelection ? { focusSelection: true } : {}) });
   return { logicPath: file.path, projectRoot, disposed: false,
-    captureLogic: () => ({ selectedId: selected, search: find.value, all: all.checked, left: scroll.scrollLeft, top: scroll.scrollTop, outlineHidden: layout.classList.contains('logic-outline-hidden'), inspectorHidden: layout.classList.contains('logic-inspector-hidden') }),
-    dispose() { this.disposed = true; }
+    captureLogic: capture,
+    selectCreated(updated, name) {
+      const next = createdMissionLogicSelection(updated, name, capture());
+      selected = next.selectedId; find.value = next.search; all.checked = next.all; focusSelection = next.focusSelection;
+    },
+    dispose() { this.disposed = disposed = true; }
   };
 }

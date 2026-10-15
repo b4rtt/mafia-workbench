@@ -2,6 +2,11 @@
 
 Aktualizace: 15. října 2026. Vývoj pokračuje; komplexní editor není dokončený. Implementace, datové testy, ověření UI a ověření ve hře jsou různé úrovně dokončení; neoznačovat jednu za druhou. Podrobnosti existujících funkcí a jejich omezení jsou v README.md a research/formats.md. Původní hra se nemění, úpravy mají kontrolu verze, zálohu, export a undo. Herní data a soukromé reference nepatří do veřejného repozitáře.
 
+## Tvorba bodů přímo v Logice mise (2026-10-15)
+
+- Nabídka Přidat pro úkol/rozhovor/boj/volbu/vlastní skript používá původní formuláře a produkční transakce. Volný název přes celou scénu včetně pomocných bodů, poloha XYZ, po uložení zachování diagramu/panelů a výběr nové karty i přes starý filtr. Vlastní skript zapne své zobrazení; drafts/operace přidání zakážou. Původní vytváření ve 3D zůstává dostupné. Herní generátory beze změny.
+- 498/498 testů, check/build. Mac zamčený: skutečný produkční renderer v místním prohlížeči s privátním HTTP adaptérem nad odděleným ModProject, ne vydávaný za Electron. V UI vzniklo všech pět druhů, 10 receptů/13 hran; volby seskupené, výběr/filtr/panely potvrzené, opakované přidání nabídlo volný název a zrušení nezapsalo historii. Znovuotevření/export přesné; každá transakce jen scéna. Pět UI undo vrátilo kopii na historii 42 a všechny původní hashe, chráněné projekty/EXE shodné. Podrobnosti research/mission-logic.md, soukromý index local/logic-authoring-browser.json. Ruční průchod vlastní mise zůstává otevřený; OSM/plugin ani krajnice se tímto blokem nemění.
+
 ## Souvislá vlastní mise s dialogem, volbou a doručením (2026-10-15)
 
 - Samostatný projekt `WB_DELIVERY_DEMO` z prázdné šablony: dvě NPC, klíče u bedny s kolizí, vlastní české texty a dva místně syntetizované české WAV. Šest přesných receptů propojuje oblast → rozhovor → volba → doručení s odebráním předmětu/checkpointem/ochranou příjemce → závěrečný rozhovor → konec; druhá odpověď vede do odmítnutí. Vše sestavené existujícími produkčními API. Kontrola má 0 chyb, 0 varování a informaci o šesti vlastních programech. Znovuotevření/obnovení receptů a export jsou přesné. Návod v research/own-mission-walkthrough.md; soukromý index local/delivery-demo.json.

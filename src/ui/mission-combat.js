@@ -1,7 +1,7 @@
 import { missionActivationFields } from './mission-activation.js';
 import { combatTargets, resolveMissionCombat, missionCombatScript, editableMissionCombat } from '../shared/mission-combat.js';
 
-export function missionCombatDialog({ api, assets, file, position = [0, 0, 0], target = null, element, run, flowFields, onCreated }) {
+export function missionCombatDialog({ api, assets, file, position = [0, 0, 0], target = null, initialName = 'WB_COMBAT', element, run, flowFields, onCreated }) {
   const editing = target !== null, existing = editing ? editableMissionCombat(file, target) : null, initial = existing?.combat;
   if (editing && !existing) throw new Error('Bojový úkol: vlastní nebo změněný program upravte v editoru zdroje.');
   const candidates = combatTargets(file);
@@ -11,7 +11,7 @@ export function missionCombatDialog({ api, assets, file, position = [0, 0, 0], t
   const numeric = (label, value, min, max) => { const input = field(fields, label, element('input')); input.type = 'number'; input.step = '1'; input.required = true; input.value = String(value); if (min !== undefined) input.min = String(min); if (max !== undefined) input.max = String(max); return input; };
   const check = label => { const input = field(fields, label, element('input')); input.type = 'checkbox'; return input; };
   const npc = (parent, label) => { const input = field(parent, label, element('select')); for (const actor of candidates) { const option = element('option', actor.name); option.value = actor.name; input.append(option); } return input; };
-  const name = field(fields, 'Název bojového úkolu', element('input')); name.value = existing?.entry.value.name ?? 'WB_COMBAT'; name.required = true; name.maxLength = 63; name.disabled = editing;
+  const name = field(fields, 'Název bojového úkolu', element('input')); name.value = existing?.entry.value.name ?? initialName; name.required = true; name.maxLength = 63; name.disabled = editing;
   const xyz = ['X', 'Y', 'Z'].map((label, i) => { const input = numeric(label, position[i] ?? 0); input.step = 'any'; return input; });
   const activation = missionActivationFields(element, (label, input) => field(fields, label, input), initial), trigger = activation.trigger;
   const language = field(fields, 'Jazyk textů', element('select'));

@@ -1,7 +1,7 @@
 import { choiceControllers, resolveMissionChoice, editableMissionChoice, resolveMissionChoiceEdit } from '../shared/mission-choice.js';
 import { missionFlowTargets } from '../shared/mission-flow.js';
 
-export function missionChoiceDialog({ api, assets, file, position = [0, 0, 0], target = null, element, run, onCreated }) {
+export function missionChoiceDialog({ api, assets, file, position = [0, 0, 0], target = null, initialName = 'WB_CHOICE', element, run, onCreated }) {
   const editing = target !== null, existing = editing ? editableMissionChoice(file, target) : null, initial = existing?.choice;
   if (editing && !existing) throw new Error('Volba: vlastní nebo neúplnou skupinu upravte v inspektoru.');
   const controllers = choiceControllers(file, { includeFull: editing }), targets = missionFlowTargets(file).filter(actor => !editing || ![initial.name, `${initial.name}_CLAIM`, ...Array.from({ length: 4 }, (_, index) => `${initial.name}_ANSWER${index + 1}`)].some(name => name.toLowerCase() === actor.name.toLowerCase()));
@@ -10,7 +10,7 @@ export function missionChoiceDialog({ api, assets, file, position = [0, 0, 0], t
   const dialog = element('dialog', undefined, 'mission-dialogue-dialog'), form = element('form', undefined, 'mission-form'), fields = element('div', undefined, 'mission-fields'), rows = element('div', undefined, 'dialogue-lines'), preview = element('textarea'), message = element('p', '', 'notice');
   const field = (parent, label, input) => { const row = element('label', label); input.setAttribute('aria-label', label); row.append(input); parent.append(row); return input; };
   const number = (parent, label, value, min, max) => { const input = field(parent, label, element('input')); input.type = 'number'; input.step = '1'; input.required = true; input.value = String(value); if (min !== undefined) input.min = String(min); if (max !== undefined) input.max = String(max); return input; };
-  const name = field(fields, 'Název volby', element('input')); name.required = true; name.maxLength = 55; name.value = initial?.name ?? 'WB_CHOICE'; name.disabled = editing;
+  const name = field(fields, 'Název volby', element('input')); name.required = true; name.maxLength = 55; name.value = initial?.name ?? initialName; name.disabled = editing;
   const xyz = ['X', 'Y', 'Z'].map((label, index) => { const input = number(fields, label, position[index] ?? 0); input.step = 'any'; return input; });
   const controller = field(fields, 'Postava řídící úklid voleb', element('select'));
   for (const actor of controllers) { const option = element('option', `${actor.name} · ${actor.groups.length ? `počet sad voleb: ${actor.groups.length}` : 'prázdný program'}`); option.value = actor.name; controller.append(option); }
