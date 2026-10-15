@@ -44,3 +44,43 @@ export function roadEntries(file,section,index) {
   }
   return result;
 }
+
+// Read-only plan shared by the dialog and writer. A junction can disappear only
+// when its two physical legs describe one continuous, reciprocal road.
+export function roadDissolvePlan(file,index){
+  const fail=message=>{throw new Error('Road: '+message);},source=file.crossings[index];
+  if(!Number.isInteger(index)||!source)fail('křižovatka je mimo síť.');
+  if(file.nodes.length>=32767)fail('síť už má maximální počet silničních bodů.');
+  const legs=roadConnections(file,index);
+  if(source.links.filter(ref=>ref!==65535).length!==2||legs.length!==2||legs[0].target===legs[1].target)fail('spojení vyžaduje právě dvě cesty ke dvěma různým křižovatkám.');
+  const [left,right]=legs,from=left.target,to=right.target,owned=new Set();
+  const checkDirection=(cross,slot,target)=>{
+    const direction=file.crossings[cross].directions[slot];
+    if(direction.target!==65535&&(direction.target!==target||!direction.lanes.some(l=>l.type)||direction.lanes.some(l=>l.type&&!Number.isFinite(l.distance))))fail('směr má neplatný cíl, posun nebo žádný aktivní pruh.');
+    return {...direction,enabled:direction.target!==65535};
+  };
+  const outer=legs.map(leg=>{
+    const matches=roadConnections(file,leg.target).filter(back=>back.target===index&&back.nodes.length===leg.nodes.length&&back.nodes.every((ref,i)=>ref===leg.nodes[leg.nodes.length-1-i]));
+    if(matches.length!==1)fail('cesta nemá jednoznačný vzájemný řetězec.');
+    for(const ref of leg.nodes){
+      if(owned.has(ref))fail('cesty sdílejí silniční bod.');owned.add(ref);
+      const n=file.nodes[ref&32767];
+      if(n.previousCrossing===n.nextCrossing||![index,leg.target].includes(n.previousCrossing)||![index,leg.target].includes(n.nextCrossing))fail('bod má jiné vlastníky cesty.');
+    }
+    return matches[0];
+  });
+  const pairs=[[checkDirection(from,outer[0].slot,index),checkDirection(index,right.slot,to)],[checkDirection(to,outer[1].slot,index),checkDirection(index,left.slot,from)]];
+  for(const [a,b]of pairs){
+    if(a.enabled!==b.enabled)fail('povolené směry na sebe nenavazují; nejprve upravte pruhy a směry obou cest.');
+    if(a.enabled&&a.lanes.some((lane,i)=>lane.type!==b.lanes[i].type||lane.type&&!Object.is(lane.distance,b.lanes[i].distance)))fail('aktivní pruhy na sebe nenavazují; nejprve sjednoťte jejich typy a boční posuny.');
+  }
+  for(const cross of file.crossings)for(let slot=0;slot<4;slot++){
+    const permitted=cross.index===index&&(slot===left.slot||slot===right.slot)||cross.index===from&&slot===outer[0].slot||cross.index===to&&slot===outer[1].slot;
+    if(!permitted&&[cross.links[slot],cross.directions[slot].target].some(ref=>ref===index||owned.has(ref)))fail('křižovatku nebo cestu používá další výjezd.');
+    if(cross.index===index&&!permitted&&cross.directions[slot].target!==65535)fail('nepoužitý výjezd má uložený cíl.');
+  }
+  for(const node of file.nodes)if(!owned.has(32768|node.index)&&[node.previous,node.next,node.previousCrossing,node.nextCrossing].some(ref=>ref===index||owned.has(ref)))fail('křižovatku nebo cestu používá jiný silniční bod.');
+  const chain=[...left.nodes].reverse().concat(index,right.nodes);
+  const position=ref=>ref&32768?file.nodes[ref&32767].position:file.crossings[ref].position;
+  return {index,from,to,fromSlot:outer[0].slot,toSlot:outer[1].slot,chain,positions:[file.crossings[from].position,...chain.map(position),file.crossings[to].position],forwardEnabled:pairs[0][0].enabled,reverseEnabled:pairs[1][0].enabled};
+}

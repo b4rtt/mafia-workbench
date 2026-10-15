@@ -1,4 +1,5 @@
 import {parseRoads,compileRoadTopology} from './roads.js';
+import {roadDissolvePlan} from '../shared/roads.js';
 
 const CROSS=236,NODE=24,SLOT=52,NONE=65535;
 const fail=message=>{throw new Error('Road: '+message);};
@@ -108,6 +109,27 @@ export function changeRoadTopology(source,request){
     for(const n of file.nodes)if([n.previous,n.next,n.previousCrossing,n.nextCrossing].includes(index))fail('křižovatku používá silniční bod.');
     rows.crossings.splice(index,1);const data=serialize(rows.crossings,rows.nodes);rewriteRefs(data,parseRoadsForRemap(data),ref=>ref!==NONE&&!(ref&32768)&&ref>index?ref-1:ref);parseRoads(data);
     return {data,index:Math.min(index,Math.max(0,total-2)),mapping:identity.map(i=>i===index?null:i>index?i-1:i)};
+  }
+  if(action==='dissolve-crossing'){
+    const index=crossIndex(file,request.index);validateRoutes(file);
+    const plan=roadDissolvePlan(file,index),{from,to,fromSlot,toSlot,chain}=plan;
+    // Preserve the removed junction's position/speed as an ordinary node.
+    const added=Buffer.alloc(NODE);rows.crossings[index].copy(added,0,0,12);rows.crossings[index].copy(added,12,16,20);
+    const ref=32768|count,cut=chain.indexOf(index),joined=chain.map(value=>value===index?ref:value);
+    added.writeUInt16LE(cut?joined[cut-1]:from,16);added.writeUInt16LE(cut+1<joined.length?joined[cut+1]:to,18);added.writeUInt16LE(from,20);added.writeUInt16LE(to,22);
+    for(let i=0;i<chain.length;i++)if(chain[i]!==index){
+      const bytes=rows.nodes[chain[i]&32767],replace=i<cut?to:from;
+      for(const offset of [20,22])if(bytes.readUInt16LE(offset)===index)bytes.writeUInt16LE(replace,offset);
+    }
+    for(const [cross,slot,target]of [[from,fromSlot,to],[to,toSlot,from]]){
+      const bytes=rows.crossings[cross],offset=28+slot*SLOT;
+      if(bytes.readUInt16LE(offset)!==NONE)bytes.writeUInt16LE(target,offset);
+    }
+    rows.nodes.push(added);rows.crossings.splice(index,1);
+    const remap=value=>value===NONE||value&32768?value:value===index?ref:value>index?value-1:value;
+    const data=serialize(rows.crossings,rows.nodes);rewriteRefs(data,parseRoadsForRemap(data),remap);
+    const compiled=compileRoadTopology(data,[remap(from),remap(to)],joined.map(value=>value&32767));validateRoutes(parseRoads(compiled.data));
+    return {data:compiled.data,index:compiled.mapping[total-1+count],mapping:identity.map(i=>i<total?i===index?compiled.mapping[total-1+count]:remap(i):compiled.mapping[i-1])};
   }
   if(action==='split-crossing'){
     if(total>=32768)fail('síť už má maximální počet křižovatek.');
