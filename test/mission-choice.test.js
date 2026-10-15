@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { missionChoicePrograms, choiceControllerGroups, choiceControllers } from '../src/shared/mission-choice.js';
+import { missionChoicePrograms, choiceControllerGroups, choiceControllers, editableMissionChoice, choiceMovementName, choiceMovementProgram } from '../src/shared/mission-choice.js';
 import { ModProject } from '../src/core/project.js';
 import { changeSceneObject, inspectScene, editScene } from '../src/core/scene.js';
 import { editTextDb } from '../src/core/textdb.js';
@@ -111,4 +111,49 @@ test('answers can follow the controller without changing its AI cleanup contract
  assert.equal(inspectScene(data).actorScripts.find(script=>script.name==='NPC').code,missionChoicePrograms(choice).controller.code);
  await p.changeSceneObject(name,{kind:'configure-choice',target:'ANSWER',choice:{...request.choice,atController:true}},hash(data));assert.equal(p.manifest.history.length,history+1);
  const reopened=await ModProject.open(root);await reopened.export(root+'/attached-export');assert.deepEqual(await fs.readFile(root+'/attached-export/'+name),data);await reopened.undo();assert.deepEqual(await reopened.read(name),scene);
+});
+
+test('movement lock upgrades legacy choices atomically, shares one manager, survives edits and has exact undo', async t => {
+  const { p, root, name, scene, request, texts, textPath, geometryPath, geometry } = await fixture(t);
+  const history = p.manifest.history.length;
+  await p.changeSceneObject(name, request, hash(scene)); const legacy = await p.read(name);
+  const configure = async extra => p.changeSceneObject(name, { kind: 'configure-choice', target: 'ANSWER', choice: { ...request.choice, atController: true, lockPlayer: true, ...extra } }, hash(await p.read(name)));
+  await configure(); const locked = await p.read(name), parsed = await p.inspectMap(name);
+  const recovered = editableMissionChoice(parsed, 'ANSWER'); assert.equal(recovered.choice.lockPlayer, true);
+  const manager = parsed.actorScripts.find(script => script.name === choiceMovementName);
+  assert.equal(manager.code, choiceMovementProgram([recovered.choice]));
+  assert.equal(parsed.actors.filter(actor => actor.name === choiceMovementName).length, 1);
+  assert.deepEqual(parsed.objects.find(object => object.name === choiceMovementName).position, [2, 0, 0]);
+  await configure(); assert.equal(p.manifest.history.length, history + 2);
+  await p.changeSceneObject(name, { ...request, name: 'SECOND', choice: { ...request.choice, atController: true, lockPlayer: true } }, hash(locked));
+  const second = await p.inspectMap(name);
+  assert.equal(second.actors.filter(actor => actor.name === choiceMovementName).length, 1);
+  assert.equal(second.actorScripts.find(script => script.name === choiceMovementName).code, choiceMovementProgram(['ANSWER', 'SECOND'].map(owner => editableMissionChoice(second, owner).choice)));
+  assert.equal(second.actorScripts.find(script => script.name === 'ANSWER').code, recovered.nodes[0].entry.value.code);
+  await p.undo(); assert.deepEqual(await p.read(name), locked);
+  await configure({ lockPlayer: false }); const disabled = await p.inspectMap(name);
+  assert.equal(editableMissionChoice(disabled, 'ANSWER').choice.lockPlayer, undefined);
+  assert.equal(disabled.actorScripts.find(script => script.name === choiceMovementName).code, choiceMovementProgram([]));
+  await p.undo(); assert.deepEqual(await p.read(name), locked);
+  const reopened = await ModProject.open(root); await reopened.export(root + '/locked-export');
+  assert.deepEqual(await fs.readFile(root + '/locked-export/' + name), locked);
+  assert.equal(editableMissionChoice(await reopened.inspectMap(name), 'ANSWER').choice.lockPlayer, true);
+  await reopened.undo(); assert.deepEqual(await reopened.read(name), legacy); await reopened.undo(); assert.deepEqual(await reopened.read(name), scene);
+  assert.deepEqual(await reopened.read(textPath), texts); assert.deepEqual(await reopened.read(geometryPath), geometry);
+});
+
+test('movement locks reject invalid placement, missing player and foreign managers without publishing', async t => {
+  const { p, name, scene, request } = await fixture(t), history = p.manifest.history.length;
+  const locked = { ...request, choice: { ...request.choice, atController: true, lockPlayer: true } };
+  for (const extra of [{ lockPlayer: 'yes' }, { atController: false }]) await assert.rejects(p.changeSceneObject(name, { ...locked, choice: { ...locked.choice, ...extra } }, hash(scene)), /zámek/);
+  const player = inspectScene(scene).entries.find(entry => entry.label === 'Typ aktéra' && entry.context.endsWith('/ Tommy'));
+  const noPlayer = editScene(scene, player.id, 27); await p.change(name, noPlayer, 'No player');
+  await assert.rejects(p.changeSceneObject(name, locked, hash(noPlayer)), /jednoho hráče/); await p.undo();
+  await p.changeSceneObject(name, { kind: 'add-detector', name: choiceMovementName, mask: 0, code: 'end', position: [0, 0, 0] }, hash(scene));
+  const foreign = await p.read(name); await assert.rejects(p.changeSceneObject(name, locked, hash(foreign)), /vlastní či neúplný/); await p.undo();
+  await p.changeSceneObject(name, locked, hash(scene)); const valid = await p.read(name), entry = inspectScene(valid).entries.find(entry => entry.actorScript && entry.value.name === choiceMovementName);
+  const custom = editScene(valid, entry.id, { ...entry.value, code: entry.value.code + '\n// user change' }); await p.change(name, custom, 'Custom manager');
+  await assert.rejects(p.changeSceneObject(name, { kind: 'configure-choice', target: 'ANSWER', choice: locked.choice }, hash(custom)), /vlastní či neúplný/);
+  assert.deepEqual(await p.read(name), custom); await p.undo(); await p.undo();
+  assert.deepEqual(await p.read(name), scene); assert.equal(p.manifest.history.length, history);
 });

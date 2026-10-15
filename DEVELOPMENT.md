@@ -2,6 +2,13 @@
 
 Aktualizace: 15. října 2026. Vývoj pokračuje; komplexní editor není dokončený. Implementace, datové testy, ověření UI a ověření ve hře jsou různé úrovně dokončení; neoznačovat jednu za druhou. Podrobnosti existujících funkcí a jejich omezení jsou v README.md a research/formats.md. Původní hra se nemění, úpravy mají kontrolu verze, zálohu, export a undo. Herní data a soukromé reference nepatří do veřejného repozitáře.
 
+## Pohyb hráče při nabídce odpovědí (2026-10-15)
+
+- Porovnáno s původními NPC Ralph/Bob a PC dispatcherem/player AI. Mluvená fáze má již player_lockcontrols; samostatné menu dosud pohyb uvolňovalo. Plný zámek blokuje také akční tlačítko. Volba nově nabízí pohybový zámek přes nativní Speed s obnovením skutečné původní hodnoty, aktivací až do 1,5 m od řídicí NPC, společným správcem souběžných nabídek a uvolněním při smrti účastníka. Nové volby výchozí zapnuté, starší jen explicitně; vlastní správce chráněný, změna jedním undo. Bez přepsání mluvených receptů nebo původní hry.
+- Dva nové projektové testy, 16/16 cílených a check/build. Celá sada 556/557: jediný dřívější test v mission-dialogue.test.js očekává jiný text chybové hlášky, beze změny v tomto bloku. Produkční renderer nad oddělenou kopií: zapnutí, preview/save, obnova a disabled nezměněný save, blokace bez připojení k NPC, přesný export/reopen a UI undo na historii 50; všechny baseline/protected hashe přesné. První UI server měl ještě starou načtenou verzi manageru; konečné ověření po rebuild/restartu kontroluje přesný finální zdroj. Soukromý index local/choice-lock-ui.json.
+- GOG 1.2/Wine: sedm úplných checkpointů potvrzuje 73→0→0→0→73→0→73 při překryvu A/B, jejich odpovědích a smrti NPC C. Obnova checkpointu uprostřed dvou nabídek obnovila po jejich dokončení 73. První běh odhalil nepodporované <=; opraveno na > s opačnými větvemi, konečný běh prošel. Vstupy zadala diagnostická NPC, fyzické držení W ani ruční volba tím nejsou ověřené. Diagnostiky přes undo vrácené, zdroj a původní hra zachované; podklady a limity research/scripting.md, soukromý index local/choice-lock-native.json.
+- Zámek aplikovaný i do uložené doručovací ukázky jako jediná scénová transakce (historie 50→51), ostatní soubory přesné, lokální aplikace aktualizovaná. Goal editoru zůstává aktivní; tato oprava neznamená dokončení celého walkthrough ani zahájení AI/OSM modulu.
+
 ## Statické části města v kontextu mise (2026-10-15)
 
 - 3D scéna → Statické části města… otevře zvolenou část cache.bin s okolní geometrií a objekty mise. Kontext se nedá z tohoto pohledu přepisovat. Výběr části přímo v mapě, vlastnosti seskupené po modelech, zarámování části a paměť kamery/výběru zvlášť pro každou část i projekt. Původní world TRS beze změny; žádná transformace podle streaming bounds.

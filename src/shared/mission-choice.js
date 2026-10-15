@@ -8,6 +8,25 @@ const ownerName = name => typeof name === 'string' && /^[A-Za-z_][A-Za-z0-9_]{0,
 const answerName = (owner, index) => `${owner}_ANSWER${index + 1}`;
 // EVENT/SETEVENT parse custom IDs with atoi; names would all become zero.
 const eventId = index => 1000 + index;
+export const choiceMovementName = 'WB_CHOICE_MOVEMENT';
+
+// One lease for the whole mission: overlapping answer menus must not save an
+// already-zero speed, or restore movement while another menu still owns it.
+export function choiceMovementProgram(choices) {
+  const list = [...choices].sort((a, b) => key(a.name).localeCompare(key(b.name), 'en'));
+  const actors = [...new Set(list.flatMap(choice => [`${choice.name}_CLAIM`, choice.controller]))];
+  const index = name => actors.indexOf(name) + 1;
+  return ['dim_act ' + (actors.length + 1), 'dim_flt 3', 'getactiveplayer 0',
+    ...actors.map((name, i) => `findactor ${i + 1}, "${name}"`),
+    'let flt[1] = 0', 'detector_setsignal -1, 0', 'label 1', 'wait 50', 'commandblock 1',
+    'let flt[2] = 0', 'human_getproperty 0, 2, Energy', 'if flt[2] > 0, -1, 80',
+    ...list.flatMap((choice, i) => ['let flt[2] = 0', `human_getproperty ${index(choice.controller)}, 2, Energy`,
+      `if flt[2] > 0, -1, ${100 + i}`, `detector_issignal ${index(`${choice.name}_CLAIM`)}, 10, -1`, `label ${100 + i}`]),
+    'goto 80', 'label 10', 'if flt[1] = 1, 20, -1', 'human_getproperty 0, 0, Speed', 'let flt[1] = 1',
+    'label 20', 'human_setproperty 0, 0, Speed', 'detector_setsignal -1, 1', 'goto 90',
+    'label 80', 'if flt[1] = 0, 85, -1', 'human_setproperty 0, flt[0], Speed', 'let flt[1] = 0',
+    'label 85', 'detector_setsignal -1, 0', 'label 90', 'commandblock 0', 'goto 1'].join('\n');
+}
 
 function controllerProgram(groups) {
   const names = groups.flatMap(group => group.names);
@@ -61,9 +80,11 @@ export function choiceControllers(scene, { includeFull = false } = {}) {
   });
 }
 
-export function missionChoicePrograms({ name, controller, waitForSignal = false, answers, atController = false } = {}, groups = []) {
+export function missionChoicePrograms({ name, controller, waitForSignal = false, answers, atController = false, lockPlayer = false } = {}, groups = []) {
   if (!ownerName(name)) throw new Error('Volba: název musí mít 1–55 ASCII písmen, číslic nebo podtržítek a začínat písmenem či podtržítkem.');
   if (!validName(controller) || typeof waitForSignal !== 'boolean' || typeof atController !== 'boolean') throw new Error('Volba: vyberte řídicí postavu a platný způsob spuštění.');
+  if (typeof lockPlayer !== 'boolean' || (lockPlayer && !atController)) throw new Error('Volba: zámek pohybu potřebuje nabídku u řídicí postavy.');
+  if (key(name) === key(choiceMovementName)) throw new Error('Volba: tento název je vyhrazen správě pohybu.');
   if (!Array.isArray(answers) || answers.length < 2 || answers.length > 4) throw new Error('Volba: zadejte 2–4 odpovědi.');
   for (const answer of answers) {
     if (!answer || !Number.isSafeInteger(answer.textId) || answer.textId < 0 || answer.textId > 0x7fffffff || !validName(answer.target)) throw new Error('Volba: každá odpověď potřebuje ID textu a cílový skriptový bod.');
@@ -71,16 +92,21 @@ export function missionChoicePrograms({ name, controller, waitForSignal = false,
   if (new Set(answers.map(answer => answer.textId)).size !== answers.length) throw new Error('Volba: texty odpovědí musí mít různá ID.');
   if (!Array.isArray(groups) || groups.length >= 16) throw new Error('Volba: řídicí postava podporuje nejvýše 16 sad odpovědí.');
   const claim = `${name}_CLAIM`, names = answers.map((_, index) => answerName(name, index)), event = eventId(groups.length);
-  const start = [`dim_act ${answers.length}`, ...names.map((name, index) => `findactor ${index}, "${name}"`),
+  const count = answers.length;
+  const start = [`dim_act ${count + (lockPlayer ? 4 : 0)}`, ...(lockPlayer ? ['dim_flt 1'] : []), ...names.map((name, index) => `findactor ${index}, "${name}"`),
+    ...(lockPlayer ? [`findactor ${count}, "${choiceMovementName}"`, `findactor ${count + 1}, "${claim}"`, `getactiveplayer ${count + 2}`, `findactor ${count + 3}, "${controller}"`] : []),
     // Mark the program as saveable without discarding an early incoming signal.
     'detector_issignal -1, 3, -1', 'detector_setsignal -1, 0', 'label 3', 'wait 2000'];
   if (waitForSignal) start.push('label 1', 'detector_issignal -1, 2, -1', 'wait 100', 'goto 1', 'label 2');
+  if (lockPlayer) start.push('label 4', `getactorsdist ${count + 2}, ${count + 3}, 0`, 'if flt[0] < 1.5, 5, -1', 'wait 100', 'goto 4', 'label 5',
+    `detector_setsignal ${count + 1}, 1`, 'label 6', `detector_issignal ${count}, 7, -1`, 'wait 50', 'goto 6', 'label 7');
   start.push('detector_setsignal -1, 1', ...names.map((_, index) => `detector_setsignal ${index}, 1`), 'end');
   const nodes = [{ name, code: start.join('\n') }, { name: claim, code: 'detector_setsignal -1, 0\nlabel 1\nwait 1000\ngoto 1' }];
   for (const [index, answer] of answers.entries()) nodes.push({ name: names[index], code: [
     'dim_act 3', ...(atController ? ['dim_frm 2', 'dim_flt 3'] : []), `findactor 0, "${claim}"`, `findactor 1, "${controller}"`, `findactor 2, "${answer.target}"`,
     'detector_setsignal -1, 0', 'label 1', 'detector_issignal -1, 2, -1', 'wait 100', 'goto 1', 'label 2',
-    ...(atController ? [attachedInteraction(controller).trimEnd()] : []), `detector_waitforuse ${answer.textId}`, 'detector_issignal 0, 90, -1', 'detector_setsignal 0, 1',
+    ...(atController ? [attachedInteraction(controller).trimEnd()] : []), `detector_waitforuse ${answer.textId}`,
+    ...(lockPlayer ? ['detector_issignal 0, 50, 90', 'label 50', 'detector_setsignal 0, 0'] : ['detector_issignal 0, 90, -1', 'detector_setsignal 0, 1']),
     `setevent 1, ${event}, -1`, 'detector_setsignal 2, 1', 'end', 'label 90', 'end'
   ].join('\n') });
   return { nodes, controller: { name: controller, code: controllerProgram([...groups, { owner: name, names }]) } };
@@ -120,7 +146,7 @@ function inspectChoiceGroup(scene, controller, index) {
     const id = /^detector_waitforuse (\d+)$/m.exec(code), target = /^findactor 2, "([^"\x00-\x1f]+)"$/m.exec(code);
     return { textId: Number(id?.[1]), target: target?.[1] };
   });
-  const choice = { ...(nodes[2].entry.value.code.includes('frm_linkto 1, 0') ? { atController: true } : {}), name: group.owner, controller: controller.name, waitForSignal: nodes[0].entry.value.code.replaceAll('\r\n', '\n').includes('label 1\ndetector_issignal -1, 2, -1\n'), answers };
+  const choice = { ...(nodes[2].entry.value.code.includes('frm_linkto 1, 0') ? { atController: true } : {}), ...(nodes[0].entry.value.code.includes(`, "${choiceMovementName}"`) ? { lockPlayer: true } : {}), name: group.owner, controller: controller.name, waitForSignal: nodes[0].entry.value.code.replaceAll('\r\n', '\n').includes('label 1\ndetector_issignal -1, 2, -1\n'), answers };
   try {
     const expected = missionChoicePrograms(choice, controller.groups.slice(0, index));
     if (expected.nodes.some((node, i) => node.code !== nodes[i].entry.value.code.replaceAll('\r\n', '\n'))) return null;
