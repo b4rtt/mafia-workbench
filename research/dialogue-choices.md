@@ -78,3 +78,11 @@ První pomocný běh A skončil kontrolou dříve, než vznikl poslední checkpo
 - Základní generátor s kontrolou textů/cílů, atomickým zápisem a společným undo je doplněný. Mluvené odpovědi se připojují přes cílový rozhovor; rozšířený společný životní cyklus kamery a přerušení zůstává další prací.
 
 `ctrl_read` a `ctrl_readex` jsou další možná cesta, ale PC používá dvě rozdílná pole ovládacích akcí. Dispatcher nekontroluje horní mez ID. Bez ověření konkrétního mapování a chování při zamčeném ovládání je nelze bezpečně nabízet s libovolným ID klávesy. Podklad: dispatcher 0x123/0x124 ve stejné dekompilaci.
+
+## Přechod od řeči k nabídce (15. října 2026)
+
+Uživatel potvrdil, že po řeči musí znovu stisknout akci, teprve pak se objeví odpovědi; po výběru lze chodit. Předčasné nastavení Speed 0 tedy blokovalo pohyb ještě před otevřením nabídky. V ukázce i výchozí nové volbě je nyní vypnuté; zámek ovládání během samotných replik zůstává. Automatické otevření nabídky tím není vyřešené a zůstává mezerou v návaznosti rozhovoru.
+
+`player_ai` (0x004cb1b0) volá `player_do_action_button_on_foot` (0x004cbd00) až při odemčeném ovládání a aktivním vstupu akce. Tento handler shromáždí blízké registrace přes `using_object_find_near_objects`, vytvoří `gui_action_menu_ctor` a spustí `gui_menu_execute_modal`. Kontrola všech 391 položek [tabulky opcode](https://github.com/st0rm94/mafia-reverse-engineering-export/blob/main/script-mapping/artifacts/opcode-table.md) nenašla příkaz přímo otevírající tuto nabídku: `GUNSHOP_MENU` je jiná nabídka, `CTRL_READ`/`CTRL_READEX` vstup pouze čtou. Podklad: těla uvedených funkcí ve stejné PC dekompilaci, nikoli jen komentáře exportu.
+
+Samotné vyslání události odpovědi by vybralo větev místo zobrazení nabídky. Nezavádí se proto falešná automatická odpověď ani emulace klávesy. Plynulý automatický přechod potřebuje jiný doložený mechanismus nebo rozšíření běhu hry a samostatné ověření; v tomto kroku se herní EXE ani runtime nemění.
