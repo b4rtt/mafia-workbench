@@ -2,11 +2,18 @@
 
 Aktualizace: 15. října 2026. Vývoj pokračuje; komplexní editor není dokončený. Implementace, datové testy, ověření UI a ověření ve hře jsou různé úrovně dokončení; neoznačovat jednu za druhou. Podrobnosti existujících funkcí a jejich omezení jsou v README.md a research/formats.md. Původní hra se nemění, úpravy mají kontrolu verze, zálohu, export a undo. Herní data a soukromé reference nepatří do veřejného repozitáře.
 
+## Vystoupení NPC po jízdě a ověření návazností (2026-10-15)
+
+- Jízda vozidlem nabízí přirozené vystoupení po poslední zastávce/čekání jednorázové trasy. Dokončení se posílá až po opuštění auta; aktivní NPC, žádný teleport. Přesné v3, v1/v2 beze změny (18 kombinací porovnaných s předchozím HEAD). Blokace opakování, stejný formulář při přidání/configure, detail v Logice a kontrola mise. Podklady i limity v research/human-driving.md.
+- Dva nové testy a rozšíření logiky/kontroly, 44/44 cílených testů, check/build. Produkční prohlížeč nad oddělenou kopií: zapnutí, preview/save, zachování diagramu, detail, obnova/nezměněné disabled uložení, konkrétní blokace opakování, kontrola 0 chyb a očekávaný neznámý odesílatel. Přesný export/reopen, UI undo i tři přípravy zpět na historii 34, baseline/protected hashe shodné; konzole čistá. Soukromý index local/driving-exit-ui.json.
+- Čtyři GOG 1.2/Wine běhy: obě varianty nástupu bez vystoupení i s ním. Předstartovní čekání, pokyn před inicializací, skutečný příjezd/poslední čekání a jednorázové dokončení; opakovaný pokyn jízdu nespustil. V3 má při dokončení NPC vedle auta, vlastníka odlišného od auta a sedadlo −1. Monitor pohyb ani vystupování nezadával. Přesné loaded hashe, úplné checkpointy 581–584 každé varianty, procesy ukončené a všechny diagnostiky/save/index obnovené. První Node pokus selhal před grafickým oknem Wine; ověřené běhy použily zavedený Audit Electron. Soukromé důkazy local/driving-flow-Ilewb5/native-flow a native-exit.
+- Goal pokračuje; ruční celý průchod vlastní ukázky a save/load nové jízdy tím nejsou ověřené. Předpoklad pro AI/OSM plugin zůstává otevřený; profil krajnice je odložený podle uživatele.
+
 ## Návaznosti jízdy NPC a její kontrola (2026-10-15)
 
 - Jízda vozidlem: volitelný signál před nástupem i dokončení po posledním čekání jednorázové trasy. Přesná legacy v1, v2 jen se signály, jednoznačné detektory a aktivní řidič po příjezdu. Karta Logiky mise s autem/nástupem/zastávkami, čtecí a odesílací hrany a stejný formulář chování. Kontrola uložené mise zahrnuje road.bin, propojení, auto, cíle a signály, s odkazy na NPC program a ochranou proti smíšené revizi.
 - Čtyři nové testy, 42/42 cílených kontrol, check/build. Produkční rozhraní v místním prohlížeči nad samostatnou skutečnou kopií: v1 obnova, oba signály, blokace opakování s dokončením, save/diagram/výběr, v2 obnova a disabled nezměněný save, přesný export/reopen a skutečné UI undo. Kontrola 0 chyb, očekávané upozornění na neznámého odesílatele. Všechny přípravy obnovené na historii 34 a baseline/protected hashe shodné, konzole čistá. Podrobnosti research/human-driving.md, soukromý index local/driving-flow.json.
-- Nová kombinace ještě čeká na spuštění v původním enginu; hra uživatele zůstala pro natáčení nedotčená. Goal pokračuje. Úplný ruční průchod vlastní ukázky ani předpoklad pro spuštění AI/OSM pluginu tím nejsou prohlášeny za hotové.
+- Následné ověření v původním enginu je popsané výše; v tomto prvním bloku zůstala hra uživatele pro natáčení nedotčená. Goal pokračuje. Úplný ruční průchod vlastní ukázky ani předpoklad pro spuštění AI/OSM pluginu tím nejsou prohlášeny za hotové.
 
 ## Kontrola modelů a textur vlastní mise (2026-10-15)
 

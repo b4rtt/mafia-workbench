@@ -263,6 +263,30 @@ test('signal driving saves canonical detector references with the road dependenc
   assert.throws(()=>resolveHumanDriving({...file,objects:file.objects.filter(o=>o.name!=='Start')},'Guard',{...options,stops:[{name:'Finish',pauseSeconds:0}]},parseRoads(road)),/skriptový bod/);assert.equal(JSON.stringify(file),before);
 });
 
+test('driving can exit naturally before completion while preserving existing recipes',()=>{
+  for(const boarding of ['walk','seated'])for(const signals of [{startSignal:null,onComplete:null},{startSignal:'Start',onComplete:'Finish'},{startSignal:'Start',onComplete:'Start'}]){
+    const options={...drive,boarding,loop:false,...signals,exitAfterArrival:true},code=humanBehaviorScript('Guard',options);
+    assert.deepEqual(inspectHumanBehavior('Guard',code),options);assert.deepEqual(inspectHumanBehavior('Guard',code.replaceAll('\r\n','\n')),options);
+    assert.match(code,/human driving v3\r\n/);assert.match(code,/^enemy_usecar$/m);assert.doesNotMatch(code,/human_fromcar|human_force_settocar.*\r\nlabel 300|^end$/m);
+    assert(code.indexOf('enemy_usecar\r\n')>code.indexOf('wait 500\r\n'));
+    const slots=new Set([...code.matchAll(/^findactor (\d+),/gm)].map(m=>Number(m[1]))),scratch=Number(/setnullactor (\d+)/.exec(code)[1]);assert(!slots.has(scratch));assert.match(code,new RegExp(`human_getowner 0, ${scratch}\\r\\ncompareactors 1, ${scratch}, 0`));
+    if(signals.onComplete)assert(code.indexOf('detector_setsignal')>code.indexOf('label 320'));
+    for(const changed of [code.replace('enemy_usecar\r\n','enemy_usecar 1, 0\r\n'),code.replace('goto 300','goto 320'),code.replace('v3','v2')])assert.equal(inspectHumanBehavior('Guard',changed).mode,'custom');
+  }
+  for(const exitAfterArrival of ['yes',0,null])assert.throws(()=>humanBehaviorScript('Guard',{...drive,exitAfterArrival}),/Jízda/);
+  assert.throws(()=>humanBehaviorScript('Guard',{...drive,exitAfterArrival:true}),/jednorázovou/);
+  for(const signals of [{},{startSignal:'Start',onComplete:null}])assert.equal(humanBehaviorScript('Guard',{...drive,...signals,exitAfterArrival:false}),humanBehaviorScript('Guard',{...drive,...signals}));
+});
+
+test('exit driving changes only the NPC program and retains exact export, inspection and undo',async t=>{
+  const {project,root,name,scene,road,roadName,behavior}=await drivingFixture(t),history=project.manifest.history.length;
+  const options={...behavior,loop:false,startSignal:'Start',onComplete:'Finish',exitAfterArrival:true},expected={...drive,loop:false,startSignal:'Start',onComplete:'Finish',exitAfterArrival:true};
+  await project.changeSceneObject(name,{kind:'configure-human',target:'Guard',behavior:options},hash(scene));
+  const after=await project.read(name),before=inspectScene(scene),parsed=inspectScene(after);assert.equal(parsed.actorScripts[0].code,humanBehaviorScript('Guard',expected));assert.deepEqual(parsed.actorScripts.slice(1),before.actorScripts.slice(1));assert.deepEqual(parsed.entries.filter(e=>!e.actorScript),before.entries.filter(e=>!e.actorScript));assert.deepEqual(await project.read(roadName),road);assert.deepEqual(project.manifest.history.at(-1).files.map(f=>f.path),[name]);
+  const reopened=await ModProject.open(root);await reopened.export(root+'/exit-driving-export');assert.deepEqual(await fs.readFile(root+'/exit-driving-export/'+name),after);assert.deepEqual(inspectHumanBehavior('Guard',inspectScene(await reopened.read(name)).actorScripts[0].code),expected);await reopened.undo();assert.deepEqual(await reopened.read(name),scene);assert.equal(reopened.manifest.history.length,history);
+  await reopened.changeSceneObject(name,{kind:'add-human',name:'NewDriver',model:'models/Human.4ds',position:[2,0,0],rotation:[1,0,0,0],scale:[1,1,1],parameters:{},behavior:options},hash(scene));assert.equal(inspectScene(await reopened.read(name)).actorScripts.at(-1).code,humanBehaviorScript('NewDriver',expected));await reopened.undo();assert.deepEqual(await reopened.read(name),scene);
+});
+
 async function followingFixture(t) {
   const f = await fixture(t); let scene = changeSceneObject(f.scene, { kind: 'add-human', name: 'Tommy', model: 'Human.i3d', position: [0,0,0], rotation: [1,0,0,0], scale: [1,1,1], parameters: {}, code: HUMAN_IDLE_SCRIPT });
   scene = editScene(scene, inspectScene(scene).entries.find(e => e.label === 'Typ aktéra' && e.context.endsWith('/ Tommy')).id, 2);

@@ -161,6 +161,7 @@ test('driving checks stored road data, bound vehicles, static stops and gates wh
   road=changeRoadTopology(road,{action:'connect',from:0,to:1,positions:[[0,0,5]],speed:5}).data;await project.createFiles([{path:roadName,data:road}]);
   const snapshot=new Map(await Promise.all(project.manifest.assets.map(async a=>[a.path,await project.read(a.path)]))),history=project.manifest.history.length;
   report=await project.checkMission(scenePath);assert.deepEqual(errors(report),[]);assert.equal(report.recipes,3);assert(report.files.some(f=>f.path===roadName&&f.sha256===hash(road)));
+  await script(project,'Companion',humanBehaviorScript('Companion',{...options,exitAfterArrival:true}));report=await project.checkMission(scenePath);assert.deepEqual(errors(report),[]);assert.equal(report.recipes,3);await project.undo();
   for(const extra of [{carName:'Missing'},{stops:[{name:'Tommy',pauseSeconds:0}]},{stops:[{name:'Missing',pauseSeconds:0}]},{startSignal:'Car'},{onComplete:'Absent'}]){
     await script(project,'Companion',humanBehaviorScript('Companion',{...options,...extra}));report=await project.checkMission(scenePath);const issue=errors(report).find(i=>i.code==='npc-drive');assert.equal(issue.object,'Companion');assert.equal(issue.path,scenePath);assert(issue.entryId);await project.undo();
   }

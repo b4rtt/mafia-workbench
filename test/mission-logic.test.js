@@ -146,6 +146,7 @@ test('car journeys expose read and completion edges, legacy automatic starts and
   assert(graph.edges.some(e=>e.from===named(graph,'Dialogue').id&&e.to===driver.id&&e.kind==='signal'));
   assert(graph.edges.some(e=>e.from===driver.id&&e.to===named(graph,'Waiting').id&&e.kind==='success'));
   assert(!named(graph,'Waiting').warnings.some(w=>w.includes('odesílatele')));assert.equal(JSON.stringify(scene),before);
+  const exitOptions={...options,exitAfterArrival:true},exitGraph=missionLogic(journeyScene(exitOptions));assert.deepEqual(named(exitGraph,'Walker').recipe,exitOptions);assert.deepEqual(exitGraph.edges,graph.edges);
   const legacy={...options};delete legacy.startSignal;delete legacy.onComplete;const automatic=missionLogic(journeyScene(legacy));assert.equal(named(automatic,'Walker').kind,'drive');assert.equal(named(automatic,'Walker').waiting,false);assert.deepEqual(automatic.edges.filter(e=>e.from===driver.id||e.to===driver.id),[]);
   for(const extra of [{startSignal:'Absent'},{onComplete:'NPC'}])assert(missionLogic(journeyScene({...options,...extra})).nodes.some(n=>n.kind==='unresolved'));
   const edited={...scene,entries:scene.entries.map(e=>e.actorScript&&e.value.name==='Walker'?{...e,value:{...e.value,code:e.value.code+'// own'}}:e)};assert.equal(named(missionLogic(edited),'Walker').kind,'custom');
