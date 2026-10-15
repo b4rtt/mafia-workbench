@@ -1,6 +1,7 @@
 import { HUMAN_IDLE_SCRIPT } from './human-program.js';
 import { dialogueSpeakers } from './mission-dialogue.js';
 import { humanDrivingScript, inspectHumanDriving } from './human-driving.js';
+import { humanFollowingScript, inspectHumanFollowing } from './human-following.js';
 
 const key = name => name.normalize('NFC').toLowerCase();
 const validName = name => typeof name === 'string' && name.trim() && name.length <= 255 && !/["\x00-\x1f]/.test(name);
@@ -36,7 +37,8 @@ export function validateHumanRoute(options, navigation) {
 }
 
 export function humanBehaviorScript(owner, options) {
-  if (!options || !['idle', 'custom', 'attack', 'patrol', 'drive'].includes(options.mode)) throw new Error('Postava: vyberte platné chování.');
+  if (!options || !['idle', 'custom', 'attack', 'patrol', 'drive', 'follow'].includes(options.mode)) throw new Error('Postava: vyberte platné chování.');
+  if (options.mode === 'follow') return humanFollowingScript(owner, options);
   if (options.mode === 'drive') return humanDrivingScript(owner, options);
   if (options.mode === 'idle') return HUMAN_IDLE_SCRIPT;
   if (options.mode === 'custom') {
@@ -60,6 +62,7 @@ export function humanBehaviorScript(owner, options) {
 export function inspectHumanBehavior(owner, code) {
   const normalized = code.replaceAll('\r\n', '\n');
   const driving=inspectHumanDriving(owner,code);if(driving)return driving;
+  const following=inspectHumanFollowing(owner,code);if(following)return following;
   if (normalized === HUMAN_IDLE_SCRIPT.replaceAll('\r\n', '\n')) return { mode: 'idle' };
   const lines = normalized.split('\n');
   if (lines[0] === '// Mafia Workbench human patrol v1') {

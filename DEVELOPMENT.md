@@ -2,6 +2,13 @@
 
 Aktualizace: 15. října 2026. Vývoj pokračuje; komplexní editor není dokončený. Implementace, datové testy, ověření UI a ověření ve hře jsou různé úrovně dokončení; neoznačovat jednu za druhou. Podrobnosti existujících funkcí a jejich omezení jsou v README.md a research/formats.md. Původní hra se nemění, úpravy mají kontrolu verze, zálohu, export a undo. Herní data a soukromé reference nepatří do veřejného repozitáře.
 
+## Pěší doprovod NPC (2026-10-15)
+
+- Nová i existující postava: Doprovod hráče s volitelným startovním signálem, prodlevou, statickým cílem/poloměrem a signálem po příchodu. Skutečný Player Tommy, jednoznačné detektory/frame, kontrola scény/geometrie při publikaci. Přesný recept obnoví formulář, vlastní odchylky zůstanou vlastními; mění se jen program NPC, jediná transakce/export/undo.
+- AI akce je pěší s odstupem dvou jednotek a návratem do programu po přiblížení; až potom kontroluje polohu NPC u cíle. Hráč musí počkat u cíle, doporučený poloměr >2 se započtením výšky. Po příchodu aktivní smyčka, žádné automatické nastupování nebo zásah do výzbroje/navigace. Smrt neodesílá dokončení. Není to kompletní eskortní quest ani nepřetržitý trigger během AI akce.
+- UI: signál/cíl/poloměr/pokračování, nula zakáže Save, obnovení nastavení, uložení opravené varianty s prodlevou 2 s a přesný export. GOG 1.2: před signálem NPC Z=−5, po spuštění skutečně došla na Z≈21,61; úplné save 6/18/35/54 s mají dokončení 0/0/1/1. Po odchodu hráče v 38 s zůstala NPC přesně na místě, vzdálenost >31. Pohyb hráče řízen diagnosticky; ruční doprovod, boj, auto a save/load ještě neověřené. První neúspěšný běh odhalil chybějící enemy_action_follow; produkce opravena a druhý běh potvrzený. Podrobnosti v research/human-following.md.
+- 483/483 testů, check/build. Příprava, UI a diagnostiky vlastní kopie vrácené přes undo, save/index obnovené, všechny chráněné hashe stejné. Goal zůstává aktivní; městský plugin čeká na kompletní hratelnou misi. Krajnice podle posledního potvrzení uživatele zůstává odložená pro přesný OSM profil.
+
 ## Spouštění receptů při příchodu hráče (2026-10-15)
 
 - Úkol, rozhovor a boj: use/load/area s kladným poloměrem koule, pouze hráč/maska 1, polling 100 ms, jednorázově po případném signálu. Běžný úkol nově load; bez prvního zadání a textu akce. Limit/checkpoint/kamera/řeč až po aktivaci; ostatní cíle, konce a signály zachované. Diagram uvádí aktivaci a poloměr. Přesné legacy recepty i vlastní source zachované, stejná kontrola závislostí/export/undo.

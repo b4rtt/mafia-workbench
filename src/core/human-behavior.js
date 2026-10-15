@@ -4,6 +4,7 @@ import { humanAttackTargets, humanBehaviorScript, humanWeapons, validateHumanRou
 import { parseNavigation } from './navigation.js';
 import { parseRoads } from './roads.js';
 import { resolveHumanDriving } from '../shared/human-driving.js';
+import { resolveHumanFollowing } from '../shared/human-following.js';
 
 export async function prepareHumanBehavior(project, before, geometry, operation, scenePath) {
   const scene = { ...inspectScene(before), geometry }, owner = operation.kind === 'configure-human' ? operation.target : operation.name;
@@ -13,6 +14,7 @@ export async function prepareHumanBehavior(project, before, geometry, operation,
   let options = operation.behavior;
   humanBehaviorScript(name, options);
   const dependencies = [];
+  if (options.mode === 'follow') options = resolveHumanFollowing(scene, name, options);
   if (options.mode === 'drive') {
     const asset=project.asset(scenePath.replace(/scene2\.bin$/i,'road.bin')),data=await project.read(asset.path);
     if(options.roadHash!==hash(data))throw new Error('Jízda: silniční síť se od otevření změnila. Otevřete dialog znovu.');

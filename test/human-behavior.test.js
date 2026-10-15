@@ -7,7 +7,7 @@ import { humanAttackTargets, humanBehaviorScript, inspectHumanBehavior, humanRou
 import { HUMAN_IDLE_SCRIPT } from '../src/shared/human-program.js';
 import { ModProject } from '../src/core/project.js';
 import { parseNavigation, changeNavigationConnection } from '../src/core/navigation.js';
-import { inspectScene, changeSceneObject } from '../src/core/scene.js';
+import { inspectScene, changeSceneObject, editScene } from '../src/core/scene.js';
 import { hash, writeSafe } from '../src/core/files.js';
 
 const patrol = { mode: 'patrol', waypoints: [{ id: 101, pauseSeconds: 2 }, { id: 17, pauseSeconds: .5 }], pace: 'walk', loop: true, delaySeconds: 1 };
@@ -184,4 +184,28 @@ test('concurrent driving-road edits and failed publication cannot partially repl
   project.changeBatch=async function(files,...args){await this.change(roadName,changeRoadTopology(road,{action:'create-crossing',position:[100,0,100],speed:5}).data,'Independent road change');return batch.call(this,files,...args);};
   await assert.rejects(project.changeSceneObject(name,{kind:'configure-human',target:'Guard',behavior},hash(scene)),/změnil/);assert.deepEqual(await project.read(name),scene);project.changeBatch=batch;await project.undo();assert.equal(project.manifest.history.length,history);
   const save=project.saveManifest;project.saveManifest=async()=>{throw Error('driving publication failure');};await assert.rejects(project.changeSceneObject(name,{kind:'configure-human',target:'Guard',behavior},hash(scene)),/driving publication/);project.saveManifest=save;assert.deepEqual(await project.read(name),scene);assert.deepEqual(await project.read(roadName),road);assert.equal(project.manifest.history.length,history);
+});
+
+async function followingFixture(t) {
+  const f = await fixture(t); let scene = changeSceneObject(f.scene, { kind: 'add-human', name: 'Tommy', model: 'Human.i3d', position: [0,0,0], rotation: [1,0,0,0], scale: [1,1,1], parameters: {}, code: HUMAN_IDLE_SCRIPT });
+  scene = editScene(scene, inspectScene(scene).entries.find(e => e.label === 'Typ aktéra' && e.context.endsWith('/ Tommy')).id, 2);
+  for (const name of ['Start','Finish','Done']) scene = changeSceneObject(scene, { kind: 'add-detector', name, position: [0,0,10], mask: 1, code: 'wait 789\nend' });
+  await f.project.change(f.name, scene, 'Following fixture');
+  return { ...f, scene, behavior: { mode: 'follow', startSignal: 'Start', destinationName: 'Finish', destinationRadius: 2.5, onComplete: 'Done', delaySeconds: .5 } };
+}
+test('following changes only the NPC program, canonicalizes references, preserves all dependencies and has exact export/reopen/undo', async t => {
+  const {project,root,name,scene,behavior} = await followingFixture(t), history = project.manifest.history.length, original = inspectScene(scene);
+  await project.changeSceneObject(name, {kind:'configure-human',target:'gUARD',behavior:{...behavior,startSignal:'start',destinationName:'finish',onComplete:'done'}}, hash(scene));
+  const after = await project.read(name), parsed = inspectScene(after); assert.equal(parsed.actorScripts[0].code, humanBehaviorScript('Guard',behavior)); assert.deepEqual(parsed.actorScripts.slice(1),original.actorScripts.slice(1)); assert.deepEqual(parsed.entries.filter(e=>!e.actorScript),original.entries.filter(e=>!e.actorScript)); assert(after.includes(Buffer.from('opaque sibling'))); assert.deepEqual(project.manifest.history.at(-1).files.map(f=>f.path),[name]);
+  const reopened = await ModProject.open(root); await reopened.export(root+'/follow-export'); assert.deepEqual(await fs.readFile(root+'/follow-export/'+name),after); assert.deepEqual(inspectHumanBehavior('Guard',inspectScene(await reopened.read(name)).actorScripts[0].code),behavior); await reopened.undo(); assert.deepEqual(await reopened.read(name),scene); assert.equal(reopened.manifest.history.length,history);
+  await reopened.changeSceneObject(name,{kind:'add-human',name:'NewCompanion',model:'models/Human.4ds',position:[2,0,0],rotation:[1,0,0,0],scale:[1,1,1],parameters:{},behavior},hash(scene)); assert.equal(inspectScene(await reopened.read(name)).actorScripts.at(-1).code,humanBehaviorScript('NewCompanion',behavior)); await reopened.undo(); assert.deepEqual(await reopened.read(name),scene);
+});
+test('following rejects missing player/bindings and protects scene and geometry at publication', async t => {
+  const {project,name,scene,behavior} = await followingFixture(t), history=project.manifest.history.length;
+  for(const invalid of [{startSignal:'Missing'},{onComplete:'Target'},{destinationName:'Tommy'},{destinationRadius:0}]) await assert.rejects(project.changeSceneObject(name,{kind:'configure-human',target:'Guard',behavior:{...behavior,...invalid}},hash(scene)),/Doprovod/);
+  assert.deepEqual(await project.read(name),scene); assert.equal(project.manifest.history.length,history);
+  const batch=project.changeBatch,geometryPath='missions/NPC/scene.4ds',geometry=await project.read(geometryPath);
+  project.changeBatch=async function(files,...args){await this.change(geometryPath,Buffer.concat([geometry,Buffer.from([1])]),'Independent geometry');return batch.call(this,files,...args);};
+  await assert.rejects(project.changeSceneObject(name,{kind:'configure-human',target:'Guard',behavior},hash(scene)),/změnil/); assert.deepEqual(await project.read(name),scene); project.changeBatch=batch; await project.undo(); assert.deepEqual(await project.read(geometryPath),geometry);
+  const save=project.saveManifest; project.saveManifest=async()=>{throw Error('following publication failure');}; await assert.rejects(project.changeSceneObject(name,{kind:'configure-human',target:'Guard',behavior},hash(scene)),/following publication/); project.saveManifest=save; assert.deepEqual(await project.read(name),scene); assert.equal(project.manifest.history.length,history);
 });
