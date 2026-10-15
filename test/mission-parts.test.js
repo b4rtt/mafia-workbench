@@ -22,11 +22,12 @@ test('mission links resolve the exact mixed-case manifest paths and exclude othe
 });
 test('returning from another mission/editor retains camera, selection, display settings and project isolation',()=>{
   const saved=new MissionViews(),camera={position:[1.2,3.4,-5.6],target:[7,8,9],near:.001,far:20000};
-  const map={projectRoot:'/project',mapPath:assets[0].path,selectedName:'Tommy',gizmo:{mode:'rotate'},backdrop:{visible:false},collisionOverlay:{visible:true},soundExtentVisible:false,lightPreviewVisible:true,captureCamera:()=>structuredClone(camera)};
+  const map={projectRoot:'/project',mapPath:assets[0].path,selectedName:'Tommy',gizmo:{mode:'rotate'},backdrop:{visible:false},collisionOverlay:{visible:true},soundExtentVisible:false,lightPreviewVisible:true,missionAreasVisible:false,captureCamera:()=>structuredClone(camera)};
   saved.remember(map);
   saved.remember({projectRoot:'/project',navigationPath:'missions/tutorial/check.bin',selectedPoint:28,navigationGeometryWanted:true,captureCamera:()=>({ ...camera,position:[100,2,3] })});
   saved.remember({...map,mapPath:'missions/OTHER/scene2.bin',selectedName:'Other',captureCamera:()=>({...camera,position:[99,4,3]})});
   const value=saved.get('/project',{path:'missions/tutorial/scene2.bin',type:'map'});
+  assert.equal(value.areas,false);
   assert.deepEqual(value.camera,camera);assert.equal(value.selectedName,'Tommy');assert.equal(value.mode,'rotate');assert.equal(value.collisions,true);assert.equal(value.sounds,false);
   assert.equal(saved.get('/project',{path:'MISSIONS/TUTORIAL/CHECK.BIN',type:'navigation'}).selectedPoint,28);
   assert.equal(saved.get('/project',{path:map.mapPath,type:'scene'}),null);

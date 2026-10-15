@@ -22,6 +22,7 @@ import { lightTypes, lightDefaults, sceneSectors } from '../shared/lights.js';
 import { soundTypes, soundDefaults } from '../shared/sounds.js';
 import { soundExtentSettings } from './sound-extent.js';
 import { lightPreviewSettings } from './light-preview.js';
+import { missionAreaSettings } from './mission-areas.js';
 import { roadGraph, roadEntries, roadReference, roadConnections } from '../shared/roads.js';
 import { roadTopologyDialog } from './road-topology.js';
 import { roadSettingsDialog } from './road-settings.js';
@@ -1208,6 +1209,15 @@ function renderMap(main, file, previous = null) {
     if(settings)selected.textContent=`${selectedObject.name} · ${lightVisible&&settings.mode?'náhled světla (orientační)':'světlo'}`;
     view.showLightPreview(selectedId,settings,lightVisible);focusLight.disabled=!view.lightOverlay?.visible;
   }
+  const missionAreas=element('button','Oblasti úkolu'),focusAreas=element('button','Zarámovat oblasti'),areaLegend=element('p','','notice');
+  missionAreas.disabled=focusAreas.disabled=true;
+  let areasVisible=previous?.areas??true;missionAreas.setAttribute('aria-pressed',String(areasVisible));areaLegend.hidden=true;center.append(areaLegend);
+  function updateMissionAreas(){
+    const settings=missionAreaSettings(file,selectedObject?.name??selectedFrame?.name,state.texts);
+    missionAreas.disabled=!settings?.areas.length;areaLegend.hidden=!settings;areaLegend.textContent=settings?.reason??'';
+    view.showMissionAreas(settings,areasVisible);focusAreas.disabled=!view.missionAreaOverlay?.visible;
+    if(settings||selectedObject?.frameType===6)selected.textContent=[selectedObject?.name??selectedFrame?.name,settings?(areasVisible?settings.summary:'Oblasti skryté'):null].filter(Boolean).join(' · ');
+  }
   const add = element('button', 'Vložit model…'), addHuman=element('button','Přidat postavu…'), addCar=element('button','Přidat auto…'), duplicate = element('button', 'Duplikovat…'), remove = element('button', 'Odstranit…'), focus = element('button', 'Zarámovat objekt'), collision=element('button','Kolize modelu…');
   duplicate.disabled = remove.disabled = focus.disabled = collision.disabled = true;
   const assignSector=element('button','Přiřadit do sektorů…');assignSector.disabled=true;
@@ -1259,12 +1269,13 @@ function renderMap(main, file, previous = null) {
     if (object) { objects.value = String(frame.id); properties?.select(object.fields.position ?? object.fields.name); }
     updateSoundExtent();
     updateLightPreview();
+    updateMissionAreas();
   }, (frame, values, mode) => {
     const field = { translate: 'position', rotate: 'rotation', scale: 'scale' }[mode], id = frame.sceneObject?.fields[field];
     if (!id) { status('Tato transformace nemá existující vlastnost ve zdrojovém souboru. Zatím ji upravte ve scene.4ds.', true); return; }
     state.texts.set(id, values[field]); properties?.select(id); status('Úprava mapy je rozepsaná. Uložte ji v inspektoru.');
   }); state.viewport = view;
-  view.soundExtentVisible=soundExtentVisible;
+  view.soundExtentVisible=soundExtentVisible;view.missionAreasVisible=areasVisible;
   view.mapPath = file.path; view.projectRoot = state.project.root; view.focusOnSelect = true;
   let cameraMoved = false;
   view.controls.addEventListener('start', () => { cameraMoved = true; });
@@ -1342,6 +1353,9 @@ function renderMap(main, file, previous = null) {
     lightPreview.onclick=()=>{lightVisible=!lightVisible;lightPreview.setAttribute('aria-pressed',String(lightVisible));updateLightPreview();};
     focusLight.onclick=()=>{if(view.lightOverlay?.visible){cameraMoved=true;view.fit(view.lightOverlay);}};
     displayActions.push(lightPreview,focusLight);
+    missionAreas.onclick=()=>{areasVisible=!areasVisible;missionAreas.setAttribute('aria-pressed',String(areasVisible));updateMissionAreas();};
+    focusAreas.onclick=()=>{if(view.missionAreaOverlay?.visible){cameraMoved=true;view.fit(view.missionAreaOverlay);}};
+    displayActions.push(missionAreas,focusAreas);
   }
   if (!file.cacheSource) {
     for (const [button, kind] of [[add, 'add-model'], [addHuman,'add-human'], [addCar,'add-car'], [duplicate, 'duplicate'], [remove, 'delete'],[collision,'collision']]) button.onclick = () => run(async () => {
@@ -1381,7 +1395,7 @@ function renderMap(main, file, previous = null) {
   tools.append(actionMenu('Zobrazení',displayActions));
   if(collisionActions.length)tools.append(actionMenu('Kolize',collisionActions));
   view.loadTextures(resolveTexture);
-  properties = renderProperties(inspector, file, file.cacheSource ? api.saveCache : async (...args) => { await api.saveScene(...args); return api.map(file.path); }, (entry, value) => { const field = byField.get(entry.id); if (field && ['position','rotation','scale'].includes(field.kind)) view.update(field.id, { [field.kind]: value }); updateSoundExtent(); updateLightPreview(); }, entry => {
+  properties = renderProperties(inspector, file, file.cacheSource ? api.saveCache : async (...args) => { await api.saveScene(...args); return api.map(file.path); }, (entry, value) => { const field = byField.get(entry.id); if (field && ['position','rotation','scale'].includes(field.kind)) view.update(field.id, { [field.kind]: value }); updateSoundExtent(); updateLightPreview(); updateMissionAreas(); }, entry => {
     const field=byField.get(entry.id);
     if(field&&selectedId!==field.id){view.select(field.id);properties.select(entry.id);}
   }, false);

@@ -12,7 +12,7 @@ export class MissionViews {
     }
     let path, type, value;
     if (view.mapPath) {
-      path=view.mapPath;type='map';value={selectedName:view.selectedName,mode:view.gizmo.mode,backdrop:view.backdrop?.visible,collisions:view.collisionOverlay?.visible,sounds:view.soundExtentVisible,lights:view.lightPreviewVisible};
+      path=view.mapPath;type='map';value={selectedName:view.selectedName,mode:view.gizmo.mode,backdrop:view.backdrop?.visible,collisions:view.collisionOverlay?.visible,sounds:view.soundExtentVisible,lights:view.lightPreviewVisible,areas:view.missionAreasVisible};
     } else if (view.modelPath) {
       path=view.modelPath;type='model';value={selectedId:view.selectedId,mode:view.gizmo.mode,wireframe:view.modelWireframe,sectors:view.sectorsVisible};
     } else if (view.navigationPath || view.roadPath) {

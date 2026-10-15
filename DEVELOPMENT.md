@@ -2,6 +2,12 @@
 
 Aktualizace: 15. října 2026. Vývoj pokračuje; komplexní editor není dokončený. Implementace, datové testy, ověření UI a ověření ve hře jsou různé úrovně dokončení; neoznačovat jednu za druhou. Podrobnosti existujících funkcí a jejich omezení jsou v README.md a research/formats.md. Původní hra se nemění, úpravy mají kontrolu verze, zálohu, export a undo. Herní data a soukromé reference nepatří do veřejného repozitáře.
 
+## Prostorové oblasti receptů mise (2026-10-15)
+
+- 3D mapa: modrá oblast spuštění a zelený cíl vybraného přesného receptu úkolu/rozhovoru/boje/zakončení, kompaktní legenda s názvy a poloměry. Zobrazení → Oblasti úkolu / Zarámovat oblasti; přepínač se pamatuje mezi částmi mise. Světový střed sleduje draft a rodiče, poloměr zůstává kulový bez měřítka rodiče. Mimo picking a běžné zarámování; nahrazené obrysy se uvolní. Nejde o simulaci běhu, vlastní zdroj se neodhaduje, chybějící/nejednoznačné vazby mají vysvětlení.
+- Pět nových testů, s pamětí pohledů 10/10 cílených kontrol; check/build. Skutečný oddělený Electron: obě oblasti 2,5/3, legenda, přiblížení, vypnutí a návrat z Logiky mise se zachovaným výběrem, rozepsaný posun a návrat na disabled Save (0). Jediná přípravná transakce přes undo obnovila historii 42 i všechny baseline/protected hashe. Generátory a běh hry beze změny; podrobnosti research/mission-activation.md, soukromý výsledek local/mission-areas-result.json.
+- Goal editoru pokračuje. Úplný ruční průchod ukázkové mise zůstává k ověření; navazující AI/OSM plugin a profil krajnice zůstávají odložené podle předchozího zadání.
+
 ## Ukázková mise v Electronu a neúspěch při smrti příjemce (2026-10-15)
 
 - Skutečná aplikace Electron nad oddělenou kopií ukázky: česká kontrola 0 chyb / 0 upozornění, šest šablon, 12 textových ID, dva dabingy a sedm přečtených souborů. Logika šest šablon / osm hran, správná obnova všech podmínek doručení v Nastavit, disabled nezměněné uložení, přechod z logiky vybral WB_DELIVERY ve 3D. Čtecí kontrola zachovala historii 42 i baseline hashe.

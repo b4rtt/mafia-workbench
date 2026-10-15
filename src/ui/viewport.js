@@ -9,6 +9,7 @@ import { createSoundExtent } from './sound-extent.js';
 import { sceneMarkerKind, markerMaterial } from './scene-markers.js';
 import { createLightPreview } from './light-preview.js';
 import { createSectorPreview } from './sector-preview.js';
+import { createMissionArea } from './mission-areas.js';
 
 export class Viewport {
   constructor(container, onSelect = () => {}, onChange = () => {}) {
@@ -31,6 +32,7 @@ export class Viewport {
       if (object) this.onChange(object.userData.frame, { position: object.position.toArray(), scale: object.scale.toArray(), rotation: toLs3dRotation(object.quaternion) }, this.gizmo.mode);
       this.syncSoundExtent();
       this.syncLightPreview();
+      this.syncMissionAreas();
     });
     this.root = new THREE.Group(); this.root.scale.z = -1; this.scene.add(this.root);
     this.studioLights=[new THREE.HemisphereLight(0xe4edff, 0x55554a, 2)];this.scene.add(this.studioLights[0]);
@@ -285,6 +287,7 @@ export class Viewport {
     if (values.culling !== undefined) object.visible = Boolean(values.culling & 1);
     this.syncSoundExtent();
     this.syncLightPreview();
+    this.syncMissionAreas();
   }
   addSceneObject(source, model = null) {
     const id = `scene:${source.id}`, object = new THREE.Group(); object.name = source.name;
@@ -327,9 +330,39 @@ export class Viewport {
     for (const [object, parent] of links) parent.add(object);
     this.syncSoundExtent();
     this.syncLightPreview();
+    this.syncMissionAreas();
     return warnings;
   }
-  showBackdrop(value) { if (this.backdrop) this.backdrop.visible = value; this.syncSoundExtent(); this.syncLightPreview(); }
+  showBackdrop(value) { if (this.backdrop) this.backdrop.visible = value; this.syncSoundExtent(); this.syncLightPreview(); this.syncMissionAreas(); }
+  showMissionAreas(settings, visible = true) {
+    if (this.missionAreaOverlay) {
+      this.missionAreaOverlay.traverse(node => { node.geometry?.dispose(); if (node.material) { node.material.dispose(); this.materials.delete(node.material); } });
+      this.missionAreaOverlay.removeFromParent(); this.missionAreaOverlay = null;
+    }
+    this.missionAreasVisible = visible;
+    if (!settings?.areas.length) return;
+    const group = new THREE.Group(); group.name = 'Mission areas';
+    for (const area of settings.areas) { const line = createMissionArea(area); group.add(line); this.materials.add(line.material); }
+    // World-space spheres: only the center follows the anchor. Parent scale or
+    // rotation must not deform a scalar world-distance condition into an ellipse.
+    // Outside root: areas cannot capture picking or change map/object framing.
+    this.missionAreaOverlay = group; this.scene.add(group); this.syncMissionAreas();
+  }
+  syncMissionAreas() {
+    if (!this.missionAreaOverlay) return;
+    for (const area of this.missionAreaOverlay.children) {
+      const matches = [...this.frames.values()].filter(object => !object.userData.frame.ownerId && object.name.normalize('NFC').toLowerCase() === area.name.normalize('NFC').toLowerCase());
+      const anchor = matches.length === 1 ? matches[0] : null;
+      let visible = Boolean(anchor && this.missionAreasVisible);
+      if (anchor) {
+        anchor.getWorldPosition(area.position);
+        visible &&= area.position.toArray().every(Number.isFinite);
+        for (let node = anchor; node; node = node.parent) visible &&= node.visible;
+      }
+      area.visible = visible;
+    }
+    this.missionAreaOverlay.visible = this.missionAreaOverlay.children.some(area => area.visible);
+  }
   showLightPreview(id, settings, visible=true) {
     if(this.lightOverlay){this.lightOverlay.traverse(node=>{node.geometry?.dispose();if(node.material){node.material.dispose();this.materials.delete(node.material);}});this.lightOverlay.removeFromParent();this.lightOverlay=null;}
     this.lightPreviewId=id;this.lightPreviewVisible=visible;
