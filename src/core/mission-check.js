@@ -9,6 +9,9 @@ import { dialogueSoundPath } from './dialogue-audio.js';
 import { dialogueSpeakers } from '../shared/mission-dialogue.js';
 import { missionTaskVehicles, resolveMissionTaskEscort } from '../shared/mission-task.js';
 import { missionLogic } from '../shared/mission-logic.js';
+import { validateHumanRoute } from '../shared/human-behavior.js';
+import { resolveHumanFollowing } from '../shared/human-following.js';
+import { parseNavigation } from './navigation.js';
 
 const key = name => name.replaceAll('\\', '/').normalize('NFC').toLowerCase();
 
@@ -53,12 +56,21 @@ export async function checkMission(project, name, textDb = null) {
     for (const node of graph.nodes) {
       const location = { path: scenePath, entryId: node.entryId, object: node.name }, recipe = node.recipe;
       for (const message of node.warnings) {
-        const origin = node.kind === 'unresolved' ? graph.nodes.find(source => graph.edges.some(edge => edge.from === source.id && edge.to === node.id)) : node;
+        const origin = node.kind === 'unresolved' ? graph.nodes.find(source => source.entryId && graph.edges.some(edge => edge.kind === 'signal' ? edge.from === node.id && edge.to === source.id : edge.from === source.id && edge.to === node.id)) : node;
         issue(node.kind === 'unresolved' ? 'error' : 'warning', 'flow', `${node.name}: ${message}`, { ...location, entryId: origin?.entryId });
       }
       if (node.kind === 'custom') { custom++; continue; }
       if (!recipe) continue;
       recipes++;
+      if (node.kind === 'patrol') {
+        const navigation = await parsed(`${folder}/check.bin`, parseNavigation, location, 'npc-route');
+        if (navigation) try { validateHumanRoute(recipe, navigation); } catch (error) { issue('error', 'npc-route', `${node.name}: ${error.message}`, location); }
+        continue;
+      }
+      if (node.kind === 'follow') {
+        try { resolveHumanFollowing(scene, node.name, recipe); } catch (error) { issue('error', 'npc-follow', `${node.name}: ${error.message}`, location); }
+        continue;
+      }
       for (const field of ['objectiveId', 'interactionId', 'nextObjectiveId', 'completeId', 'checkpointId']) text(recipe[field], node);
       text(recipe.failure?.textId, node);
       for (const answer of recipe.answers ?? []) text(answer.textId, node);

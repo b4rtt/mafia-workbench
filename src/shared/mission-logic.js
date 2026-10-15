@@ -1,12 +1,13 @@
 import { editableMissionTask } from './mission-task.js';
-import { editableMissionDialogue } from './mission-dialogue.js';
+import { editableMissionDialogue, dialogueSpeakers } from './mission-dialogue.js';
 import { editableMissionCombat } from './mission-combat.js';
 import { choiceControllers, editableMissionChoice } from './mission-choice.js';
 import { editableMissionFinish } from './mission-finish.js';
 import { missionFlowTargets } from './mission-flow.js';
+import { inspectHumanBehavior } from './human-behavior.js';
 
 const key = name => name.normalize('NFC').toLowerCase();
-export const logicKinds = { task: 'Úkol', finish: 'Zakončení mise', dialogue: 'Rozhovor', combat: 'Bojový úkol', choice: 'Volba odpovědi', custom: 'Vlastní skript', unresolved: 'Nedostupný bod', mission: 'Další mise', ending: 'Konec mise' };
+export const logicKinds = { task: 'Úkol', finish: 'Zakončení mise', dialogue: 'Rozhovor', combat: 'Bojový úkol', choice: 'Volba odpovědi', patrol: 'Trasa NPC', follow: 'Doprovod hráče', custom: 'Vlastní skript', unresolved: 'Nedostupný bod', mission: 'Další mise', ending: 'Konec mise' };
 
 // Edges come only from complete, previously verified editor recipes. Arbitrary
 // LS3D programs remain visible source nodes; we do not infer their execution.
@@ -25,14 +26,17 @@ export function missionLogic(scene) {
     // A partially modified controller must remain inspectable as custom source.
     if (complete && controller.groups.length) owned.add(controller.scriptId);
   }
+  const humans = new Set(dialogueSpeakers(scene).filter(actor => actor.kind === 27).map(actor => key(actor.name)));
   for (const entry of scene.entries ?? []) {
     if (entry.kind !== 'script' || owned.has(entry.id)) continue;
     const name = entry.value.name;
     const detector = entry.actorScript && entry.actorKind === 5;
     const task = detector ? editableMissionTask(scene, name) : null, dialogue = detector && !task ? editableMissionDialogue(scene, name) : null, combat = detector && !task && !dialogue ? editableMissionCombat(scene, name) : null, finish = detector && !task && !dialogue && !combat ? editableMissionFinish(scene, name) : null;
-    const kind = task ? 'task' : dialogue ? 'dialogue' : combat ? 'combat' : finish ? 'finish' : 'custom';
-    const recipe = task?.task ?? dialogue?.dialogue ?? combat?.combat ?? finish?.finish ?? null;
-    const node = add({ id: `script:${entry.id}`, name, kind, entryId: entry.id, actor: Boolean(entry.actorScript), recipe, members: [name], trigger: recipe ? recipe.trigger ?? 'use' : null, waiting: finish?.finish.waitForSignal ?? recipe?.flow?.waitForSignal ?? false });
+    const behavior = entry.actorScript && entry.actorKind === 27 && humans.has(key(name)) && scene.entries.filter(other => other.actorScript && key(other.value.name) === key(name)).length === 1 ? inspectHumanBehavior(name, entry.value.code) : null;
+    const journey = ['patrol', 'follow'].includes(behavior?.mode) ? behavior : null;
+    const kind = task ? 'task' : dialogue ? 'dialogue' : combat ? 'combat' : finish ? 'finish' : journey ? journey.mode : 'custom';
+    const recipe = task?.task ?? dialogue?.dialogue ?? combat?.combat ?? finish?.finish ?? journey;
+    const node = add({ id: `script:${entry.id}`, name, kind, entryId: entry.id, actor: Boolean(entry.actorScript), recipe, members: [name], trigger: journey ? 'load' : recipe ? recipe.trigger ?? 'use' : null, waiting: journey ? Boolean(journey.startSignal) : finish?.finish.waitForSignal ?? recipe?.flow?.waitForSignal ?? false });
     if (entry.actorScript) alias(name, node);
   }
   const targets = new Set(missionFlowTargets(scene).map(actor => key(actor.name)));
@@ -61,6 +65,14 @@ export function missionLogic(scene) {
   for (const node of [...nodes]) {
     const recipe = node.recipe;
     if (!recipe) continue;
+    if (node.kind === 'patrol' || node.kind === 'follow') {
+      if (recipe.startSignal) {
+        const gate = target(recipe.startSignal), helper = gate.kind === 'choice' && key(gate.name) !== key(recipe.startSignal);
+        edges.push({ id: `edge:${edges.length}`, from: gate.id, to: node.id, kind: 'signal', label: `Čeká na signál bodu ${recipe.startSignal}`, targetName: recipe.startSignal, helper });
+      }
+      if (recipe.onComplete) link(node, recipe.onComplete, 'success', 'Dokončení pohybu');
+      continue;
+    }
     if (node.kind === 'choice') {
       recipe.answers.forEach((answer, index) => link(node, answer.target, 'answer', `Odpověď ${index + 1} · text ${answer.textId}`));
       continue;
@@ -73,7 +85,10 @@ export function missionLogic(scene) {
     if (recipe.failure?.endMission) terminal(node, 'Neúspěšné ukončení', 'ending', 'failure', 'Neúspěch');
   }
   for (const node of nodes) {
-    if (node.waiting && !edges.some(edge => edge.to === node.id && !edge.helper)) node.warnings.push('Čeká na signál; v rozpoznaných návaznostech nemá odesílatele. Může jej spouštět vlastní skript.');
+    const gate = ['patrol', 'follow'].includes(node.kind) ? node.recipe.startSignal : null;
+    if (gate) {
+      if (!edges.some(edge => edge.kind !== 'signal' && edge.targetName && key(edge.targetName) === key(gate))) node.warnings.push(`Čeká na signál bodu ${gate}; žádná rozpoznaná šablona jej neposílá. Může jej posílat vlastní skript.`);
+    } else if (node.waiting && !edges.some(edge => edge.to === node.id && !edge.helper && edge.kind !== 'signal')) node.warnings.push('Čeká na signál; v rozpoznaných návaznostech nemá odesílatele. Může jej spouštět vlastní skript.');
   }
   for (const cycle of layoutMissionLogic({ nodes, edges }).cycles) {
     for (const id of cycle) nodes.find(node => node.id === id).warnings.push('Cyklus návazností. Počáteční aktivaci může zajistit hráč nebo vnější signál; diagram běh skriptů nesimuluje.');

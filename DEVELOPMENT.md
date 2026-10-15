@@ -2,6 +2,12 @@
 
 Aktualizace: 15. října 2026. Vývoj pokračuje; komplexní editor není dokončený. Implementace, datové testy, ověření UI a ověření ve hře jsou různé úrovně dokončení; neoznačovat jednu za druhou. Podrobnosti existujících funkcí a jejich omezení jsou v README.md a research/formats.md. Původní hra se nemění, úpravy mají kontrolu verze, zálohu, export a undo. Herní data a soukromé reference nepatří do veřejného repozitáře.
 
+## Trasy a doprovod NPC v Logice a kontrole mise (2026-10-15)
+
+- Přesné recepty patrol v1/v2 a follow mají vlastní karty, detaily a vstup do stávajícího formuláře chování. Vyžadují jednoznačnou NPC Human/rám/program; vlastní nebo upravený zdroj se neodhaduje. Fialová přerušovaná hrana čte signál bodu, zelená posílá dokončení, pomocný název zůstává přesný. Čtení neplatí jako odesílatel. Chybějící/nejednoznačné vazby a čekání mají vysvětlení. Navigaci tras a cíl doprovodu navíc prověřuje čtecí kontrola mise, s odkazy na skutečný program a kontrolou verze čtených souborů.
+- Pět nových testů, 24/24 cílených kontrol; check/build. Produkční rozhraní v místním prohlížeči nad samostatnou kopií skutečné mise: záměrné ID 65000 nalezené kontrolou, otevření přesného zdroje, dvě NPC karty/tři hrany, oprava na ID 77 přes Nastavit a jedna scénová transakce, zachovaný diagram/výběr, obnova a disabled nezměněné uložení. Formulář doprovodu a přechod do 3D/vrácení karty ověřené. Kontrola po opravě 0 chyb, 1 očekávané upozornění neznámého odesílatele. Export/reopen přesné; UI undo a čtyři přípravy obnovily historii 25 i všechny baseline/protected hashe. Podrobnosti research/mission-logic.md a research/mission-check.md, soukromý index local/npc-logic.json.
+- Herní generátory ani původní data se tímto blokem nemění, nejde o nový native průchod ani ověření okna Electronu. Goal editoru pokračuje; ruční průchod celé ukázky a další formátový/authoringový backlog zůstávají otevřené. AI/OSM modul a profil krajnice stále odložené podle zadání.
+
 ## Návaznosti pěší trasy NPC na signály mise (2026-10-15)
 
 - Chování postavy → Pohyb po trase: volitelný čekací signál skriptového bodu a signál dokončení po jednorázové trase včetně posledního čekání. Kontrola jednoznačných existujících detektorů, bez sebereference a bez dokončení nekonečné trasy. Původní varianty bez signálů generují stejný zdroj v1; nové mají přesně rozpoznávaný v2. Vlastní kód se nemigruje. Zápis mění pouze program vybrané NPC se stávajícími verzovacími kontrolami scény/geometrie/navigace. Diagram Logiky mise tyto NPC vazby zatím nezobrazuje.

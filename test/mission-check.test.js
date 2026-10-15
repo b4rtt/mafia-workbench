@@ -12,6 +12,7 @@ import { missionCombatScript } from '../src/shared/mission-combat.js';
 import { missionChoicePrograms } from '../src/shared/mission-choice.js';
 import { addTextDbEntry, editTextDb } from '../src/core/textdb.js';
 import { collisionFixture } from './fixtures/collision.js';
+import { humanBehaviorScript } from '../src/shared/human-behavior.js';
 
 const scenePath = 'missions/Test/scene2.bin', textPath = 'TABLES/textdb_CZ.def';
 const task = { objectiveId: 10, interactionId: 20, nextObjectiveId: 30, completeId: 40, targetName: 'Finish', flow: { onComplete: 'Talk' } };
@@ -119,4 +120,33 @@ test('choice answer text, combat actors and escort bindings are checked from exa
   assert.deepEqual(failures.filter(issue => issue.code === 'text-id').map(issue => issue.textId), [500, 600]);
   assert(failures.some(issue => issue.code === 'human' && issue.object === 'Combat'));
   assert(failures.some(issue => issue.code === 'escort' && issue.object === 'Quest'));
+});
+
+const patrol={mode:'patrol',waypoints:[{id:77,pauseSeconds:1}],pace:'walk',loop:false,delaySeconds:0,startSignal:'Talk',onComplete:'Quest'};
+function navigation(ids=[77,88]) {
+  const bytes=Buffer.alloc(8+30*ids.length);bytes.writeUInt32LE(0x01abcedf);bytes.writeUInt32LE(ids.length,4);
+  ids.forEach((id,index)=>{const at=8+30*index;bytes.writeFloatLE(index*5,at);bytes.writeUInt16LE(1,at+12);bytes.writeUInt16LE(id,at+14);bytes.writeUInt16LE(50,at+16);});return bytes;
+}
+test('mission check validates exact NPC patrols against current stored navigation IDs and reports the source without mutations',async t=>{
+  const {project}=await fixture(t),nav='missions/Test/check.bin';
+  await script(project,'Companion',humanBehaviorScript('Companion',patrol));
+  let report=await project.checkMission(scenePath);assert(errors(report).some(i=>i.code==='npc-route'&&i.object==='Companion'&&i.entryId&&i.path===scenePath&&i.message.includes('check.bin')));
+  await project.createFiles([{path:nav,data:navigation()}]);
+  const before=new Map(await Promise.all(project.manifest.assets.map(async a=>[a.path,await project.read(a.path)]))),history=project.manifest.history.length;
+  report=await project.checkMission(scenePath);assert.deepEqual(errors(report),[]);assert.equal(report.recipes,3);assert(report.files.some(f=>f.path===nav));
+  for(const options of [{...patrol,waypoints:[{id:0,pauseSeconds:0}]},{...patrol,waypoints:[...patrol.waypoints,{id:88,pauseSeconds:0}]}]){
+    await script(project,'Companion',humanBehaviorScript('Companion',options));report=await project.checkMission(scenePath);const issue=errors(report).find(i=>i.code==='npc-route');assert.equal(issue.object,'Companion');assert.equal(issue.path,scenePath);assert(issue.entryId);await project.undo();
+  }
+  for(const data of [navigation([77,77]),Buffer.from('bad')]){await project.change(nav,data,'Navigation audit');report=await project.checkMission(scenePath);assert(errors(report).some(i=>i.code==='npc-route'));await project.undo();}
+  await script(project,'Companion',humanBehaviorScript('Companion',{...patrol,startSignal:'MissingGate'}));report=await project.checkMission(scenePath);const gate=errors(report).find(i=>i.code==='flow');assert(gate.entryId);assert.equal(gate.path,scenePath);await project.undo();
+  assert.equal(project.manifest.history.length,history);for(const[n,b]of before)assert.deepEqual(await project.read(n),b);
+  const read=project.read.bind(project);let count=0;project.read=async n=>{const b=await read(n);return n===nav&&++count===2?Buffer.concat([b,Buffer.from([0])]):b;};await assert.rejects(project.checkMission(scenePath),/během kontroly/);assert.equal(project.manifest.history.length,history);
+});
+test('following dependencies are checked while altered NPC programs remain explicitly unknown',async t=>{
+  const {project}=await fixture(t),options={mode:'follow',startSignal:'Talk',destinationName:'Finish',destinationRadius:3,onComplete:'Quest',delaySeconds:0};
+  await script(project,'Companion',humanBehaviorScript('Companion',options));let report=await project.checkMission(scenePath);assert.deepEqual(errors(report),[]);assert.equal(report.recipes,3);
+  for(const extra of [{destinationName:'Absent'},{startSignal:'MissingGate'},{onComplete:'MissingDone'}]){
+    await script(project,'Companion',humanBehaviorScript('Companion',{...options,...extra}));report=await project.checkMission(scenePath);const issue=errors(report).find(i=>i.code==='npc-follow');assert.equal(issue.object,'Companion');assert(issue.entryId);await project.undo();
+  }
+  await script(project,'Companion',humanBehaviorScript('Companion',options)+'// own');report=await project.checkMission(scenePath);assert.equal(report.recipes,2);assert(!errors(report).some(i=>i.code==='npc-follow'));assert(report.issues.some(i=>i.code==='custom'));
 });

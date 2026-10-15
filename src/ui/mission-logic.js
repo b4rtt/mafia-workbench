@@ -15,7 +15,7 @@ export function renderMissionLogic(main, file, remembered, { element, projectRoo
   });
   controls.append(actionMenu('Přidat', additions), focus, toggleOutline, toggleInspector, count); center.append(controls, scroll);
   outline.append(element('h3', 'Body mise'), find, allLabel, list); layout.append(outline, center, inspector); main.append(layout);
-  const note = element('p', 'Zelená: dokončení · červená: neúspěch · modrá: odpověď. Zobrazeny jsou přesně rozpoznané šablony editoru a jejich cíle. Vlastní skripty mohou přidávat další návaznosti; diagram nesimuluje hru.', 'logic-note'); center.append(note);
+  const note = element('p', 'Zelená: dokončení · červená: neúspěch · modrá: odpověď · přerušovaná: NPC čeká na signál bodu. Čekání čte stav bodu, nikoli dokončení jeho programu. Zobrazeny jsou přesně rozpoznané šablony editoru; vlastní skripty mohou přidávat další návaznosti. Diagram nesimuluje hru.', 'logic-note'); center.append(note);
   let selected = byId.has(remembered?.selectedId) ? remembered.selectedId : graph.nodes.find(node => node.recipe && !graph.edges.some(edge => edge.to === node.id))?.id ?? graph.nodes.find(node => node.recipe)?.id ?? graph.nodes[0]?.id ?? null;
   let cards = new Map(), rows = new Map(), lines = [], focusSelection = false;
   function panel(button, className, visible) {
@@ -24,7 +24,7 @@ export function renderMissionLogic(main, file, remembered, { element, projectRoo
   panel(toggleOutline, 'logic-outline-hidden', !(remembered?.outlineHidden ?? false)); panel(toggleInspector, 'logic-inspector-hidden', !(remembered?.inspectorHidden ?? false));
   toggleOutline.onclick = () => panel(toggleOutline, 'logic-outline-hidden', layout.classList.contains('logic-outline-hidden'));
   toggleInspector.onclick = () => panel(toggleInspector, 'logic-inspector-hidden', layout.classList.contains('logic-inspector-hidden'));
-  const caption = node => node.kind === 'choice' ? `${node.waiting ? 'Po signálu · ' : ''}${node.recipe.answers.length} odpovědi · ${node.recipe.controller}` : node.recipe ? `${node.waiting ? 'Po signálu · ' : ''}${node.trigger === 'use' ? 'Akce hráče' : node.trigger === 'area' ? `Oblast · ${node.recipe.triggerRadius}` : 'Po načtení'}` : logicKinds[node.kind];
+  const caption = node => node.kind === 'patrol' ? `${node.waiting ? 'Po signálu · ' : ''}${node.recipe.pace === 'walk' ? 'Chůze' : 'Běh'} · zastávky: ${node.recipe.waypoints.length} · ${node.recipe.loop ? 'opakovaně' : 'jednou'}` : node.kind === 'follow' ? `${node.waiting ? 'Po signálu · ' : ''}${node.recipe.destinationName ? `Cíl ${node.recipe.destinationName}` : 'Bez cíle'}` : node.kind === 'choice' ? `${node.waiting ? 'Po signálu · ' : ''}${node.recipe.answers.length} odpovědi · ${node.recipe.controller}` : node.recipe ? `${node.waiting ? 'Po signálu · ' : ''}${node.trigger === 'use' ? 'Akce hráče' : node.trigger === 'area' ? `Oblast · ${node.recipe.triggerRadius}` : 'Po načtení'}` : logicKinds[node.kind];
   function select(id) {
     selected = id;
     for (const [nodeId, card] of cards) { card.classList.toggle('selected', nodeId === id); card.setAttribute('aria-pressed', String(nodeId === id)); }
@@ -36,6 +36,12 @@ export function renderMissionLogic(main, file, remembered, { element, projectRoo
     if (node.recipe) {
       inspector.append(element('p', caption(node)));
       const details = [];
+      if (node.kind === 'patrol' || node.kind === 'follow') {
+        details.push(['Prodleva', `${node.recipe.delaySeconds} s`], ['Čekání na signál', node.recipe.startSignal ?? 'Po načtení mise']);
+        if (node.kind === 'patrol') details.push(['Zastávky', node.recipe.waypoints.map(stop => `ID ${stop.id} (${stop.pauseSeconds} s)`).join(' → ')]);
+        else if (node.recipe.destinationName) details.push(['Cíl doprovodu', `${node.recipe.destinationName} · poloměr ${node.recipe.destinationRadius}`]);
+        inspector.append(element('p', 'NPC čte signál vybraného bodu; přerušovaná hrana neznamená, že se čeká na dokončení programu tohoto bodu. Chování, navigaci a překážky ověřte ve hře.', 'notice'));
+      }
       if (node.kind === 'finish') details.push(['Výsledek', node.recipe.outcome === 'mission' ? `Další mise · ${node.recipe.nextMission}` : `${node.recipe.outcome === 'success' ? 'Úspěch' : 'Neúspěch'} · text ${node.recipe.completeId}`]);
       if (node.recipe.targetName) details.push(['Cíl', node.recipe.targetName]);
       if (node.recipe.escort) details.push(['Příchod NPC', node.recipe.escort.humanName]);
@@ -82,7 +88,7 @@ export function renderMissionLogic(main, file, remembered, { element, projectRoo
       // quest nodes. Separate ports keep equal-target branches distinguishable.
       const lane=16+(index%7)*9;
       group.classList.add(edge.kind); path.setAttribute('d', b.x-a.x===340 ? `M ${x} ${y} C ${x + 36} ${y}, ${end - 36} ${endY}, ${end} ${endY}` : `M ${x} ${y} L ${x+20} ${y} L ${x+20} ${lane} L ${end-20} ${lane} L ${end-20} ${endY} L ${end} ${endY}`); arrow.setAttribute('d', `M ${end - 8} ${endY - 5} L ${end} ${endY} L ${end - 8} ${endY + 5}`);
-      label.setAttribute('x',String(x+5));label.setAttribute('y',String(y-7));label.textContent=edge.kind==='failure'?'Neúsp.':edge.kind==='answer'?String(outgoing.indexOf(edge)+1):'Dok.';group.append(path, arrow,label); svg.append(group); lines.push({ edge, group });
+      label.setAttribute('x',String(x+5));label.setAttribute('y',String(y-7));label.textContent=edge.kind==='signal'?'Signál':edge.kind==='failure'?'Neúsp.':edge.kind==='answer'?String(outgoing.indexOf(edge)+1):'Dok.';group.append(path, arrow,label); svg.append(group); lines.push({ edge, group });
     }
     const query = find.value.normalize('NFC').toLowerCase();
     for (const node of nodes) {

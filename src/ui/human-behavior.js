@@ -34,7 +34,7 @@ export function humanBehaviorFields({ element, file, catalog, navigation, roads,
   for (const [value, label] of [['walk', 'Chůze'], ['run', 'Běh']]) { const option = element('option', label); option.value = value; pace.append(option); }
   loop.type = 'checkbox'; startDelay.type = 'number'; startDelay.min = '0'; startDelay.max = '86400'; startDelay.step = 'any'; startDelay.required = true;
   pace.value = initial.mode === 'patrol' ? initial.pace : 'walk'; loop.checked = initial.mode === 'patrol' && initial.loop; startDelay.value = String(initial.mode === 'patrol' ? initial.delaySeconds : 0);
-  route.append(element('h3', 'Zastávky v pořadí průchodu'), routeSettings, element('p', 'Body používají uložené ID z check.bin, nikoli pořadí. Chybějící nebo duplicitní ID upravte v navigaci mise. Trasa musí mít spojení pro chodce; umístěte postavu blízko této sítě. Signál dokončení je pouze pro jednorázovou trasu, po posledním čekání. Návaznosti NPC zatím diagram Logiky mise nezobrazuje.'), routeRows, addStop);
+  route.append(element('h3', 'Zastávky v pořadí průchodu'), routeSettings, element('p', 'Body používají uložené ID z check.bin, nikoli pořadí. Chybějící nebo duplicitní ID upravte v navigaci mise. Trasa musí mít spojení pro chodce; umístěte postavu blízko této sítě. Signál dokončení je pouze pro jednorázovou trasu, po posledním čekání. Přehled návazností otevřete v Logice mise.'), routeRows, addStop);
   if (!points.length) route.append(element('p', navigation?.warning ? `Navigace není dostupná: ${navigation.warning}` : 'Navigace nemá body pro chodce s jednoznačným ID. Nejprve je připravte v check.bin.', 'notice'));
   function renderStops() {
     routeRows.replaceChildren();

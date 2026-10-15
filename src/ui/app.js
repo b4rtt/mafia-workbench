@@ -334,6 +334,11 @@ function renderDetail() {
         else if(node.kind==='combat')missionCombatDialog({api,assets:state.project.assets,file,target:node.name,element,run,flowFields:missionFlowFields,onCreated});
         else if(node.kind==='finish')missionFinishDialog({api,assets:state.project.assets,file,target:node.name,element,run,onCreated});
         else if(node.kind==='choice')missionChoiceDialog({api,assets:state.project.assets,file,target:node.name,element,run,onCreated});
+        else if(node.kind==='patrol'||node.kind==='follow'){
+          if(state.texts.size)throw new Error('Nejdřív uložte rozepsané vlastnosti.');
+          const context=await humanBehaviorContext(file);
+          humanBehaviorDialog({element,file,...context,target:node.name,run,save:async request=>onCreated(await api.changeSceneObject(file.path,request,file.sha256))});
+        }
       }),
       source:node=>run(async()=>{state.file=await api.inspect(file.path);state.logicSourceEntry=node.entryId;renderDetail();status(`Zdrojový program: ${node.name}`);}),
       scene:node=>run(async()=>{state.file=await api.map(file.path);state.selectSceneName=node.name;renderDetail();status(`3D objekt: ${node.name}`);})

@@ -10,6 +10,7 @@ V libovolné části mise zvolte **Zkontrolovat misi**. Přehled rozlišuje chyb
 - Přítomnost a základní RIFF/WAVE hlavička dabingu rozpoznaných replik podle doloženého `sounds/%08d.wav`. Zvuk je společný jazykům. Toto není dekódování ani poslech celého souboru; LIP není povinná závislost.
 - Přechod šablony do další mise: tři základní soubory, jejich čitelnost, hráč cílové mise a odmítnutí přechodu do stejné mise. Nejde o rekurzivní kontrolu celé kampaně.
 - Cykly, čekání bez známého odesílatele a signál pomocnému bodu volby jsou upozornění. Mohou být záměrné nebo doplněné vlastním skriptem. Chybějící/nejednoznačný příjemce přesně známé návaznosti je chyba.
+- Přesné pěší trasy NPC: čte se aktuální `check.bin`, prověřují uložená ID a jejich jednoznačnost/kategorie chodců, spojení mezi zastávkami a návrat opakování. Chybějící nebo nečitelná navigace je u takové trasy chyba. U přesného doprovodu se ověří hráč, cílový nepohyblivý objekt a signálové body. Čtení signálu v diagramu neplatí jako jeho odeslání. Nález otevře program příslušné NPC; neslibuje dosažitelnost počátku sítě ani geometrickou průchodnost.
 
 Vlastní programy jsou výslovně neanalyzované. Upravená šablona či neplatná vazba jejího vlastníka se může stát vlastním programem; report neodhaduje její záměr. Kontrola neověřuje syntaxi a běh všech LS3D skriptů, modelové/texturové závislosti, animace, dosažitelnost, AI, průchodnost, checkpoint za běhu ani kompletní hratelnost. Absence chyb tedy není důkaz hotové mise. Nálezy automaticky nemění data ani nezakazují test vlastní logiky.
 
