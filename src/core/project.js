@@ -15,6 +15,7 @@ import { pickupParameters } from '../shared/pickups.js';
 import { resolveMissionFlow } from '../shared/mission-flow.js';
 import { missionTaskScript, missionTaskVehicles, resolveMissionTaskEscort, editableMissionTask } from '../shared/mission-task.js';
 import { missionFinishScript, editableMissionFinish } from '../shared/mission-finish.js';
+import { missionBranchScript, editableMissionBranch, resolveMissionBranch } from '../shared/mission-branch.js';
 import { inspectMissionDestination } from './mission-destination.js';
 import { checkMission } from './mission-check.js';
 import { createTerrain } from './terrain.js';
@@ -426,13 +427,13 @@ export class ModProject {
       if(operation.kind==='configure-human')choiceScene=editScene(before,behavior.entry.id,{...behavior.entry.value,code:behavior.code});
       else request={...operation,code:behavior.code};
     }
-    if(operation?.kind==='add-detector' && [operation.task,operation.dialogue,operation.combat,operation.finish].filter(Boolean).length>1)throw new Error('Skriptový bod: vyberte pouze jednu šablonu.');
+    if(operation?.kind==='add-detector' && [operation.task,operation.dialogue,operation.combat,operation.finish,operation.branch].filter(Boolean).length>1)throw new Error('Skriptový bod: vyberte pouze jednu šablonu.');
     if(operation?.kind==='add-detector' && operation.combat){
       const combat=await prepareMissionCombat(this,before,geometry,operation);
       request={...operation,mask:1,code:combat.code};dependencies.push(...combat.dependencies);
     }
     if(operation?.kind==='configure-combat'){
-      if(operation.task||operation.dialogue||operation.behavior||operation.finish)throw new Error('Bojový úkol: vyberte pouze jednu šablonu.');
+      if(operation.task||operation.dialogue||operation.behavior||operation.finish||operation.branch)throw new Error('Bojový úkol: vyberte pouze jednu šablonu.');
       const current=editableMissionCombat({...inspectScene(before),geometry},operation.target);
       if(!current)throw new Error('Bojový úkol: vyberte jednoznačný skriptový bod s nezměněnou šablonou a maskou 1. Vlastní program upravte v editoru zdroje.');
       const combat=await prepareMissionCombat(this,before,geometry,{...operation,name:current.entry.value.name});
@@ -457,7 +458,7 @@ export class ModProject {
     }
     if(['add-light','add-sound','add-detector'].includes(operation?.kind))dependencies.push({path:geometryPath,data:geometryBytes,expectedHash:hash(geometryBytes)});
     if((operation?.kind==='add-detector' && operation.dialogue)||operation?.kind==='configure-dialogue'){
-      if(operation.task||operation.combat||operation.behavior||operation.finish)throw new Error('Rozhovor: vyberte pouze jednu šablonu.');
+      if(operation.task||operation.combat||operation.behavior||operation.finish||operation.branch)throw new Error('Rozhovor: vyberte pouze jednu šablonu.');
       const current=operation.kind==='configure-dialogue'?editableMissionDialogue({...inspectScene(before),geometry},operation.target):null;
       if(operation.kind==='configure-dialogue'&&!current)throw new Error('Rozhovor: vyberte jednoznačný skriptový bod s nezměněnou šablonou a maskou 1. Vlastní program upravte v editoru zdroje.');
       const dialogue={trigger:'use',camera:false,...operation.dialogue},textPath=relativeAssetPath(dialogue.textDb);
@@ -498,7 +499,7 @@ export class ModProject {
       else request={...operation,mask:1,code};
     }
     if((operation?.kind==='add-detector' && operation.task)||operation?.kind==='configure-task'){
-      if(operation.dialogue||operation.combat||operation.behavior||operation.finish)throw new Error('Úkol: vyberte pouze jednu šablonu.');
+      if(operation.dialogue||operation.combat||operation.behavior||operation.finish||operation.branch)throw new Error('Úkol: vyberte pouze jednu šablonu.');
       const current=operation.kind==='configure-task'?editableMissionTask({...inspectScene(before),geometry},operation.target):null;
       if(operation.kind==='configure-task'&&!current)throw new Error('Úkol: vyberte jednoznačný skriptový bod s nezměněnou šablonou a maskou 1. Vlastní program upravte v editoru zdroje.');
       const task=operation.task,textPath=relativeAssetPath(task.textDb);
@@ -554,7 +555,7 @@ export class ModProject {
       else request={...operation,mask:1,code};
     }
     if ((operation?.kind === 'add-detector' && operation.finish) || operation?.kind === 'configure-finish') {
-      if (operation.task || operation.dialogue || operation.combat || operation.behavior) throw new Error('Zakončení: vyberte pouze jednu šablonu.');
+      if (operation.task || operation.dialogue || operation.combat || operation.behavior || operation.branch) throw new Error('Zakončení: vyberte pouze jednu šablonu.');
       const current = operation.kind === 'configure-finish' ? editableMissionFinish({ ...inspectScene(before), geometry }, operation.target) : null;
       if (operation.kind === 'configure-finish' && !current) throw new Error('Zakončení: vyberte nezměněnou šablonu s jednoznačným skriptovým bodem a maskou 1. Vlastní program upravte v editoru zdroje.');
       const finish = operation.finish;
@@ -579,6 +580,24 @@ export class ModProject {
       const code = missionFinishScript({ ...finish, nextMission });
       if (current) { choiceScene = editScene(before, current.entry.id, { ...current.entry.value, code }); dependencies.push({ path: geometryPath, data: geometryBytes, expectedHash: hash(geometryBytes) }); }
       else request = { ...operation, mask: 1, code };
+    }
+    if ((operation?.kind === 'add-detector' && operation.branch) || operation?.kind === 'configure-branch') {
+      if (operation.task || operation.dialogue || operation.combat || operation.behavior || operation.finish) throw new Error('Podmínka: vyberte pouze jednu šablonu.');
+      const scene = { ...inspectScene(before), geometry }, current = operation.kind === 'configure-branch' ? editableMissionBranch(scene, operation.target) : null;
+      if (operation.kind === 'configure-branch' && !current) throw new Error('Podmínka: vyberte nezměněnou šablonu s jednoznačným skriptovým bodem a maskou 1. Vlastní program upravte v editoru zdroje.');
+      const branch = resolveMissionBranch(scene, operation.branch, current?.entry.value.name ?? operation.name);
+      const items = branch.conditions.filter(condition => condition.kind === 'item');
+      if (items.length) {
+        const asset = this.asset('tables/predmety.def'), bytes = await this.read(asset.path);
+        if (hash(bytes) !== operation.branch.itemTableHash) throw new Error('Podmínka: tabulka předmětů se od otevření změnila. Otevřete dialog znovu.');
+        const table = parseItems(bytes);
+        if (items.some(condition => !table.records[condition.itemId]?.name.trim())) throw new Error('Podmínka: vyberte existující pojmenovaný předmět.');
+        dependencies.push({ path: asset.path, data: bytes, expectedHash: hash(bytes) });
+      }
+      const code = missionBranchScript(branch);
+      if (current) choiceScene = editScene(before, current.entry.id, { ...current.entry.value, code });
+      else request = { ...operation, mask: 1, code };
+      dependencies.push({ path: geometryPath, data: geometryBytes, expectedHash: hash(geometryBytes) });
     }
     if(operation?.kind==='add-sound'){
       const soundPath=relativeAssetPath(operation.sound);
@@ -634,7 +653,7 @@ export class ModProject {
       if(owned){const klz=parseCollision(await this.read(`${folder}/tree.klz`)),record=ownedCollisionRecords(klz,[owned])[0];requests.push({name:operation.name,kind:owned.kind,material:record.material,doubleSided:owned.doubleSided});}
     }
     const collision=await prepareSceneCollision(this,name,before,after,{requests,expectedHash:operation?.collisionHash});
-    const label={ 'add-model': 'Vložení modelu do mise', 'add-human':'Vložení postavy a jejího skriptu','configure-human':'Nastavení chování postavy','configure-combat':'Nastavení bojového úkolu','configure-dialogue':'Nastavení rozhovoru','configure-task':'Nastavení úkolu','configure-finish':'Nastavení zakončení mise','add-car':'Vložení automobilu a jeho aktéra','add-light':'Vložení světla do mise','add-sound':'Vložení prostorového zvuku do mise','add-detector':'Vložení skriptového bodu','add-choice':'Vložení volby odpovědi','configure-choice':'Nastavení volby odpovědi','add-pickup':'Vložení předmětu k sebrání','configure-pickup':'Nastavení předmětu k sebrání','attach-door':'Vytvoření dveřního aktéra','attach-physical':'Vytvoření fyzikálního předmětu', duplicate: 'Duplikace objektu mise', delete: 'Odstranění objektu mise',collision:'Generování kolize modelu' }[operation?.kind]??'Úprava objektů mise';
+    const label={ 'add-model': 'Vložení modelu do mise', 'add-human':'Vložení postavy a jejího skriptu','configure-human':'Nastavení chování postavy','configure-combat':'Nastavení bojového úkolu','configure-dialogue':'Nastavení rozhovoru','configure-task':'Nastavení úkolu','configure-finish':'Nastavení zakončení mise','configure-branch':'Nastavení podmínky mise','add-car':'Vložení automobilu a jeho aktéra','add-light':'Vložení světla do mise','add-sound':'Vložení prostorového zvuku do mise','add-detector':'Vložení skriptového bodu','add-choice':'Vložení volby odpovědi','configure-choice':'Nastavení volby odpovědi','add-pickup':'Vložení předmětu k sebrání','configure-pickup':'Nastavení předmětu k sebrání','attach-door':'Vytvoření dveřního aktéra','attach-physical':'Vytvoření fyzikálního předmětu', duplicate: 'Duplikace objektu mise', delete: 'Odstranění objektu mise',collision:'Generování kolize modelu' }[operation?.kind]??'Úprava objektů mise';
     const files=new Map([{path:name,data:after,expectedHash},...dependencies,...(collision?.files??[])].map(file=>[key(file.path),file]));
     await this.changeBatch([...files.values()],label,collision?.ownership,readDependencies);
   }

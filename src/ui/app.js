@@ -15,6 +15,8 @@ import { dialogueInteractionFields } from './dialogue-interaction.js';
 import { editableMissionChoice } from '../shared/mission-choice.js';
 import { missionFinishDialog } from './mission-finish.js';
 import { editableMissionFinish } from '../shared/mission-finish.js';
+import { editableMissionBranch } from '../shared/mission-branch.js';
+import { missionBranchDialog } from './mission-branch.js';
 import { missionCombatDialog } from './mission-combat.js';
 import { editableMissionCombat } from '../shared/mission-combat.js';
 import { humanBehaviorDialog, humanBehaviorFields } from './human-behavior.js';
@@ -330,6 +332,7 @@ function renderDetail() {
         if(kind==='task'||kind==='custom')detectorDialog(file,undefined,null,{initialName,initialMode:kind==='task'?'task':'custom',onCreated:created});
         else if(kind==='dialogue')dialogueDialog(file,undefined,null,{initialName,onCreated:created});
         else if(kind==='combat')missionCombatDialog({api,assets:state.project.assets,file,initialName,element,run,flowFields:missionFlowFields,onCreated:created});
+        else if(kind==='branch')missionBranchDialog({api,file,initialName,element,run,onCreated:created});
         else if(kind==='finish')missionFinishDialog({api,assets:state.project.assets,file,initialName,element,run,onCreated:created});
         else if(kind==='choice')missionChoiceDialog({api,assets:state.project.assets,file,initialName,element,run,onCreated:created});
       }),
@@ -338,6 +341,7 @@ function renderDetail() {
         if(node.kind==='task')detectorDialog(file,undefined,node.name);
         else if(node.kind==='dialogue')dialogueDialog(file,undefined,node.name);
         else if(node.kind==='combat')missionCombatDialog({api,assets:state.project.assets,file,target:node.name,element,run,flowFields:missionFlowFields,onCreated});
+        else if(node.kind==='branch')missionBranchDialog({api,file,target:node.name,element,run,onCreated});
         else if(node.kind==='finish')missionFinishDialog({api,assets:state.project.assets,file,target:node.name,element,run,onCreated});
         else if(node.kind==='choice')missionChoiceDialog({api,assets:state.project.assets,file,target:node.name,element,run,onCreated});
         else if(['patrol','follow','drive','attack'].includes(node.kind)){
@@ -1233,11 +1237,12 @@ function renderMap(main, file, previous = null) {
   duplicate.disabled = remove.disabled = focus.disabled = collision.disabled = true;
   const assignSector=element('button','Přiřadit do sektorů…');assignSector.disabled=true;
   const addPickup=element('button','Přidat předmět k sebrání…'),configurePickup=element('button','Nastavit předmět…');configurePickup.disabled=true;
-  const addDoor=element('button','Vytvořit dveře…'),addPhysical=element('button','Vytvořit fyzikální předmět…'),addLight=element('button','Přidat světlo…'),addSound=element('button','Přidat zvuk…'),addDetector=element('button','Přidat skriptový bod…'),addDialogue=element('button','Přidat rozhovor…'),addChoice=element('button','Přidat volbu odpovědi…'),addCombat=element('button','Přidat bojový úkol…'),addFinish=element('button','Přidat zakončení mise…');addDoor.disabled=addPhysical.disabled=true;
+  const addDoor=element('button','Vytvořit dveře…'),addPhysical=element('button','Vytvořit fyzikální předmět…'),addLight=element('button','Přidat světlo…'),addSound=element('button','Přidat zvuk…'),addDetector=element('button','Přidat skriptový bod…'),addDialogue=element('button','Přidat rozhovor…'),addChoice=element('button','Přidat volbu odpovědi…'),addCombat=element('button','Přidat bojový úkol…'),addFinish=element('button','Přidat zakončení mise…'),addBranch=element('button','Přidat podmínku mise…');addDoor.disabled=addPhysical.disabled=true;
   const vehiclePhysics = element('button', 'Fyzika auta…');
   const configureHuman = element('button', 'Chování postavy…'); configureHuman.disabled = true;
   const configureCombat = element('button', 'Nastavit bojový úkol…'); configureCombat.disabled = true; configureCombat.title = 'Pouze přesně rozpoznaná šablona s maskou 1; vlastní program upravte v inspektoru.';
   const configureFinish=element('button','Nastavit zakončení mise…');configureFinish.disabled=true;
+  const configureBranch=element('button','Nastavit podmínku mise…');configureBranch.disabled=true;
   const configureTask = element('button', 'Nastavit úkol…'); configureTask.disabled = true; configureTask.title = 'Pouze přesně rozpoznaná šablona s maskou 1; vlastní program upravte v inspektoru.';
   const configureChoice = element('button', 'Nastavit volbu odpovědí…'); configureChoice.disabled = true; configureChoice.title = 'Pouze úplná nezměněná skupina odpovědí a řídicí program NPC.';
   const configureDialogue = element('button', 'Nastavit rozhovor…'); configureDialogue.disabled = true; configureDialogue.title = 'Pouze přesně rozpoznaná šablona s maskou 1; vlastní program upravte v inspektoru.';
@@ -1262,6 +1267,7 @@ function renderMap(main, file, previous = null) {
     configureHuman.disabled = file.entries.filter(entry => entry.actorScript && entry.actorKind === 27 && entry.value.name.toLowerCase() === (object?.name ?? frame.name).toLowerCase()).length !== 1;
     configureCombat.disabled = !editableMissionCombat(file, object?.name ?? frame.name);
     configureFinish.disabled = !editableMissionFinish(file, object?.name ?? frame.name);
+    configureBranch.disabled = !editableMissionBranch(file, object?.name ?? frame.name);
     configureTask.disabled = !editableMissionTask(file, object?.name ?? frame.name);
     configureChoice.disabled = !editableMissionChoice(file, object?.name ?? frame.name);
     configureDialogue.disabled = !editableMissionDialogue(file, object?.name ?? frame.name);
@@ -1416,7 +1422,8 @@ function renderMap(main, file, previous = null) {
     addCombat.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před vytvořením bojového úkolu uložte rozepsané vlastnosti.');missionCombatDialog({api,assets:state.project.assets,file,position:selectedObject?.position,element,run,flowFields:missionFlowFields,onCreated:async(result,name)=>{state.file=result;state.selectSceneName=name;await refresh();renderDetail();status('Bojový úkol vytvořený se zálohou a jedním undo.');}});});
     for(const [button,configure] of [[addPickup,false],[configurePickup,true]])button.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před vložením nebo nastavením předmětu uložte rozepsané vlastnosti.');const catalog=await api.pickupItems();if(!catalog.items.length)throw new Error('Tabulka neobsahuje předměty s dostupným podporovaným modelem.');pickupDialog(file,catalog,configure?selectedObject:null,selectedObject?.position);});
     for(const [button,editing] of [[addFinish,false],[configureFinish,true]])button.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Nejdřív uložte rozepsané vlastnosti.');missionFinishDialog({api,assets:state.project.assets,file,target:editing?(selectedObject?.name??selectedFrame?.name):null,position:selectedObject?.position,element,run,onCreated:async(result,name)=>{state.file=result;state.selectSceneName=name;await refresh();renderDetail();status('Zakončení mise uložené se zálohou a jedním undo. Spusťte misi znovu.');}});});
-    tools.append(actionMenu('Přidat',[add,addHuman,addCar,addPickup,addLight,addSound,addDetector,addDialogue,addChoice,addCombat,addFinish]),actionMenu('Objekt',[duplicate,remove,collision,assignSector,configureHuman,configureCombat,configureTask,configureFinish,configureDialogue,configureChoice,configurePickup,addDoor,addPhysical]));
+    for(const [button,editing] of [[addBranch,false],[configureBranch,true]])button.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Nejdřív uložte rozepsané vlastnosti.');missionBranchDialog({api,file,target:editing?(selectedObject?.name??selectedFrame?.name):null,position:selectedObject?.position,element,run,onCreated:async(result,name)=>{state.file=result;state.selectSceneName=name;await refresh();renderDetail();status('Podmínka mise uložená se zálohou a jedním undo. Spusťte misi znovu.');}});});
+    tools.append(actionMenu('Přidat',[add,addHuman,addCar,addPickup,addLight,addSound,addDetector,addDialogue,addChoice,addCombat,addBranch,addFinish]),actionMenu('Objekt',[duplicate,remove,collision,assignSector,configureHuman,configureCombat,configureTask,configureFinish,configureBranch,configureDialogue,configureChoice,configurePickup,addDoor,addPhysical]));
   }
   tools.append(actionMenu('Zobrazení',displayActions));
   if(collisionActions.length)tools.append(actionMenu('Kolize',collisionActions));

@@ -20,8 +20,8 @@
 .logic-edges g { color: #328857; opacity: .6; }
 .logic-edges g.failure { color: #c84b45; }
 .logic-edges g.answer { color: var(--accent); }
-.logic-edges g.signal { color: #9574c7; }
-.logic-edges g.signal path { stroke-dasharray: 5 4; }
+.logic-edges g.signal, .logic-edges g.read { color: #9574c7; }
+.logic-edges g.signal path, .logic-edges g.read path { stroke-dasharray: 5 4; }
 .logic-edges path { stroke: currentColor; stroke-width: 1.5; fill: none; }
 .logic-edges text { fill: currentColor; font-size: 10px; }
 .logic-edges g.related { opacity: 1; }

@@ -8,6 +8,7 @@ import { parseItems } from './items.js';
 import { dialogueSoundPath } from './dialogue-audio.js';
 import { dialogueSpeakers, dialogueInteractionHumans } from '../shared/mission-dialogue.js';
 import { missionTaskVehicles, resolveMissionTaskEscort } from '../shared/mission-task.js';
+import { resolveMissionBranch } from '../shared/mission-branch.js';
 import { missionLogic } from '../shared/mission-logic.js';
 import { validateHumanRoute, resolveHumanAttack, humanWeapons } from '../shared/human-behavior.js';
 import { resolveHumanFollowing } from '../shared/human-following.js';
@@ -92,12 +93,21 @@ export async function checkMission(project, name, textDb = null) {
     for (const node of graph.nodes) {
       const location = { path: scenePath, entryId: node.entryId, object: node.name }, recipe = node.recipe;
       for (const message of node.warnings) {
-        const origin = node.kind === 'unresolved' ? graph.nodes.find(source => source.entryId && graph.edges.some(edge => edge.kind === 'signal' ? edge.from === node.id && edge.to === source.id : edge.from === source.id && edge.to === node.id)) : node;
+        const origin = node.kind === 'unresolved' ? graph.nodes.find(source => source.entryId && graph.edges.some(edge => ['signal', 'read'].includes(edge.kind) ? edge.from === node.id && edge.to === source.id : edge.from === source.id && edge.to === node.id)) : node;
         issue(node.kind === 'unresolved' ? 'error' : 'warning', 'flow', `${node.name}: ${message}`, { ...location, entryId: origin?.entryId });
       }
       if (node.kind === 'custom') { custom++; continue; }
       if (!recipe) continue;
       recipes++;
+      if (node.kind === 'branch') {
+        try { resolveMissionBranch(scene, recipe, node.name); } catch (error) { issue('error', 'branch', `${node.name}: ${error.message}`, location); }
+        const itemConditions = recipe.conditions.filter(condition => condition.kind === 'item');
+        if (itemConditions.length) {
+          const items = await parsed('tables/predmety.def', parseItems, location, 'inventory');
+          if (items) for (const condition of itemConditions) if (!items.records[condition.itemId]?.name.trim()) issue('error', 'inventory', `${node.name}: předmět ID ${condition.itemId} nemá pojmenovanou definici.`, location);
+        }
+        continue;
+      }
       if (node.kind === 'attack') {
         try { resolveHumanAttack(scene, node.name, recipe); } catch (error) { issue('error', 'npc-attack', `${node.name}: ${error.message}`, location); }
         const items = await parsed('tables/predmety.def', parseItems, location, 'npc-weapon');
