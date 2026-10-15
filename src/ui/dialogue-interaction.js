@@ -9,6 +9,8 @@ export function dialogueInteractionFields({ api, file, initial, editing, element
   };
   const humans = dialogueInteractionHumans(file), human = choose('Akci nabídnout u postavy', [['', 'Na pozici skriptového bodu'], ...humans.map(actor => [actor.name, actor.name])], initial?.interactionHuman);
   const lock = field('Během replik uzamknout ovládání hráče', element('input')); lock.type = 'checkbox'; lock.checked = initial?.lockPlayer ?? !editing;
+  const death = field('Přerušit rozhovor po smrti účastníka', element('input')); death.type = 'checkbox'; death.checked = initial?.interruptOnDeath ?? !editing;
+  death.parentElement.append(element('span', 'Život všech mluvčích, posluchačů kamery, hráče a postavy akce se ověří před první a po každé replice. Při přerušení se uvolní kamera i zámek a neodešle se dokončení. Právě přehrávaná věta může doběhnout; čekání na akční tlačítko se tím neruší.'));
   const required = field('Rozhovor / předání vyžaduje předmět v inventáři', element('input')); required.type = 'checkbox'; required.checked = Boolean(initial?.inventory);
   const item = choose('Požadovaný předmět', [['', 'Vyberte předmět…']], null);
   const consume = field('Při použití akce odebrat předmět z inventáře', element('input')); consume.type = 'checkbox'; consume.checked = initial?.inventory?.consume ?? true;
@@ -25,10 +27,11 @@ export function dialogueInteractionFields({ api, file, initial, editing, element
     } catch (error) { if (!closed) failure = error.message; }
     finally { loading = false; if (!closed) changed(); }
   }
-  human.onchange = lock.onchange = item.onchange = consume.onchange = changed;
+  human.onchange = lock.onchange = death.onchange = item.onchange = consume.onchange = changed;
   required.onchange = () => { changed(); if (required.checked) load(); };
   return {
-    options: trigger => ({ ...(lock.checked ? { lockPlayer: true } : {}), ...(trigger === 'use' && human.value ? { interactionHuman: human.value } : {}), ...(trigger === 'use' && required.checked ? { inventory: { itemId: item.value ? Number(item.value) : NaN, consume: consume.checked, tableHash: table?.sha256 } } : {}) }),
+    options: trigger => ({ ...(death.checked ? { interruptOnDeath: true } : {}), ...(lock.checked ? { lockPlayer: true } : {}), ...(trigger === 'use' && human.value ? { interactionHuman: human.value } : {}), ...(trigger === 'use' && required.checked ? { inventory: { itemId: item.value ? Number(item.value) : NaN, consume: consume.checked, tableHash: table?.sha256 } } : {}) }),
+    interruptOnDeath: () => death.checked,
     update(trigger) {
       human.disabled = required.disabled = trigger !== 'use'; human.parentElement.style.display = required.parentElement.style.display = trigger !== 'use' ? 'none' : '';
       item.disabled = consume.disabled = trigger !== 'use' || !required.checked; item.parentElement.style.display = consume.parentElement.style.display = item.disabled ? 'none' : '';
@@ -36,6 +39,7 @@ export function dialogueInteractionFields({ api, file, initial, editing, element
       item.setCustomValidity(!item.disabled && (!table || !item.value) ? failure || (loading ? 'Načítám předměty…' : 'Vyberte dostupný předmět.') : '');
       const player = dialogueSpeakers(file).some(actor => actor.kind === 2 && actor.name.toLowerCase() === 'tommy');
       lock.setCustomValidity((lock.checked || !item.disabled) && !player ? 'Zámek a předání potřebují hráče Tommy typu Player.' : '');
+      death.setCustomValidity(death.checked && !player ? 'Kontrola života potřebuje hráče Tommy typu Player.' : '');
     },
     load: () => { if (required.checked) return load(); },
     dispose: () => { closed = true; }

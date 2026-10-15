@@ -1591,11 +1591,11 @@ function dialogueDialog(file,position=[0,0,0],target=null,{initialName='WB_DIALO
   const interactionFields=dialogueInteractionFields({api,file,initial,editing,element,field:(label,input)=>field(fields,label,input),changed:()=>update()});
   const add=element('button','Přidat repliku'),cancel=element('button','Zrušit'),save=element('button',editing?'Uložit rozhovor':'Vytvořit rozhovor','primary'),actions=element('div',undefined,'tools');add.type=cancel.type='button';save.type='submit';actions.append(cancel,save);
   preview.readOnly=true;preview.rows=10;preview.setAttribute('aria-label','Výsledný program rozhovoru');let lines=[],textFile=null,revision=0,closed=false,saving=false;const sounds=new Map();
-  const flow=missionFlowFields(file,fields,name,()=>update(),{initial:initial?.flow});
+  const flow=missionFlowFields(file,fields,name,()=>update(),{failure:true,initial:initial?.flow});
   const id=input=>input.value.trim()?Number(input.value):NaN;
   const options=()=>({flow:flow.options(),textDb:language.value,textHash:textFile?.sha256,...activation.options(),...interactionFields.options(trigger.value),interactionId:id(interaction),camera:camera.checked,lines:lines.map(line=>({speaker:line.speaker.value,listener:line.listener.value,textId:id(line.id)})),soundHashes:Object.fromEntries([...sounds].map(([key,value])=>[key,value.sha256]))});
   const update=()=>{
-    flow.update();activation.update();interactionFields.update(trigger.value);
+    flow.update({hasFailure:interactionFields.interruptOnDeath()});activation.update();interactionFields.update(trigger.value);
     interaction.disabled=trigger.value!=='use';interaction.parentElement.style.display=interaction.disabled?'none':'';
     const lookup=value=>textFile?.entries.slice(0,-1).find(entry=>entry.id===value)?.text;
     interactionCaption.textContent=lookup(id(interaction))??'Text akce nenalezený.';

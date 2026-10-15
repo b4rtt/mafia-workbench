@@ -61,6 +61,7 @@ export function renderMissionLogic(main, file, remembered, { element, projectRoo
       if (node.recipe.inventory) details.push(['Předmět', `ID ${node.recipe.inventory.itemId}${node.recipe.inventory.consume ? ' · odevzdat' : ''}`]);
       if (node.recipe.targets && node.kind !== 'coordination') details.push(['Protivníci', node.recipe.targets.join(', ')]);
       if (node.recipe.lines) details.push(['Repliky', node.recipe.lines.map(line => `${line.speaker}: ${line.textId}`).join(' · ')]);
+      if (node.kind === 'dialogue') details.push(['Smrt účastníka', node.recipe.interruptOnDeath ? 'Kontrola před první a po každé replice; přerušení bez dokončení' : 'Bez kontroly života']);
       for (const [name, value] of details) inspector.append(element('p', `${name}: ${value}`));
       if (node.recipe.checkpointId !== null && node.recipe.checkpointId !== undefined) inspector.append(element('p', `Checkpoint: ${node.recipe.checkpointId}`));
       const configure = element('button', 'Nastavit…', 'primary'); configure.dataset.logicAction = ''; configure.onclick = () => edit(node); inspector.append(configure);

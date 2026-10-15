@@ -1,5 +1,6 @@
 import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs/promises';import os from 'node:os';import path from 'node:path';
 import {missionDialogueScript,dialogueSpeakers,inspectMissionDialogue,editableMissionDialogue} from '../src/shared/mission-dialogue.js';import {ModProject} from '../src/core/project.js';import {changeSceneObject,inspectScene,editScene} from '../src/core/scene.js';import {hash,writeSafe} from '../src/core/files.js';
+import {missionLogic} from '../src/shared/mission-logic.js';
 const conversation={trigger:'use',interactionId:90002,camera:true,lines:[{speaker:'NPC',listener:'Tommy',textId:90000},{speaker:'Tommy',listener:'NPC',textId:90001},{speaker:'npc',listener:'Tommy',textId:90000}]};
 const chunk=(type,data)=>{const header=Buffer.alloc(6);header.writeUInt16LE(type);header.writeUInt32LE(data.length+6,2);return Buffer.concat([header,data]);};
 function voice(sample){const b=Buffer.alloc(46);b.write('RIFF');b.writeUInt32LE(38,4);b.write('WAVEfmt ',8);b.writeUInt32LE(16,16);b.writeUInt16LE(1,20);b.writeUInt16LE(1,22);b.writeUInt32LE(22050,24);b.writeUInt32LE(44100,28);b.writeUInt16LE(2,32);b.writeUInt16LE(16,34);b.write('data',36);b.writeUInt32LE(2,40);b.writeInt16LE(sample,44);return b;}
@@ -99,4 +100,62 @@ test('NPC handover transaction validates human/player/item, preserves their prog
  p.changeBatch=async function(files,...args){await this.change('tables/predmety.def',Buffer.concat([items,Buffer.alloc(188)]),'Concurrent item definition');return batch.call(this,files,...args);};
  await assert.rejects(()=>p.changeSceneObject(name,{...request,dialogue},hash(scene)),/změnil/);assert.deepEqual(await p.read(name),scene);p.changeBatch=batch;await p.undo();
  const save=p.saveManifest;p.saveManifest=async()=>{throw Error('Handover publication failed');};await assert.rejects(()=>p.changeSceneObject(name,{...request,dialogue},hash(scene)),/publication failed/);p.saveManifest=save;assert.deepEqual(await p.read(name),scene);assert.equal(p.manifest.history.length,history);
+});
+
+test('guarded dialogue restores canonical recipes for every activation/camera/lock/flow combination without changing legacy source',()=>{
+ for(const trigger of ['load','use','area'])for(const camera of [false,true])for(const lockPlayer of [false,true])for(const flow of [null,{onFailure:'FAIL'},{waitForSignal:true,onComplete:'NEXT',onFailure:'FAIL'}]){
+  const recipe={...conversation,trigger,...(trigger==='area'?{triggerRadius:3}:{}),camera,lockPlayer,interruptOnDeath:true,flow};
+  const code=missionDialogueScript(recipe),parsed=inspectMissionDialogue(code);assert(parsed);assert.equal(parsed.interruptOnDeath,true);assert.equal(missionDialogueScript(parsed),code);assert.equal(missionDialogueScript(inspectMissionDialogue(code.replaceAll('\n','\r\n'))),code);
+  for(const change of [code.replace('label 90','label 89'),code.replace('human_getproperty 0, 0, Energy','human_getproperty 0, 0, Speed'),code.replace('let flt[0] = 0','let flt[0] = 1')])assert.equal(inspectMissionDialogue(change),null);
+ }
+ assert.equal(missionDialogueScript({...conversation,interruptOnDeath:false}),missionDialogueScript(conversation));
+ assert.throws(()=>missionDialogueScript({...conversation,interruptOnDeath:1}),/Rozhovor/);
+ assert.throws(()=>missionDialogueScript({...conversation,flow:{onFailure:'FAIL'}}),/neúspěchu/);
+ const handover=missionDialogueScript({...conversation,interruptOnDeath:true,inventory:{itemId:23,consume:true},interactionHuman:'Other'});
+ assert(handover.includes('findactor 2, "Other"'));assert(handover.indexOf('if flt[0] > 0, -1, 91')<handover.indexOf('human_delweapon'));assert(handover.indexOf('human_getproperty 2, 0, Energy')<handover.indexOf('human_delweapon'));
+});
+
+// Interpret the emitted subset, independently of the generator's construction.
+// Speech completion can kill any participant; no timers/engine state are faked
+// as an assertion about real Wine (that is a separate integration experiment).
+function dialogueRun(options,{dead=null,killAt=null,killName='NPC'}={}){
+ const code=missionDialogueScript({...options,trigger:'load',interruptOnDeath:true,flow:{onComplete:'NEXT',onFailure:'FAIL'}}).split('\n'),actors=[],health=new Map([['NPC',100],['Tommy',100],['Other',100]]),events=[],signals=[],labels=new Map(code.flatMap((line,i)=>line.startsWith('label ')?[[Number(line.slice(6)),i]]:[]));
+ if(dead)health.set(dead,0);let pc=0,float=0,talks=0,locked=false,camera=false;
+ for(let step=0;step<2000;step++){
+  const line=code[pc++];assert(line,'script must terminate');let m;
+  if((m=/^findactor (\d+), "(.+)"$/.exec(line)))actors[Number(m[1])]=m[2];
+  else if(line==='let flt[0] = 0')float=0;
+  else if((m=/^human_getproperty (\d+), 0, Energy$/.exec(line))){const value=health.get(actors[Number(m[1])]);if(value!==undefined)float=value;}
+  else if((m=/^if flt\[0\] > 0, -1, (\d+)$/.exec(line))){if(!(float>0))pc=labels.get(Number(m[1]));}
+  else if(line==='player_lockcontrols 1'){assert(!locked);locked=true;events.push('lock');}
+  else if(line==='player_lockcontrols 0'){assert(locked);locked=false;events.push('unlock');}
+  else if(line.startsWith('dialog_begin')){assert(!camera);camera=true;events.push('begin');}
+  else if(line==='dialog_end'){assert(camera);camera=false;events.push('end');}
+  else if(line.startsWith('human_talk')){talks++;if(talks===killAt)health.set(killName,0);}
+  else if((m=/^detector_setsignal (\d+), 1$/.exec(line)))signals.push(actors[Number(m[1])]);
+  else if(line==='end')return {talks,signals,events,locked,camera};
+  else assert(/^(dim_|wait |label |dialog_camswitch )/.test(line),'unsupported '+line);
+ }
+ assert.fail('script looped');
+}
+test('death before activation never acquires controls/camera; death during any line releases them exactly once and suppresses completion',()=>{
+ for(const camera of [false,true])for(const lockPlayer of [false,true]){
+  const options={...conversation,camera,lockPlayer},normal=dialogueRun(options);assert.equal(normal.talks,3);assert.deepEqual(normal.signals,['NEXT']);assert(!normal.locked&&!normal.camera);
+  for(const dead of ['NPC','Tommy']){const state=dialogueRun(options,{dead});assert.equal(state.talks,0);assert.deepEqual(state.events,[]);assert.deepEqual(state.signals,['FAIL']);}
+  for(const killName of ['NPC','Tommy'])for(const killAt of [1,2,3]){const state=dialogueRun(options,{killName,killAt});assert.equal(state.talks,killAt);assert.deepEqual(state.signals,['FAIL']);assert.deepEqual(state.events,[...(lockPlayer?['lock']:[]),...(camera?['begin','end']:[]),...(lockPlayer?['unlock']:[])]);assert(!state.locked&&!state.camera);}
+ }
+ // A zero-initialized failed runtime binding also fails closed.
+ assert.deepEqual(dialogueRun({...conversation,camera:false,lines:[{speaker:'Missing',textId:1}]}).signals,['FAIL']);
+});
+
+test('guarded dialogue editing has a distinct failure edge, exact export/reopen/no-op/undo and validates all watched people',async t=>{
+ const {p,root,name,scene,request}=await editFixture(t),history=p.manifest.history.length,operation={...request,dialogue:{...request.dialogue,interruptOnDeath:true,lockPlayer:true,camera:true,flow:{onComplete:'NEXT',onFailure:'fail'}}};
+ for(const dialogue of [{...operation.dialogue,interruptOnDeath:1},{...operation.dialogue,interruptOnDeath:false},{...operation.dialogue,flow:{onFailure:'Missing'}},{...operation.dialogue,flow:{onFailure:'CONVERSATION'}}])await assert.rejects(()=>p.changeSceneObject(name,{...operation,dialogue},hash(scene)),/Rozhovor|Návaznost/);
+ await p.changeSceneObject(name,operation,hash(scene));const changed=await p.read(name),map=await p.inspectMap(name),recovered=editableMissionDialogue(map,'CONVERSATION');assert.equal(recovered.dialogue.interruptOnDeath,true);assert.deepEqual(recovered.dialogue.flow,{waitForSignal:false,onComplete:'NEXT',onFailure:'FAIL'});
+ const graph=missionLogic(map),node=graph.nodes.find(n=>n.name==='CONVERSATION');assert.equal(node.kind,'dialogue');assert.deepEqual(graph.edges.filter(e=>e.from===node.id).map(e=>[e.kind,e.targetName]),[['success','NEXT'],['failure','FAIL']]);
+ const before=inspectScene(scene),id=recovered.entry.id;assert.deepEqual(inspectScene(changed).entries.filter(e=>e.id!==id),before.entries.filter(e=>e.id!==id));
+ await p.changeSceneObject(name,operation,hash(changed));assert.equal(p.manifest.history.length,history+1);const reopened=await ModProject.open(root);assert.equal(editableMissionDialogue(await reopened.inspectMap(name),'CONVERSATION').dialogue.interruptOnDeath,true);await reopened.export(root+'/guard-export');assert.deepEqual(await fs.readFile(root+'/guard-export/'+name),changed);await reopened.undo();assert.deepEqual(await reopened.read(name),scene);assert.equal(reopened.manifest.history.length,history);
+ // A pure NPC-to-NPC conversation still checks the actual Player, even with
+ // camera, lock and inventory disabled. A Human merely named Tommy is invalid.
+ const player=inspectScene(scene).entries.find(e=>e.label==='Typ aktéra'&&e.context.endsWith('/ Tommy')),invalid=editScene(scene,player.id,27);await reopened.change(name,invalid,'No player');await assert.rejects(()=>reopened.changeSceneObject(name,{...operation,dialogue:{...operation.dialogue,lockPlayer:false,camera:false,lines:[{speaker:'NPC',textId:90000}]}},hash(invalid)),/kontrola života/);await reopened.undo();assert.deepEqual(await reopened.read(name),scene);
 });

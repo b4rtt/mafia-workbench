@@ -491,8 +491,8 @@ export class ModProject {
         if(!human)throw new Error('Rozhovor: akce potřebuje jednoznačnou NPC typu Human, nikoli hráče nebo samotný model.');
         interactionHuman=human.name;
       }
-      if(dialogue.lockPlayer||inventory){
-        if(!dialogueSpeakers({...inspectScene(before),geometry}).some(actor=>actor.kind===2&&key(actor.name)==='tommy'))throw new Error('Rozhovor: zámek a předání potřebují jednoznačného hráče Tommy typu Player.');
+      if(dialogue.lockPlayer||inventory||dialogue.interruptOnDeath){
+        if(!dialogueSpeakers({...inspectScene(before),geometry}).some(actor=>actor.kind===2&&key(actor.name)==='tommy'))throw new Error('Rozhovor: zámek, předání a kontrola života potřebují jednoznačného hráče Tommy typu Player.');
       }
       if(inventory){
         const itemAsset=this.asset('tables/predmety.def'),itemBytes=await this.read(itemAsset.path);
