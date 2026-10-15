@@ -661,3 +661,10 @@ Uživatel požaduje oddělený AI plugin pro generování propracovaného živé
 - Skutečný renderer + produkční ModProject v oddělené kopii: nový typ 93 WB_FIRE_STRUCTURE, kopie emitoru, kopie nepojmenované fáze, přesné přesuny zpět a smazání kopií, draft guard, odmítnutí duplicitního názvu, nabídka nového typu v misi, vložení a UI undo efektu. Přesný export/znovuotevření a následná obnova historie/dat; chráněné uživatelovy projekty a Game.exe stejné.
 - Pokus GOG 1.2/Wine ověřil načtené hashe scény i tabulky, ale skončil před vytvořením okna s nodrv_CreateWindow / explorer process failed to start. Vykreslení nového typu není ověřené. Diagnostika v kopii vrácená. Částicový náhled, modelové vazby a vizuální nativní test zůstávají otevřené; celý goal aktivní.
 - Ruční dialogová kontrola: uživatel potvrdil blokovaný pohyb během řeči a obnovení normální chůze po výběru odpovědi. Běh na místě je omezený na samotnou nabídku; vizuální zámek animace při zachování akčního tlačítka zůstává nedotažený. Skripty řeči se na základě tohoto výsledku neměnily.
+
+
+## Čekání před nabídkou odpovědí (2026-10-15)
+
+- Předčasné Speed 0 způsobovalo běh na místě po řeči před stiskem akce. Nová volba odpovědi má toto zastavení výchozí vypnuté, popisek a nápověda výslovně popisují okamžik i omezení. Starší nastavení se zachovává. Řeč dál používá player_lockcontrols; automatické otevření nativního menu není implementované.
+- Soukromá ukázka WB_DELIVERY_DEMO explicitně přenastavená jedním undo (historie 53), bez změny ostatních programů či souborů. Produkční UI nad kopií ověřilo legacy/default, uložení, no-op, reopen/export a přesné undo. Native GOG 1.2/Wine: při řeči lock 1 / Speed 100, po řeči lock 0 / Speed 100 s oběma čekajícími odpověďmi; po odpovědi claim 1 a úklid obou akcí. Diagnostické NPC vstupy, nikoli ruční klávesový průchod. Kopie obnovená, prefix ukončený, chráněné hashe stejné.
+- Cílené testy 36/36, check/build. Známé nesouvisející selhání plné sady mission-dialogue.test.js se v tomto bloku nemění. Celý editor zůstává aktivní goal.
