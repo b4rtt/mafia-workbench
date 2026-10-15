@@ -2,10 +2,11 @@ import { editableMissionTask } from './mission-task.js';
 import { editableMissionDialogue } from './mission-dialogue.js';
 import { editableMissionCombat } from './mission-combat.js';
 import { choiceControllers, editableMissionChoice } from './mission-choice.js';
+import { editableMissionFinish } from './mission-finish.js';
 import { missionFlowTargets } from './mission-flow.js';
 
 const key = name => name.normalize('NFC').toLowerCase();
-export const logicKinds = { task: 'Úkol', dialogue: 'Rozhovor', combat: 'Bojový úkol', choice: 'Volba odpovědi', custom: 'Vlastní skript', unresolved: 'Nedostupný bod', mission: 'Další mise', ending: 'Konec mise' };
+export const logicKinds = { task: 'Úkol', finish: 'Zakončení mise', dialogue: 'Rozhovor', combat: 'Bojový úkol', choice: 'Volba odpovědi', custom: 'Vlastní skript', unresolved: 'Nedostupný bod', mission: 'Další mise', ending: 'Konec mise' };
 
 // Edges come only from complete, previously verified editor recipes. Arbitrary
 // LS3D programs remain visible source nodes; we do not infer their execution.
@@ -28,10 +29,10 @@ export function missionLogic(scene) {
     if (entry.kind !== 'script' || owned.has(entry.id)) continue;
     const name = entry.value.name;
     const detector = entry.actorScript && entry.actorKind === 5;
-    const task = detector ? editableMissionTask(scene, name) : null, dialogue = detector && !task ? editableMissionDialogue(scene, name) : null, combat = detector && !task && !dialogue ? editableMissionCombat(scene, name) : null;
-    const kind = task ? 'task' : dialogue ? 'dialogue' : combat ? 'combat' : 'custom';
-    const recipe = task?.task ?? dialogue?.dialogue ?? combat?.combat ?? null;
-    const node = add({ id: `script:${entry.id}`, name, kind, entryId: entry.id, actor: Boolean(entry.actorScript), recipe, members: [name], trigger: recipe ? recipe.trigger ?? 'use' : null, waiting: recipe?.flow?.waitForSignal ?? false });
+    const task = detector ? editableMissionTask(scene, name) : null, dialogue = detector && !task ? editableMissionDialogue(scene, name) : null, combat = detector && !task && !dialogue ? editableMissionCombat(scene, name) : null, finish = detector && !task && !dialogue && !combat ? editableMissionFinish(scene, name) : null;
+    const kind = task ? 'task' : dialogue ? 'dialogue' : combat ? 'combat' : finish ? 'finish' : 'custom';
+    const recipe = task?.task ?? dialogue?.dialogue ?? combat?.combat ?? finish?.finish ?? null;
+    const node = add({ id: `script:${entry.id}`, name, kind, entryId: entry.id, actor: Boolean(entry.actorScript), recipe, members: [name], trigger: recipe ? recipe.trigger ?? 'use' : null, waiting: finish?.finish.waitForSignal ?? recipe?.flow?.waitForSignal ?? false });
     if (entry.actorScript) alias(name, node);
   }
   const targets = new Set(missionFlowTargets(scene).map(actor => key(actor.name)));
@@ -64,6 +65,7 @@ export function missionLogic(scene) {
       recipe.answers.forEach((answer, index) => link(node, answer.target, 'answer', `Odpověď ${index + 1} · text ${answer.textId}`));
       continue;
     }
+    if (node.kind === 'finish' && recipe.outcome !== 'mission') terminal(node, recipe.outcome === 'success' ? 'Úspěšné ukončení' : 'Neúspěšné ukončení', 'ending', recipe.outcome, recipe.outcome === 'success' ? 'Dokončení' : 'Neúspěch');
     if (recipe.flow?.onComplete) link(node, recipe.flow.onComplete, 'success', 'Dokončení');
     if (recipe.flow?.onFailure) link(node, recipe.flow.onFailure, 'failure', 'Neúspěch');
     if (recipe.nextMission) terminal(node, recipe.nextMission, 'mission', 'success', 'Přejít do mise');

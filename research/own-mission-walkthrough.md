@@ -54,7 +54,7 @@ V tomto pořadí vytvořte:
 5. **WB_CHOICE**, poloha `[0, 0, 1]`: řadič `Zadavatel`, čekat na signál. Odpověď 91001 vede do `WB_DELIVERY`, odpověď 91002 do `WB_REFUSE`. Pomocné body a vzájemné zrušení odpovědí vytváří editor; nekopírujte jednotlivé pomocné skripty ručně.
 6. **WB_BRIEFING**, poloha `[0, 0, 0]`: rozhovor při příchodu hráče do oblasti s poloměrem 3, kamera zapnutá. Mluvčí `Zadavatel`, posluchač `Tommy`, replika 91000. Po dokončení signál `WB_CHOICE`. Nečeká na jiný signál: jde o začátek řetězce.
 
-Poloměr cíle zahrnuje výšku. Větev odmítnutí předpokládá, že hráč při výběru zůstává u startu; při změně rozmístění upravte její cíl. Pokud nechcete žádnou prostorovou podmínku ukončení, potřebujete vlastní koncový skript, nikoli předstíraný vzdálený cíl.
+Poloměr cíle zahrnuje výšku. Větev odmítnutí tohoto uloženého příkladu předpokládá, že hráč při výběru zůstává u startu; při změně rozmístění upravte její cíl. Pro novou misi lze oba koncové úkoly nahradit samostatným **Zakončením mise**: automaticky po signálu, úspěšný výsledek s textem 91008 nebo 91013, bez cíle a zadání. Pro skutečný neúspěch vyberte neúspěšný výsledek. Signály rozhovoru a volby nasměrujte na tyto nové body; neposílejte je zároveň na staré koncové úkoly. Tento jednodušší postup je popsaný v [mission-finish.md](mission-finish.md); uložený příklad ani jeho níže uvedená historická měření se tím automaticky nemění.
 
 ## Kontrola a zkouška
 

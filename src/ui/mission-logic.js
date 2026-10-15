@@ -10,7 +10,7 @@ export function renderMissionLogic(main, file, remembered, { element, projectRoo
   all.type = 'checkbox'; all.checked = remembered?.all ?? false; allLabel.prepend(all);
   scroll.tabIndex = 0; scroll.setAttribute('role', 'region'); scroll.setAttribute('aria-label', 'Diagram logiky mise'); scroll.append(canvas);
   const count = element('span', '', 'muted'), focus = element('button', 'Najít vybraný'), toggleOutline = element('button', 'Body'), toggleInspector = element('button', 'Podrobnosti');
-  const additions = Object.entries({ task: 'Přidat úkol…', dialogue: 'Přidat rozhovor…', choice: 'Přidat volbu odpovědi…', combat: 'Přidat bojový úkol…', custom: 'Přidat vlastní skript…' }).map(([kind, label]) => {
+  const additions = Object.entries({ task: 'Přidat úkol…', dialogue: 'Přidat rozhovor…', choice: 'Přidat volbu odpovědi…', combat: 'Přidat bojový úkol…', finish: 'Přidat zakončení mise…', custom: 'Přidat vlastní skript…' }).map(([kind, label]) => {
     const button = element('button', label); button.dataset.logicAction = ''; button.dataset.logicCreate = ''; button.onclick = () => create(kind); return button;
   });
   controls.append(actionMenu('Přidat', additions), focus, toggleOutline, toggleInspector, count); center.append(controls, scroll);
@@ -36,6 +36,7 @@ export function renderMissionLogic(main, file, remembered, { element, projectRoo
     if (node.recipe) {
       inspector.append(element('p', caption(node)));
       const details = [];
+      if (node.kind === 'finish') details.push(['Výsledek', node.recipe.outcome === 'mission' ? `Další mise · ${node.recipe.nextMission}` : `${node.recipe.outcome === 'success' ? 'Úspěch' : 'Neúspěch'} · text ${node.recipe.completeId}`]);
       if (node.recipe.targetName) details.push(['Cíl', node.recipe.targetName]);
       if (node.recipe.escort) details.push(['Příchod NPC', node.recipe.escort.humanName]);
       if (node.recipe.vehicle) details.push(['Auto', node.recipe.vehicle.name]);

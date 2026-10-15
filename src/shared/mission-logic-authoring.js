@@ -1,7 +1,7 @@
 import { missionLogic } from './mission-logic.js';
 
 const key = value => value.normalize('NFC').toLowerCase();
-const prefixes = { task: 'WB_TASK', dialogue: 'WB_DIALOGUE', combat: 'WB_COMBAT', choice: 'WB_CHOICE', custom: 'WB_SCRIPT' };
+const prefixes = { task: 'WB_TASK', finish: 'WB_FINISH', dialogue: 'WB_DIALOGUE', combat: 'WB_COMBAT', choice: 'WB_CHOICE', custom: 'WB_SCRIPT' };
 
 export function newMissionLogicName(scene, kind) {
   if (!Object.hasOwn(prefixes, kind)) throw new Error('Vyberte druh nového bodu mise.');
