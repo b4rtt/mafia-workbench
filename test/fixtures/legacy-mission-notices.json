@@ -1,0 +1,81 @@
+[
+  {
+    "kind": "task",
+    "options": {
+      "objectiveId": 10,
+      "interactionId": 20,
+      "nextObjectiveId": 30,
+      "completeId": 40,
+      "targetName": "DESTINATION",
+      "targetRadius": 2.5
+    },
+    "source": "dim_frm 2\ndim_flt 7\nwait 2000\nfindframe 0, \"DESTINATION\"\nfindframe 1, \"Tommy\"\nmission_objectives 10\nsubtitle_add 10\ndetector_waitforuse 20\nmission_objectivesremove 10\nmission_objectives 30\nsubtitle_add 30\nlabel 10\nfrm_getworldpos 0, 0\nfrm_getworldpos 1, 3\nvect_sub_vect 0, 3\nvect_magnitude 0, 6\nif flt[6] < 2.5, 20, -1\nwait 100\ngoto 10\nlabel 20\nmission_objectivesremove 30\nsubtitle_add 40\nconsole_addtext 40\nwait 4000\nend"
+  },
+  {
+    "kind": "task",
+    "options": {
+      "objectiveId": null,
+      "interactionId": null,
+      "nextObjectiveId": 30,
+      "completeId": 40,
+      "targetName": "DESTINATION",
+      "targetRadius": 2.5,
+      "trigger": "load",
+      "inventory": {
+        "itemId": 23,
+        "atTarget": true,
+        "consume": true
+      },
+      "failure": {
+        "humanName": "Guard",
+        "timeoutSeconds": 15,
+        "textId": 50,
+        "endMission": true
+      },
+      "flow": {
+        "waitForSignal": true,
+        "onComplete": "Next"
+      },
+      "checkpointId": 5050
+    },
+    "source": "dim_frm 2\ndim_flt 10\ndim_act 3\nwait 2000\nlabel 1\ndetector_issignal -1, 2, -1\nwait 100\ngoto 1\nlabel 2\nfindactor 2, \"Next\"\nfindframe 0, \"DESTINATION\"\nfindframe 1, \"Tommy\"\nmission_objectives 30\nsubtitle_add 30\nfindactor 0, \"Guard\"\nfindactor 1, \"Tommy\"\ngetgametime 8\nautosavegamefull 5050, 1\nlabel 10\nhuman_getproperty 0, 7, Energy\nif flt[7] > 0, -1, 30\ngetgametime 9\nlet flt[9] = flt[9] - flt[8]\nif flt[9] > 15000, 30, -1\nhuman_isweapon 1, 6, 23\nif flt[6] = 1, -1, 15\nfrm_getworldpos 0, 0\nfrm_getworldpos 1, 3\nvect_sub_vect 0, 3\nvect_magnitude 0, 6\nif flt[6] < 2.5, 20, -1\nlabel 15\nwait 100\ngoto 10\nlabel 20\nhuman_delweapon 1, 23\nmission_objectivesremove 30\nsubtitle_add 40\nconsole_addtext 40\nwait 4000\ndetector_setsignal 2, 1\nend\nlabel 30\nmission_objectivesremove 30\nsubtitle_add 50\nconsole_addtext 50\nwait 4000\nendofmission 0, 50\nend"
+  },
+  {
+    "kind": "combat",
+    "options": {
+      "targets": [
+        "First",
+        "Second"
+      ],
+      "objectiveId": 10,
+      "interactionId": 20,
+      "completeId": 30
+    },
+    "source": "dim_act 2\ndim_flt 1\nwait 2000\nmission_objectives 10\nsubtitle_add 10\ndetector_waitforuse 20\nfindactor 0, \"First\"\nfindactor 1, \"Second\"\nlabel 10\nhuman_getproperty 0, 0, Energy\nif flt[0] > 0, 40, -1\nhuman_getproperty 1, 0, Energy\nif flt[0] > 0, 40, -1\ngoto 20\nlabel 40\nwait 100\ngoto 10\nlabel 20\nmission_objectivesremove 10\nsubtitle_add 30\nconsole_addtext 30\nwait 4000\nend"
+  },
+  {
+    "kind": "combat",
+    "options": {
+      "targets": [
+        "First",
+        "Second"
+      ],
+      "trigger": "area",
+      "triggerRadius": 3,
+      "objectiveId": 10,
+      "completeId": 30,
+      "exitToMenu": true,
+      "checkpointId": 5050,
+      "failure": {
+        "humanName": "Guard",
+        "timeoutSeconds": 10,
+        "textId": 40,
+        "endMission": true
+      },
+      "flow": {
+        "waitForSignal": true
+      }
+    },
+    "source": "dim_act 3\ndim_flt 3\nwait 2000\nlabel 1\ndetector_issignal -1, 2, -1\nwait 100\ngoto 1\nlabel 2\nlabel 3\ndetector_inrange 0, 3\nif flt[0] > 0, 4, -1\nwait 100\ngoto 3\nlabel 4\nmission_objectives 10\nsubtitle_add 10\nfindactor 0, \"First\"\nfindactor 1, \"Second\"\nfindactor 2, \"Guard\"\ngetgametime 1\nautosavegamefull 5050, 1\nlabel 10\nhuman_getproperty 2, 0, Energy\nif flt[0] > 0, -1, 30\ngetgametime 2\nlet flt[2] = flt[2] - flt[1]\nif flt[2] > 10000, 30, -1\nhuman_getproperty 0, 0, Energy\nif flt[0] > 0, 40, -1\nhuman_getproperty 1, 0, Energy\nif flt[0] > 0, 40, -1\ngoto 20\nlabel 40\nwait 100\ngoto 10\nlabel 20\nmission_objectivesremove 10\nsubtitle_add 30\nconsole_addtext 30\nwait 4000\nendofmission 1, 30\nend\nlabel 30\nmission_objectivesremove 10\nsubtitle_add 40\nconsole_addtext 40\nwait 4000\nendofmission 0, 40\nend"
+  }
+]

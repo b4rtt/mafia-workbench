@@ -19,7 +19,7 @@ import { inspectMissionDestination } from './mission-destination.js';
 import { checkMission } from './mission-check.js';
 import { createTerrain } from './terrain.js';
 import { createRoadSurface } from './road-surface.js';
-import { missionDialogueScript, dialogueSpeakers, editableMissionDialogue } from '../shared/mission-dialogue.js';
+import { missionDialogueScript, dialogueSpeakers, dialogueInteractionHumans, editableMissionDialogue } from '../shared/mission-dialogue.js';
 import { prepareMissionChoice } from './mission-choice.js';
 import { prepareMissionCombat } from './mission-combat.js';
 import { editableMissionCombat } from '../shared/mission-combat.js';
@@ -469,6 +469,23 @@ export class ModProject {
       if([...dialogue.lines.map(line=>line.textId),...(dialogue.trigger==='use'?[dialogue.interactionId]:[])].some(id=>!ids.has(id)))throw new Error('Rozhovor: ID textu neexistuje nebo jde o hraniční záznam.');
       const speakers=new Map(dialogueSpeakers({...inspectScene(before),geometry}).map(actor=>[key(actor.name),actor.name]));
       const lines=dialogue.lines.map(line=>{const speaker=speakers.get(key(line.speaker)),listener=dialogue.camera?speakers.get(key(line.listener)):undefined;if(!speaker||(dialogue.camera&&!listener))throw new Error('Rozhovor: mluvčí a posluchač musí být jednoznačné lidské postavy této mise.');return {...line,speaker,...(dialogue.camera?{listener}:{})};});
+      let interactionHuman=dialogue.interactionHuman??null,inventory=dialogue.inventory??null;
+      if(interactionHuman!==null){
+        const human=dialogueInteractionHumans({...inspectScene(before),geometry}).find(actor=>key(actor.name)===key(interactionHuman));
+        if(!human)throw new Error('Rozhovor: akce potřebuje jednoznačnou NPC typu Human, nikoli hráče nebo samotný model.');
+        interactionHuman=human.name;
+      }
+      if(dialogue.lockPlayer||inventory){
+        if(!dialogueSpeakers({...inspectScene(before),geometry}).some(actor=>actor.kind===2&&key(actor.name)==='tommy'))throw new Error('Rozhovor: zámek a předání potřebují jednoznačného hráče Tommy typu Player.');
+      }
+      if(inventory){
+        const itemAsset=this.asset('tables/predmety.def'),itemBytes=await this.read(itemAsset.path);
+        if(hash(itemBytes)!==inventory.tableHash)throw new Error('Rozhovor: tabulka předmětů se od otevření změnila. Otevřete dialog znovu.');
+        const item=parseItems(itemBytes).records[inventory.itemId];
+        if(!item?.name.trim())throw new Error('Rozhovor: vyberte existující pojmenovaný předmět.');
+        dependencies.push({path:itemAsset.path,data:itemBytes,expectedHash:inventory.tableHash});
+        inventory={itemId:item.index,consume:inventory.consume};
+      }
       dependencies.push({path:textAsset.path,data:text,expectedHash:dialogue.textHash});
       for(const id of new Set(lines.map(line=>line.textId))){
         const asset=this.index.get(key(dialogueSoundPath(id)));if(!asset)throw new Error(`Rozhovor: dabing ${id} chybí. Importujte jej v kategorii Texty.`);const bytes=await this.read(asset.path);
@@ -476,7 +493,7 @@ export class ModProject {
         if(bytes.length<44||bytes.toString('ascii',0,4)!=='RIFF'||bytes.toString('ascii',8,12)!=='WAVE')throw new Error('Rozhovor: dabing nemá WAV hlavičku.');
         dependencies.push({path:asset.path,data:bytes,expectedHash:dialogue.soundHashes[id]});
       }
-      const code=missionDialogueScript({...dialogue,lines,flow:resolveMissionFlow({...inspectScene(before),geometry},dialogue.flow,current?.entry.value.name??operation.name)});
+      const code=missionDialogueScript({...dialogue,lines,interactionHuman,inventory,flow:resolveMissionFlow({...inspectScene(before),geometry},dialogue.flow,current?.entry.value.name??operation.name)});
       if(current){choiceScene=editScene(before,current.entry.id,{...current.entry.value,code});dependencies.push({path:geometryPath,data:geometryBytes,expectedHash:hash(geometryBytes)});}
       else request={...operation,mask:1,code};
     }

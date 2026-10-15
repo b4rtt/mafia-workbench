@@ -29,12 +29,15 @@ V kategorii **Texty** otevřete český TextDB. Přes **Nový text…** vložte 
 | 91000 | Potřebuji doručit klíče do skladu. Vezmeš to? |
 | 91001 | Ano, donesu je. |
 | 91002 | Ne, mám jinou práci. |
+| 91003 | Promluvit s Pauliem |
 | 91004 | Seber klíče u bedny a dones je Samovi. |
 | 91005 | Klíče jsou doručené. |
 | 91006 | Výborně. Zásilka dorazila v pořádku. Díky, Tommy. |
 | 91007 | Doručení je hotové. |
 | 91008 | Ukázková mise dokončena. |
 | 91009 | Sam zemřel. Klíče už nemá kdo převzít. |
+| 91010 | Předat klíče Samovi |
+| 91014 | Předej klíče Samovi tlačítkem akce. |
 | 91012 | Zakázka odmítnuta. |
 | 91013 | Rozhodl ses zakázku nepřijmout. |
 | 5001 | Doručení klíčů: po přijetí zakázky |
@@ -47,14 +50,14 @@ Nejdřív vytvořte příjemce signálů, teprve potom jejich odesílatele. Dík
 
 V tomto pořadí vytvořte:
 
-1. **WB_COMPLETE**, poloha `[0, 0, 18]`: automatický úkol, čekat na signál, příchozí hráč, cíl `Cil`, poloměr 3, návazné zadání 91007, dokončení 91008. Zaškrtnout přechod do hlavního menu. Žádný další signál dokončení.
-2. **WB_REFUSE**, poloha `[0, 0, 0]`: automatický úkol, čekat na signál, příchozí hráč, cíl `start`, poloměr 3, zadání 91012, dokončení 91013 a přechod do menu.
-3. **WB_FINAL**, poloha `[0, 0, 18]`: rozhovor po načtení, čekat na signál, kamera zapnutá. Jedna replika: mluvčí `Prijemce`, posluchač `Tommy`, text 91006. Po dokončení poslat signál `WB_COMPLETE`.
-4. **WB_DELIVERY**, poloha `[0, 0, 0]`: automatický úkol, čekat na signál, způsob **Přinesení předmětu k cíli**, předmět ID 23, cíl `Cil`, poloměr 3. Po dokončení předmět odebrat. Zadání 91004, dokončení 91005. Úplný checkpoint ID 5001. Neúspěch při smrti `Prijemce`, text 91009, ukončit misi. Po úspěchu signál `WB_FINAL`; bez časového limitu.
-5. **WB_CHOICE**, poloha `[0, 0, 1]`: řadič `Zadavatel`, čekat na signál. Odpověď 91001 vede do `WB_DELIVERY`, odpověď 91002 do `WB_REFUSE`. Pomocné body a vzájemné zrušení odpovědí vytváří editor; nekopírujte jednotlivé pomocné skripty ručně.
-6. **WB_BRIEFING**, poloha `[0, 0, 0]`: rozhovor při příchodu hráče do oblasti s poloměrem 3, kamera zapnutá. Mluvčí `Zadavatel`, posluchač `Tommy`, replika 91000. Po dokončení signál `WB_CHOICE`. Nečeká na jiný signál: jde o začátek řetězce.
+1. **WB_COMPLETE**: samostatné **Zakončení mise**, automaticky po signálu, úspěšný výsledek s textem 91008.
+2. **WB_REFUSE**: samostatné **Zakončení mise**, automaticky po signálu, úspěšný výsledek s textem 91013. Není potřeba vracet hráče k původnímu startu.
+3. **WB_FINAL**: rozhovor po signálu, spuštění tlačítkem akce, akce u postavy `Prijemce`, text akce 91010, kamera a zámek ovládání zapnuté. Vyžaduje předmět 23 a při akci jej odebere. Jedna replika: mluvčí `Prijemce`, posluchač `Tommy`, text 91006. Po dokončení signál `WB_COMPLETE`.
+4. **WB_DELIVERY**: automatický úkol po signálu, způsob **Přinesení předmětu k cíli**, předmět 23, cíl `Prijemce`, poloměr 3. Předmět zde **neodebírat**; skutečné odevzdání provede až akce rozhovoru. Zadání 91004, dokončení 91014. Úplný checkpoint 5001. Neúspěch při smrti `Prijemce`, text 91009, ukončit misi. Po úspěchu signál `WB_FINAL`; bez časového limitu.
+5. **WB_CHOICE**: řadič `Zadavatel`, čekat na signál, nabízet odpovědi u řídicí postavy. Odpověď 91001 vede do `WB_DELIVERY`, odpověď 91002 do `WB_REFUSE`. Pomocné body a vzájemné zrušení odpovědí vytváří editor.
+6. **WB_BRIEFING**: rozhovor tlačítkem akce u `Zadavatel`, text akce 91003, kamera a zámek ovládání zapnuté. Mluvčí `Zadavatel`, posluchač `Tommy`, replika 91000. Po dokončení signál `WB_CHOICE`. Nečeká na jiný signál.
 
-Poloměr cíle zahrnuje výšku. Větev odmítnutí tohoto uloženého příkladu předpokládá, že hráč při výběru zůstává u startu; při změně rozmístění upravte její cíl. Pro novou misi lze oba koncové úkoly nahradit samostatným **Zakončením mise**: automaticky po signálu, úspěšný výsledek s textem 91008 nebo 91013, bez cíle a zadání. Pro skutečný neúspěch vyberte neúspěšný výsledek. Signály rozhovoru a volby nasměrujte na tyto nové body; neposílejte je zároveň na staré koncové úkoly. Tento jednodušší postup je popsaný v [mission-finish.md](mission-finish.md); uložený příklad ani jeho níže uvedená historická měření se tím automaticky nemění.
+Akční body se za běhu připojí k příslušné postavě a sledují její pohyb. Nabídka používá původní detektor hry s dosahem 1,5 jednotky; výška připojení je 1 jednotka. Poloměr cíle úkolu zahrnuje výšku. Hráč se zamyká pouze během mluvených replik; mezi nimi a výběrem odpovědi se ovládání uvolní, aby fungovalo nativní akční menu. Životní cyklus celé konverzace včetně přerušení/death guardu není tímto jednoduchým receptem vyřešený. Podrobnosti v [scripting.md](scripting.md#zámek-hráče-a-akce-u-npc-15-října-2026) a [mission-finish.md](mission-finish.md).
 
 ## Kontrola a zkouška
 
@@ -95,3 +98,11 @@ Další běh skutečné GOG 1.2 přes produkční Playtest ověřil větev smrti
 První pomocný pokus pořizoval snímek před vytvořením herního okna. Pomocník dostal čekání na okno a delší čekání na koncovou obrazovku; produkční kód opravu nevyžadoval. Hotový běh ukončil pomocník až po zachycení výsledku. Obě diagnostické transakce byly vráceny přes undo na historii 42, soukromé save a index checkpointů obnovené, původní projekt i kontrolované chráněné soubory zůstaly shodné. Testovací hra i Electron byly ukončené. Soukromé výsledky a snímky jsou evidované v `local/delivery-verification.json` a nejsou součástí veřejného repozitáře.
 
 Jde o řízený integrační test, nikoli ruční hráčský průchod. Ruční volba odpovědi, sebrání fyzických klíčů, slyšitelná podoba vlastního dabingu, vizuální střih rozhovorů a restart z herního menu zůstávají otevřené. Celý editor ani předpoklad zahájení městského pluginu tím nejsou prohlášené za dokončené.
+
+## Upravená ukázka: akční rozhovory a předání (15. října 2026)
+
+Výše uvedený postup nyní odpovídá nové samostatné kopii ukázky. Starší naměřené průchody v předchozích oddílech popisují původní variantu s automatickým zahájením a předáním při příchodu. Změněná kopie má historii 50, šest rozpoznaných receptů, kontrolu 0 chyb / 0 varování a přesný export. Původní projekt s historií 42 zůstal zachovaný. Soukromá evidence nové kopie je `local/delivery-interaction.json`.
+
+Nativní řízený běh ověřil zámek hráče při Paulieho řeči, jeho uvolnění po řeči a znovuzamčení při Samově řeči. Samotný příchod s klíči nepustil `WB_COMPLETE`; předání čekalo na explicitní použití detektoru. Šlo o skriptovanou aktivaci přes diagnostické NPC, nikoli ruční průchod. Diagnostika byla vrácena, soukromé save a index obnovené. V Electronu se správně obnovila akce u Zadavatele / Příjemce, zapnutý zámek, předmět 23 a odebrání u Sama. Přepnutí zámku změnilo náhled, návrat do původního nastavení opět zakázal save; nic se nezapsalo.
+
+Úkoly nově používají jediné nativní zobrazení zadání a jeden konzolový kanál výsledku. Starší recept lze výslovně uložit se stejnými parametry a opravit tak zdvojení, undo obnoví přesný původní zdroj. Konečné vizuální ověření všech hlášení a ruční akce u připojených postav zůstávají další kontrolou. Celý editor a navazující městský plugin tím nejsou označené za dokončené.

@@ -1,5 +1,6 @@
 import { missionActivation, inspectMissionActivation } from './mission-activation.js';
 import { missionFlow, missionFlowTargets } from './mission-flow.js';
+import { attachedInteraction } from './mission-interaction.js';
 
 const key=name=>name.normalize('NFC').toLowerCase();
 const validName=name=>typeof name==='string'&&name.trim()&&name.length<=255&&!/["\x00-\x1f]/.test(name);
@@ -15,8 +16,15 @@ export function dialogueSpeakers(scene){
     meshes.filter(other=>key(other.name)===key(actor.name)).length<=1&&
     [...objects,...meshes].some(other=>key(other.name)===key(actor.name)));
 }
-export function missionDialogueScript({trigger='use',triggerRadius=null,interactionId,camera=false,lines,flow=null}={}){
+export function dialogueInteractionHumans(scene){
+  const frames=[...(scene.objects??[]),...(scene.geometry?.meshes??[])];
+  return dialogueSpeakers(scene).filter(actor=>actor.kind===27&&frames.filter(frame=>key(frame.name)===key(actor.name)).length===1);
+}
+export function missionDialogueScript({trigger='use',triggerRadius=null,interactionId,camera=false,lines,flow=null,lockPlayer=false,interactionHuman=null,inventory=null}={}){
   const activation=missionActivation(trigger,triggerRadius,'Rozhovor');
+  if(typeof lockPlayer!=='boolean')throw new Error('Rozhovor: neplatný zámek ovládání hráče.');
+  if(interactionHuman!==null&&(trigger!=='use'||!validName(interactionHuman)))throw new Error('Rozhovor: akce u postavy potřebuje NPC a spuštění tlačítkem akce.');
+  if(inventory!==null&&(trigger!=='use'||typeof inventory!=='object'||Array.isArray(inventory)||!Number.isSafeInteger(inventory.itemId)||inventory.itemId<2||inventory.itemId>65535||typeof inventory.consume!=='boolean'))throw new Error('Rozhovor: předání potřebuje akci hráče a platný předmět.');
   if(typeof camera!=='boolean')throw new Error('Rozhovor: neplatný způsob spuštění nebo kamera.');
   if(trigger==='use'&&!validId(interactionId))throw new Error('Rozhovor: ID akce musí být celé číslo 0–2147483647.');
   if(!Array.isArray(lines)||!lines.length||lines.length>32)throw new Error('Rozhovor: zadejte 1–32 replik.');
@@ -27,13 +35,21 @@ export function missionDialogueScript({trigger='use',triggerRadius=null,interact
     index(line.speaker);
     if(camera){if(!validName(line.listener)||key(line.listener)===key(line.speaker))throw new Error('Rozhovor: kamera potřebuje jiného posluchače než mluvčího.');index(line.listener);}
   }
+  if(inventory)index('Tommy');
   const link=missionFlow(flow,{actorOffset:participants.length});
-  const code=[`dim_act ${participants.length+link.actors}`,...(trigger==='area'?['dim_flt 1']:[]),'wait 2000',...(link.gate+link.start).trimEnd().split('\n').filter(Boolean),...participants.map((name,i)=>`findactor ${i}, "${name}"`)];
+  const code=[`dim_act ${participants.length+link.actors}`,...(interactionHuman?['dim_frm 2']:[]),...((inventory||interactionHuman)?['dim_flt 3']:trigger==='area'?['dim_flt 1']:[]),'wait 2000',...(link.gate+link.start).trimEnd().split('\n').filter(Boolean),...participants.map((name,i)=>`findactor ${i}, "${name}"`)];
   if(activation)code.push(activation.trimEnd());
+  if(interactionHuman)code.push(attachedInteraction(interactionHuman).trimEnd());
+  if(inventory)code.push('label 10',`human_isweapon ${index('Tommy')}, 0, ${inventory.itemId}`,'if flt[0] = 1, 11, -1','wait 100','goto 10','label 11');
   if(trigger==='use')code.push(`detector_waitforuse ${interactionId}`);
+  // Recheck at the action itself: dropping an item after the menu appeared
+  // must never deliver it. The next offer waits until it is held again.
+  if(inventory)code.push(`human_isweapon ${index('Tommy')}, 0, ${inventory.itemId}`,'if flt[0] = 1, 12, 10','label 12',...(inventory.consume?[`human_delweapon ${index('Tommy')}, ${inventory.itemId}`]:[]));
+  if(lockPlayer)code.push('player_lockcontrols 1');
   if(camera)code.push(`dialog_begin 0, ${participants.length}`);
   for(const line of lines){if(camera)code.push(`dialog_camswitch ${index(line.listener)}, ${index(line.speaker)}`);code.push(`human_talk ${index(line.speaker)}, ${line.textId}`);}
   if(camera)code.push('dialog_end');
+  if(lockPlayer)code.push('player_lockcontrols 0');
   if(link.complete)code.push(link.complete.trimEnd());
   return [...code,'end'].join('\n');
 }
@@ -45,7 +61,8 @@ export function inspectMissionDialogue(code){
   const source=code.replaceAll('\r\n','\n'),bindings=new Map([...source.matchAll(/^findactor (\d+), "([^"\x00-\x1f]+)"$/gm)].map(match=>[Number(match[1]),match[2]])),camera=/^dialog_begin \d+, \d+$/m.test(source);
   const lines=camera?[...source.matchAll(/^dialog_camswitch (\d+), (\d+)\nhuman_talk (\d+), (\d+)$/gm)].map(match=>({speaker:bindings.get(Number(match[3])),listener:bindings.get(Number(match[1])),textId:Number(match[4])})):[...source.matchAll(/^human_talk (\d+), (\d+)$/gm)].map(match=>({speaker:bindings.get(Number(match[1])),textId:Number(match[2])}));
   const use=/^detector_waitforuse (\d+)$/m.exec(source),signal=/^detector_setsignal (\d+), 1$/m.exec(source),waitForSignal=source.includes('label 1\ndetector_issignal -1, 2, -1\n'),onComplete=signal?bindings.get(Number(signal[1])):null;
-  const dialogue={...inspectMissionActivation(source),...(use?{interactionId:Number(use[1])}:{}),camera,lines,flow:waitForSignal||onComplete?{waitForSignal,onComplete,onFailure:null}:null};
+  const attached=/^findframe 0, "([^"\x00-\x1f]+)"\nfindframe 1, ""\nfrm_linkto 1, 0$/m.exec(source),item=/^human_isweapon \d+, 0, (\d+)$/m.exec(source);
+  const dialogue={...(attached?{interactionHuman:attached[1]}:{}),...(item?{inventory:{itemId:Number(item[1]),consume:/^human_delweapon \d+, \d+$/m.test(source)}}:{}),...(source.includes('player_lockcontrols 1')?{lockPlayer:true}:{}),...inspectMissionActivation(source),...(use?{interactionId:Number(use[1])}:{}),camera,lines,flow:waitForSignal||onComplete?{waitForSignal,onComplete,onFailure:null}:null};
   try{if(missionDialogueScript(dialogue)===source)return dialogue;}catch{/* Unknown or modified programs are not wizard recipes. */}
   return null;
 }

@@ -102,3 +102,13 @@ test('choice transaction rolls back failed publication and rejects a concurrent 
   const batch = p.changeBatch; p.changeBatch = async function(files, ...args) { await this.change(textPath, editTextDb(texts, textPath, [{ index: 1, text: 'Changed' }]), 'Concurrent text'); return batch.call(this, files, ...args); };
   await assert.rejects(() => p.changeSceneObject(name, request, hash(scene)), /změnil/); assert.deepEqual(await p.read(name), scene); p.changeBatch = batch; await p.undo(); assert.deepEqual(await p.read(textPath), texts); assert.equal(JSON.stringify(p.manifest), baseline);
 });
+
+test('answers can follow the controller without changing its AI cleanup contract and remain editable with exact undo',async t=>{
+ const {p,root,name,scene,request}=await fixture(t),history=p.manifest.history.length;
+ await p.changeSceneObject(name,{...request,choice:{...request.choice,atController:true}},hash(scene));const data=await p.read(name);
+ const {editableMissionChoice}=await import('../src/shared/mission-choice.js');const current=editableMissionChoice(await p.inspectMap(name),'ANSWER');assert.equal(current.choice.atController,true);
+ for(const node of current.nodes.slice(2)){assert(node.entry.value.code.includes('findframe 0, "NPC"\nfindframe 1, ""\nfrm_linkto 1, 0'));assert(node.entry.value.code.indexOf('label 2')<node.entry.value.code.indexOf('frm_linkto'));}
+ assert.equal(inspectScene(data).actorScripts.find(script=>script.name==='NPC').code,missionChoicePrograms(choice).controller.code);
+ await p.changeSceneObject(name,{kind:'configure-choice',target:'ANSWER',choice:{...request.choice,atController:true}},hash(data));assert.equal(p.manifest.history.length,history+1);
+ const reopened=await ModProject.open(root);await reopened.export(root+'/attached-export');assert.deepEqual(await fs.readFile(root+'/attached-export/'+name),data);await reopened.undo();assert.deepEqual(await reopened.read(name),scene);
+});

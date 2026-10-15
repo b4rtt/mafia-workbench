@@ -27,7 +27,9 @@ export function resolveMissionTaskEscort(scene, task) {
 
 // A linear task uses one detector program. Each stage removes only its own
 // objective; other mission scripts retain their objectives and state.
-export function missionTaskScript({objectiveId, interactionId, nextObjectiveId, completeId, targetName, targetRadius = 3, trigger = 'use', triggerRadius = null, exitToMenu = false, nextMission = null, checkpointId = null, failure = null, flow = null, vehicle = null, inventory = null, escort = null} = {}) {
+function missionTaskSource({objectiveId, interactionId, nextObjectiveId, completeId, targetName, targetRadius = 3, trigger = 'use', triggerRadius = null, exitToMenu = false, nextMission = null, checkpointId = null, failure = null, flow = null, vehicle = null, inventory = null, escort = null} = {}, legacyNotices = false) {
+  // mission_objectives already displays the objective through the engine HUD.
+  const notice = id => legacyNotices ? `subtitle_add ${id}\n` : '';
   const activation = missionActivation(trigger, triggerRadius, 'Úkol');
   if (trigger !== 'use' && (objectiveId != null || interactionId != null)) throw new Error('Úkol: automatické spuštění nemá první zadání ani nabídku akce.');
   for (const id of [nextObjectiveId, completeId, ...(trigger === 'use' ? [objectiveId, interactionId] : [])]) if (!Number.isSafeInteger(id) || id < 0 || id > 0xffffffff) throw new Error('Úkol: ID textů musí být celá čísla 0–4294967295.');
@@ -58,24 +60,27 @@ export function missionTaskScript({objectiveId, interactionId, nextObjectiveId, 
   const start=(human===null?'':`findactor 0, "${human}"\n`)+(vehicle!==null?`findactor ${player}, "Tommy"\nfindactor ${car}, "${vehicle.name}"\n`:escort!==null?`findactor ${player}, "${escort.humanName}"\n`:inventory!==null?`findactor ${player}, "Tommy"\n`:'')+(timeout===null?'':'getgametime 8\n');
   const poll=(human===null?'':'human_getproperty 0, 7, Energy\nif flt[7] > 0, -1, 30\n')+(timeout===null?'':`getgametime 9\nlet flt[9] = flt[9] - flt[8]\nif flt[9] > ${timeout*1000}, 30, -1\n`);
   const occupancy=vehicle===null?'':`setnullactor ${owner}\nhuman_getowner ${player}, ${owner}\ncompareactors ${car}, ${owner}, 10\nif flt[10] = 1, -1, 15\n${vehicle.driverOnly?`human_getseatidx ${player}, 11\nif flt[11] = 0, -1, 15\n`:''}`;
-  const failed=failure===null?'':`\nlabel 30\nmission_objectivesremove ${nextObjectiveId}\nsubtitle_add ${failure.textId}\nconsole_addtext ${failure.textId}\nwait 4000\n${link.failure}${failure.endMission?`endofmission 0, ${failure.textId}\n`:''}end`;
+  const failed=failure===null?'':`\nlabel 30\nmission_objectivesremove ${nextObjectiveId}\n${legacyNotices ? `subtitle_add ${failure.textId}\n` : ''}console_addtext ${failure.textId}\nwait 4000\n${link.failure}${failure.endMission?`endofmission 0, ${failure.textId}\n`:''}end`;
   const transition=nextMission===null?'':`change_mission "${nextMission}", "", -1\n`;
   const membership=inventory===null?'':`human_isweapon ${player}, 6, ${inventory.itemId}\nif flt[6] = 1, ${spatial?-1:20}, 15\n`;
   const frames=spatial?`findframe 0, "${targetName}"\nfindframe 1, "${vehicle?.name??escort?.humanName??'Tommy'}"\n`:'';
   const distance=spatial?`frm_getworldpos 0, 0\nfrm_getworldpos 1, 3\nvect_sub_vect 0, 3\nvect_magnitude 0, 6\nif flt[6] < ${targetRadius}, 20, -1\n`:'';
   const alive=escort===null?'':`human_getproperty ${player}, 7, Energy\nif flt[7] > 0, -1, 15\n`;
   const consume=inventory?.consume?`human_delweapon ${player}, ${inventory.itemId}\n`:'';
-  return `${escort?`// Mafia Workbench NPC arrival "${escort.humanName}"\n`:""}${spatial?'dim_frm 2\n':''}dim_flt ${vehicle!==null?12:timeout!==null?10:human!==null||escort!==null?8:7}\n${actors?`dim_act ${actors}\n`:''}wait 2000\n${link.gate}${link.start}${activation}${frames}${trigger === 'use' ? `mission_objectives ${objectiveId}\nsubtitle_add ${objectiveId}\ndetector_waitforuse ${interactionId}\nmission_objectivesremove ${objectiveId}\n` : ''}mission_objectives ${nextObjectiveId}\nsubtitle_add ${nextObjectiveId}\n${start}${checkpointId === null ? '' : `autosavegamefull ${checkpointId}, 1\n`}label 10\n${poll}${occupancy}${membership}${alive}${distance}${vehicle===null&&inventory===null&&escort===null?'':'label 15\n'}wait 100\ngoto 10\nlabel 20\n${consume}mission_objectivesremove ${nextObjectiveId}\nsubtitle_add ${completeId}\nconsole_addtext ${completeId}\nwait 4000\n${link.complete}${transition}${exitToMenu ? `endofmission 1, ${completeId}\n` : ''}end${failed}`;
+  return `${escort?`// Mafia Workbench NPC arrival "${escort.humanName}"\n`:""}${spatial?'dim_frm 2\n':''}dim_flt ${vehicle!==null?12:timeout!==null?10:human!==null||escort!==null?8:7}\n${actors?`dim_act ${actors}\n`:''}wait 2000\n${link.gate}${link.start}${activation}${frames}${trigger === 'use' ? `mission_objectives ${objectiveId}\n${notice(objectiveId)}detector_waitforuse ${interactionId}\nmission_objectivesremove ${objectiveId}\n` : ''}mission_objectives ${nextObjectiveId}\n${notice(nextObjectiveId)}${start}${checkpointId === null ? '' : `autosavegamefull ${checkpointId}, 1\n`}label 10\n${poll}${occupancy}${membership}${alive}${distance}${vehicle===null&&inventory===null&&escort===null?'':'label 15\n'}wait 100\ngoto 10\nlabel 20\n${consume}mission_objectivesremove ${nextObjectiveId}\n${legacyNotices ? `subtitle_add ${completeId}\n` : ''}console_addtext ${completeId}\nwait 4000\n${link.complete}${transition}${exitToMenu ? `endofmission 1, ${completeId}\n` : ''}end${failed}`;
 }
 
-// Recovery is read-only until the entire source round trips through the wizard.
+export function missionTaskScript(options) { return missionTaskSource(options); }
+
+// Recovery accepts exactly the current recipe or the older two-channel notices.
 // Custom commands, changed labels and unknown variants stay in the source editor.
+
 export function inspectMissionTask(code) {
   if(typeof code!=='string'||code.length>1000000)return null;
   const source=code.replaceAll('\r\n','\n'),bindings=new Map([...source.matchAll(/^findactor (\d+), "([^"\x00-\x1f]+)"$/gm)].map(match=>[Number(match[1]),match[2]]));
-  const objective=/^mission_objectives (\d+)$/m.exec(source),use=/^detector_waitforuse (\d+)$/m.exec(source),next=/^mission_objectivesremove \d+\nmission_objectives (\d+)$/m.exec(source),complete=/^label 20\n(?:human_delweapon \d+, \d+\n)?mission_objectivesremove \d+\nsubtitle_add (\d+)$/m.exec(source);
+  const objective=/^mission_objectives (\d+)$/m.exec(source),use=/^detector_waitforuse (\d+)$/m.exec(source),next=/^mission_objectivesremove \d+\nmission_objectives (\d+)$/m.exec(source),complete=/^label 20\n(?:human_delweapon \d+, \d+\n)?mission_objectivesremove \d+\n(?:subtitle_add|console_addtext) (\d+)$/m.exec(source);
   const target=/^findframe 0, "([^"\x00-\x1f]+)"$/m.exec(source),radius=/^if flt\[6\] < ([\d.e+-]+), 20, -1$/m.exec(source),checkpoint=/^autosavegamefull (\d+), 1$/m.exec(source),transition=/^change_mission "([^"]+)", "", -1$/m.exec(source);
-  const guard=/^human_getproperty (\d+), 7, Energy\nif flt\[7\] > 0, -1, 30$/m.exec(source),timeout=/^if flt\[9\] > ([\d.e+-]+), 30, -1$/m.exec(source),failureText=/^label 30\nmission_objectivesremove \d+\nsubtitle_add (\d+)$/m.exec(source),parts=source.split('\nlabel 30\n');
+  const guard=/^human_getproperty (\d+), 7, Energy\nif flt\[7\] > 0, -1, 30$/m.exec(source),timeout=/^if flt\[9\] > ([\d.e+-]+), 30, -1$/m.exec(source),failureText=/^label 30\nmission_objectivesremove \d+\n(?:subtitle_add|console_addtext) (\d+)$/m.exec(source),parts=source.split('\nlabel 30\n');
   const occupancy=/^compareactors (\d+), \d+, 10$/m.exec(source),signal=part=>{const match=/^detector_setsignal (\d+), 1$/m.exec(part??'');return match?bindings.get(Number(match[1])):null;};
   const flow={waitForSignal:source.includes('label 1\ndetector_issignal -1, 2, -1\n'),onComplete:signal(parts[0]),onFailure:signal(parts[1])};
   const item=/^human_isweapon \d+, 6, (\d+)$/m.exec(source),inventory=item?{itemId:Number(item[1]),atTarget:Boolean(target),consume:/^human_delweapon \d+, \d+$/m.test(parts[0])}:null;
@@ -84,7 +89,7 @@ export function inspectMissionTask(code) {
   const task={...(activation.trigger==='use'?{}:activation),objectiveId:use?Number(objective?.[1]):null,interactionId:use?Number(use[1]):null,nextObjectiveId:Number(use?next?.[1]:objective?.[1]),completeId:Number(complete?.[1]),targetName:target?.[1]??(inventory?null:undefined),targetRadius:radius?Number(radius[1]):inventory?null:NaN,checkpointId:checkpoint?Number(checkpoint[1]):null,nextMission:transition?.[1]??null,exitToMenu:/^endofmission 1, \d+$/m.test(parts[0]),
     vehicle:occupancy?{name:bindings.get(Number(occupancy[1])),driverOnly:/^human_getseatidx \d+, 11$/m.test(source)}:null,
     failure:failureText?{timeoutSeconds:timeout?Number(timeout[1])/1000:null,humanName:guard?bindings.get(Number(guard[1])):null,textId:Number(failureText[1]),endMission:/^endofmission 0, \d+$/m.test(parts[1]??'')}:null,flow:flow.waitForSignal||flow.onComplete||flow.onFailure?flow:null,...(inventory?{inventory}:{}),...(escorted?{escort:{humanName:escorted[1]}}:{})};
-  try{if(missionTaskScript(task)===source)return task;}catch{/* Do not replace unrecognized source. */}
+  try{if (missionTaskScript(task) === source || missionTaskSource(task, true) === source) return task;}catch{/* Do not replace unrecognized source. */}
   return null;
 }
 export function editableMissionTask(scene,owner) {

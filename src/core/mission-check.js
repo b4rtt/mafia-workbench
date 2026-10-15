@@ -6,7 +6,7 @@ import { parseCollision } from './collision.js';
 import { parseTextDb } from './textdb.js';
 import { parseItems } from './items.js';
 import { dialogueSoundPath } from './dialogue-audio.js';
-import { dialogueSpeakers } from '../shared/mission-dialogue.js';
+import { dialogueSpeakers, dialogueInteractionHumans } from '../shared/mission-dialogue.js';
 import { missionTaskVehicles, resolveMissionTaskEscort } from '../shared/mission-task.js';
 import { missionLogic } from '../shared/mission-logic.js';
 import { validateHumanRoute, resolveHumanAttack, humanWeapons } from '../shared/human-behavior.js';
@@ -134,6 +134,8 @@ export async function checkMission(project, name, textDb = null) {
         text(line.textId, node, true);
         for (const participant of [line.speaker, ...(recipe.camera ? [line.listener] : [])]) if (!speakers.some(actor => key(actor.name) === key(participant))) issue('error', 'speaker', `${node.name}: postava ${participant} nemá jednoznačnou lidskou vazbu.`, location);
       }
+      if (recipe.interactionHuman && !dialogueInteractionHumans(scene).some(actor => key(actor.name) === key(recipe.interactionHuman))) issue('error', 'interaction', `${node.name}: akce nemá jednoznačnou NPC ${recipe.interactionHuman}.`, location);
+      if ((recipe.lockPlayer || recipe.inventory) && !speakers.some(actor => actor.kind === 2 && key(actor.name) === 'tommy')) issue('error', 'player', `${node.name}: zámek nebo inventář potřebuje hráče Tommy typu Player.`, location);
       if (recipe.failure?.humanName && !speakers.some(actor => key(actor.name) === key(recipe.failure.humanName))) issue('error', 'human', `${node.name}: hlídaná postava ${recipe.failure.humanName} chybí nebo není jednoznačná.`, location);
       for (const target of recipe.targets ?? []) if (!speakers.some(actor => actor.kind === 27 && key(actor.name) === key(target))) issue('error', 'human', `${node.name}: protivník ${target} chybí nebo není jednoznačná NPC.`, location);
       if (recipe.targetName) {

@@ -12,8 +12,10 @@ export function combatTargets(scene) {
 
 // The task observes existing actors; it never replaces their AI programs or
 // removes them. Energy is an unquoted engine property and is zero for dead actors.
-export function missionCombatScript({ targets, trigger = 'use', triggerRadius = null, interactionId, objectiveId, completeId, checkpointId = null, failure = null, flow = null, exitToMenu = false } = {}) {
+function missionCombatSource({ targets, trigger = 'use', triggerRadius = null, interactionId, objectiveId, completeId, checkpointId = null, failure = null, flow = null, exitToMenu = false } = {}, legacyNotices = false) {
   if (!Array.isArray(targets) || targets.length < 1 || targets.length > 16 || targets.some(name => !validName(name) || key(name) === 'tommy') || new Set(targets.map(key)).size !== targets.length) throw new Error('Bojový úkol: vyberte 1–16 různých NPC postav.');
+  // mission_objectives already displays the objective through the engine HUD.
+  const notice = id => legacyNotices ? `subtitle_add ${id}\n` : '';
   const activation = missionActivation(trigger, triggerRadius, 'Bojový úkol');
   if (![objectiveId, completeId, ...(trigger === 'use' ? [interactionId] : [])].every(validId)) throw new Error('Bojový úkol: ID textů musí být celá čísla 0–2147483647.');
   if (typeof exitToMenu !== 'boolean') throw new Error('Bojový úkol: neplatná volba návratu do menu.');
@@ -31,11 +33,13 @@ export function missionCombatScript({ targets, trigger = 'use', triggerRadius = 
   const offset = targets.length + (guard === null ? 0 : 1);
   const link = missionFlow(flow, { actorOffset: offset, allowFailure: failure !== null, exitOnComplete: exitToMenu, endOnFailure: Boolean(failure?.endMission) });
   const bindings = targets.map((name, i) => `findactor ${i}, "${name}"\n`).join('') + (guard === null ? '' : `findactor ${targets.length}, "${guard}"\n`);
-  const failed = failure === null ? '' : `\nlabel 30\nmission_objectivesremove ${objectiveId}\nsubtitle_add ${failure.textId}\nconsole_addtext ${failure.textId}\nwait 4000\n${link.failure}${failure.endMission ? `endofmission 0, ${failure.textId}\n` : ''}end`;
+  const failed = failure === null ? '' : `\nlabel 30\nmission_objectivesremove ${objectiveId}\n${legacyNotices ? `subtitle_add ${failure.textId}\n` : ''}console_addtext ${failure.textId}\nwait 4000\n${link.failure}${failure.endMission ? `endofmission 0, ${failure.textId}\n` : ''}end`;
   const checks = (guard === null ? '' : `human_getproperty ${targets.length}, 0, Energy\nif flt[0] > 0, -1, 30\n`) + (timeout === null ? '' : `getgametime 2\nlet flt[2] = flt[2] - flt[1]\nif flt[2] > ${timeout * 1000}, 30, -1\n`);
   const poll = targets.map((_, i) => `human_getproperty ${i}, 0, Energy\nif flt[0] > 0, 40, -1\n`).join('');
-  return `dim_act ${offset + link.actors}\ndim_flt ${timeout === null ? 1 : 3}\nwait 2000\n${link.gate}${link.start}${activation}mission_objectives ${objectiveId}\nsubtitle_add ${objectiveId}\n${trigger === 'use' ? `detector_waitforuse ${interactionId}\n` : ''}${bindings}${timeout === null ? '' : 'getgametime 1\n'}${checkpointId === null ? '' : `autosavegamefull ${checkpointId}, 1\n`}label 10\n${checks}${poll}goto 20\nlabel 40\nwait 100\ngoto 10\nlabel 20\nmission_objectivesremove ${objectiveId}\nsubtitle_add ${completeId}\nconsole_addtext ${completeId}\nwait 4000\n${link.complete}${exitToMenu ? `endofmission 1, ${completeId}\n` : ''}end${failed}`;
+  return `dim_act ${offset + link.actors}\ndim_flt ${timeout === null ? 1 : 3}\nwait 2000\n${link.gate}${link.start}${activation}mission_objectives ${objectiveId}\n${notice(objectiveId)}${trigger === 'use' ? `detector_waitforuse ${interactionId}\n` : ''}${bindings}${timeout === null ? '' : 'getgametime 1\n'}${checkpointId === null ? '' : `autosavegamefull ${checkpointId}, 1\n`}label 10\n${checks}${poll}goto 20\nlabel 40\nwait 100\ngoto 10\nlabel 20\nmission_objectivesremove ${objectiveId}\n${legacyNotices ? `subtitle_add ${completeId}\n` : ''}console_addtext ${completeId}\nwait 4000\n${link.complete}${exitToMenu ? `endofmission 1, ${completeId}\n` : ''}end${failed}`;
 }
+
+export function missionCombatScript(options) { return missionCombatSource(options); }
 
 export function resolveMissionCombat(scene, combat, owner) {
   missionCombatScript(combat);
@@ -50,16 +54,16 @@ export function resolveMissionCombat(scene, combat, owner) {
   return result;
 }
 
-// Recover only the exact source emitted by our wizard, including older files
+// Recover only exact current or legacy-notice source emitted by our wizard, including files
 // without recipe metadata. A partial match must never authorize replacing code.
 export function inspectMissionCombat(code) {
   if (typeof code !== 'string' || code.length > 1000000) return null;
   const source = code.replaceAll('\r\n', '\n'), bindings = new Map([...source.matchAll(/^findactor (\d+), "([^"\x00-\x1f]+)"$/gm)].map(match => [Number(match[1]), match[2]]));
-  const objective = /^mission_objectives (\d+)$/m.exec(source), complete = /^label 20\nmission_objectivesremove \d+\nsubtitle_add (\d+)$/m.exec(source);
+  const objective = /^mission_objectives (\d+)$/m.exec(source), complete = /^label 20\nmission_objectivesremove \d+\n(?:subtitle_add|console_addtext) (\d+)$/m.exec(source);
   const use = /^detector_waitforuse (\d+)$/m.exec(source), checkpoint = /^autosavegamefull (\d+), 1$/m.exec(source);
   const targetSlots = [...source.matchAll(/^human_getproperty (\d+), 0, Energy\nif flt\[0\] > 0, 40, -1$/gm)].map(match => Number(match[1]));
   const guard = /^human_getproperty (\d+), 0, Energy\nif flt\[0\] > 0, -1, 30$/m.exec(source), timeout = /^if flt\[2\] > ([\d.e+-]+), 30, -1$/m.exec(source);
-  const failureText = /^label 30\nmission_objectivesremove \d+\nsubtitle_add (\d+)$/m.exec(source), parts = source.split('\nlabel 30\n');
+  const failureText = /^label 30\nmission_objectivesremove \d+\n(?:subtitle_add|console_addtext) (\d+)$/m.exec(source), parts = source.split('\nlabel 30\n');
   const signal = part => { const match = /^detector_setsignal (\d+), 1$/m.exec(part ?? ''); return match ? bindings.get(Number(match[1])) : null; };
   const flow = { waitForSignal: source.includes('label 1\ndetector_issignal -1, 2, -1\n'), onComplete: signal(parts[0]), onFailure: signal(parts[1]) };
   const combat = {
@@ -68,7 +72,7 @@ export function inspectMissionCombat(code) {
     failure: failureText ? { timeoutSeconds: timeout ? Number(timeout[1]) / 1000 : null, humanName: guard ? bindings.get(Number(guard[1])) : null, textId: Number(failureText[1]), endMission: /^endofmission 0, \d+$/m.test(parts[1] ?? '') } : null,
     flow: flow.waitForSignal || flow.onComplete || flow.onFailure ? flow : null, exitToMenu: /^endofmission 1, \d+$/m.test(parts[0])
   };
-  try { if (missionCombatScript(combat) === source) return combat; } catch { /* Unknown or edited programs stay in the source editor. */ }
+  try { if (missionCombatScript(combat) === source || missionCombatSource(combat, true) === source) return combat; } catch { /* Unknown or edited programs stay in the source editor. */ }
   return null;
 }
 

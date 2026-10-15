@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
-import {missionTaskScript} from '../src/shared/mission-task.js';
+import {missionTaskScript,inspectMissionTask} from '../src/shared/mission-task.js';
 import {ModProject} from '../src/core/project.js';
 import {hash,writeSafe} from '../src/core/files.js';
 import {changeSceneObject,inspectScene} from '../src/core/scene.js';
@@ -13,14 +13,14 @@ const chunk=(type,payload)=>{const header=Buffer.alloc(6);header.writeUInt16LE(t
 
 test('mission task waits for interaction before polling the target, removes only its own objectives and has explicit menu exit',()=>{
   const code=missionTaskScript(task),use=code.indexOf('detector_waitforuse 20'),poll=code.indexOf('frm_getworldpos 0, 0');
-  assert(use>code.indexOf('mission_objectives 10')&&poll>use);assert(code.includes('mission_objectivesremove 10\nmission_objectives 30'));assert(code.includes('if flt[6] < 2.5, 20, -1\nwait 100\ngoto 10'));assert(code.includes('mission_objectivesremove 30\nsubtitle_add 40'));assert(!code.includes('mission_objectivesclear')&&!code.includes('endofmission'));
+  assert(use>code.indexOf('mission_objectives 10')&&poll>use);assert(code.includes('mission_objectivesremove 10\nmission_objectives 30'));assert(code.includes('if flt[6] < 2.5, 20, -1\nwait 100\ngoto 10'));assert(code.includes('mission_objectivesremove 30\nconsole_addtext 40'));assert(!code.includes('mission_objectivesclear')&&!code.includes('endofmission'));
   assert(missionTaskScript({...task,exitToMenu:true}).includes('endofmission 1, 40\nend'));
   for(const entry of [{objectiveId:-1},{interactionId:NaN},{completeId:4294967296},{targetName:'A"\nend'},{targetName:''},{targetRadius:0},{targetRadius:1e100},{targetRadius:1e-100},{exitToMenu:'false'}])assert.throws(()=>missionTaskScript({...task,...entry}),/Úkol/);
 });
 
 test('optional full checkpoint saves the accepted stage once, with an addressable named slot',()=>{
   const code=missionTaskScript({...task,checkpointId:5050});
-  assert(code.includes('mission_objectivesremove 10\nmission_objectives 30\nsubtitle_add 30\nautosavegamefull 5050, 1\nlabel 10'));
+  assert(code.includes('mission_objectivesremove 10\nmission_objectives 30\nautosavegamefull 5050, 1\nlabel 10'));
   assert.equal(code.split('autosavegamefull').length,2);assert(!missionTaskScript(task).includes('autosavegame'));
   for(const checkpointId of [5000,5599])assert(missionTaskScript({...task,checkpointId}).includes(`autosavegamefull ${checkpointId}, 1`));
   for(const checkpointId of [4999,5600,5050.5,NaN,'5050',false])assert.throws(()=>missionTaskScript({...task,checkpointId}),/checkpoint/);
@@ -57,13 +57,13 @@ test('checkpoint creation requires a nonempty TextDB title and is guarded, expor
 test('failure checks start after acceptance, precede success, save initialized state and leave unrelated objectives/timer intact',()=>{
   const failure={timeoutSeconds:12.5,humanName:'NPC',textId:50,endMission:true},code=missionTaskScript({...task,failure,checkpointId:5050});
   assert(code.startsWith('dim_frm 2\ndim_flt 10\ndim_act 1\n'));
-  assert(code.includes('subtitle_add 30\nfindactor 0, "NPC"\ngetgametime 8\nautosavegamefull 5050, 1\nlabel 10'));
+  assert(code.includes('mission_objectives 30\nfindactor 0, "NPC"\ngetgametime 8\nautosavegamefull 5050, 1\nlabel 10'));
   assert(code.includes('label 10\nhuman_getproperty 0, 7, Energy\nif flt[7] > 0, -1, 30\ngetgametime 9\nlet flt[9] = flt[9] - flt[8]\nif flt[9] > 12500, 30, -1\nfrm_getworldpos'));
-  assert(code.includes('wait 4000\nend\nlabel 30\nmission_objectivesremove 30\nsubtitle_add 50\nconsole_addtext 50\nwait 4000\nendofmission 0, 50\nend'));
+  assert(code.includes('wait 4000\nend\nlabel 30\nmission_objectivesremove 30\nconsole_addtext 50\nwait 4000\nendofmission 0, 50\nend'));
   assert(!code.includes('globaltimer')&&!code.includes('mission_objectivesclear'));
   const health=missionTaskScript({...task,failure:{humanName:'NPC',textId:50}}),timed=missionTaskScript({...task,failure:{timeoutSeconds:.1,textId:50}});
   assert(health.includes('dim_flt 8')&&!health.includes('getgametime')&&!health.includes('endofmission'));assert(timed.includes('dim_flt 10')&&!timed.includes('dim_act')&&timed.includes('if flt[9] > 100, 30, -1'));
-  const baseline='dim_frm 2\ndim_flt 7\nwait 2000\nfindframe 0, "DESTINATION"\nfindframe 1, "Tommy"\nmission_objectives 10\nsubtitle_add 10\ndetector_waitforuse 20\nmission_objectivesremove 10\nmission_objectives 30\nsubtitle_add 30\nlabel 10\nfrm_getworldpos 0, 0\nfrm_getworldpos 1, 3\nvect_sub_vect 0, 3\nvect_magnitude 0, 6\nif flt[6] < 2.5, 20, -1\nwait 100\ngoto 10\nlabel 20\nmission_objectivesremove 30\nsubtitle_add 40\nconsole_addtext 40\nwait 4000\nend';assert.equal(missionTaskScript(task),baseline);
+  const baseline='dim_frm 2\ndim_flt 7\nwait 2000\nfindframe 0, "DESTINATION"\nfindframe 1, "Tommy"\nmission_objectives 10\nsubtitle_add 10\ndetector_waitforuse 20\nmission_objectivesremove 10\nmission_objectives 30\nsubtitle_add 30\nlabel 10\nfrm_getworldpos 0, 0\nfrm_getworldpos 1, 3\nvect_sub_vect 0, 3\nvect_magnitude 0, 6\nif flt[6] < 2.5, 20, -1\nwait 100\ngoto 10\nlabel 20\nmission_objectivesremove 30\nsubtitle_add 40\nconsole_addtext 40\nwait 4000\nend';assert(inspectMissionTask(baseline));assert.equal(missionTaskScript(task),baseline.replace(/subtitle_add (\d+)\nconsole_addtext \1\n/g,'console_addtext $1\n').replace(/^subtitle_add \d+\n/gm,''));
   for(const invalid of [false,[],{}, {timeoutSeconds:0,textId:50},{timeoutSeconds:Infinity,textId:50},{timeoutSeconds:86400.1,textId:50},{timeoutSeconds:'60',textId:50},{humanName:'NPC"\nend',textId:50},{humanName:'',textId:50},{humanName:'NPC',textId:2147483648},{humanName:'NPC',textId:NaN},{humanName:'NPC',textId:50,endMission:'false'}])assert.throws(()=>missionTaskScript({...task,failure:invalid}),/Úkol/);
 });
 

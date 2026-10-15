@@ -67,3 +67,36 @@ test('area dialogue creation and editing preserve voice/text dependencies, mask 
  await p.changeSceneObject(name,{...request,dialogue},hash(scene));const created=await p.read(name),selected=editableMissionDialogue(await p.inspectMap(name),'CONVERSATION');assert.equal(selected.dialogue.trigger,'area');assert.equal(selected.dialogue.triggerRadius,2.5);assert.equal(inspectScene(created).entries.find(e=>e.detectorParameter).value,1);assert.deepEqual(await p.read(textPath),text);
  await p.changeSceneObject(name,{kind:'configure-dialogue',target:'CONVERSATION',dialogue:{...dialogue,triggerRadius:5}},hash(created));const changed=await p.read(name);assert.equal(editableMissionDialogue(await p.inspectMap(name),'CONVERSATION').dialogue.triggerRadius,5);await p.export(root+'/area-export');assert.deepEqual(await fs.readFile(root+'/area-export/'+name),changed);await p.undo();assert.deepEqual(await p.read(name),created);await p.undo();assert.deepEqual(await p.read(name),scene);assert.equal(p.manifest.history.length,history);
 });
+
+test('NPC action follows the character, checks held item again at use and locks only the spoken conversation',()=>{
+ const options={...conversation,interactionHuman:'NPC',lockPlayer:true,inventory:{itemId:23,consume:true},flow:{waitForSignal:true,onComplete:'NEXT'}},code=missionDialogueScript(options);
+ assert(code.includes('dim_frm 2\ndim_flt 3'));assert(code.includes('findframe 0, "NPC"\nfindframe 1, ""\nfrm_linkto 1, 0'));
+ assert(code.indexOf('label 2')<code.indexOf('frm_linkto'));assert(code.indexOf('frm_setpos 1, 0')<code.indexOf('label 10'));
+ assert.equal([...code.matchAll(/human_isweapon 1, 0, 23/g)].length,2);
+ assert(code.includes('detector_waitforuse 90002\nhuman_isweapon 1, 0, 23\nif flt[0] = 1, 12, 10\nlabel 12\nhuman_delweapon 1, 23\nplayer_lockcontrols 1\ndialog_begin'));
+ assert(code.includes('dialog_end\nplayer_lockcontrols 0\ndetector_setsignal 2, 1\nend'));
+ assert.equal(missionDialogueScript(inspectMissionDialogue(code)),code);
+ assert.equal(missionDialogueScript(inspectMissionDialogue(code.replaceAll('\n','\r\n'))),code);
+ for(const change of [code.replace('player_lockcontrols 0',''),code.replace('frm_linkto 1, 0','frm_linkto 0, 1'),code.replace('human_delweapon 1, 23','human_delweapon 1, 24'),code+'\nwait 10'])assert.equal(inspectMissionDialogue(change),null);
+ for(const extra of [{trigger:'area',triggerRadius:3},{lockPlayer:1},{interactionHuman:'bad"'},{inventory:{itemId:1,consume:true}},{inventory:{itemId:23,consume:1}}])assert.throws(()=>missionDialogueScript({...options,...extra}),/Rozhovor/);
+ for(const camera of [true,false])for(const consume of [true,false]){const script=missionDialogueScript({...options,camera,inventory:{itemId:23,consume}});assert.equal(missionDialogueScript(inspectMissionDialogue(script)),script);assert.equal(script.includes('human_delweapon'),consume);}
+});
+
+test('NPC handover transaction validates human/player/item, preserves their programs and has no-op, export, reopen and exact undo',async t=>{
+ let {p,root,name,scene,geometryPath,geometry,textPath,text,request}=await fixture(t);
+ const items=Buffer.alloc(24*188);items.write('Door keys',23*188);await p.createFiles([{path:'tables/predmety.def',data:items}]);const history=p.manifest.history.length;
+ const dialogue={...request.dialogue,interactionHuman:'npc',lockPlayer:true,inventory:{itemId:23,consume:true,tableHash:hash(items)}};
+ for(const extra of [{interactionHuman:'Tommy'},{interactionHuman:'Missing'},{inventory:{...dialogue.inventory,tableHash:'stale'}},{inventory:{...dialogue.inventory,itemId:22}}])await assert.rejects(()=>p.changeSceneObject(name,{...request,dialogue:{...dialogue,...extra}},hash(scene)),/Rozhovor/);
+ assert.equal(p.manifest.history.length,history);assert.deepEqual(await p.read(name),scene);
+ await p.changeSceneObject(name,{...request,dialogue},hash(scene));const created=await p.read(name),recipe=editableMissionDialogue(await p.inspectMap(name),'CONVERSATION');
+ assert.equal(recipe.dialogue.interactionHuman,'NPC');assert.deepEqual(recipe.dialogue.inventory,{itemId:23,consume:true});assert.equal(recipe.dialogue.lockPlayer,true);
+ const original=inspectScene(scene);for(const script of original.actorScripts)assert.equal(inspectScene(created).actorScripts.find(other=>other.name===script.name).code,script.code);
+ assert.deepEqual(p.manifest.history.at(-1).files.map(file=>file.path),[name]);
+ const operation={kind:'configure-dialogue',target:'CONVERSATION',dialogue};await p.changeSceneObject(name,operation,hash(created));assert.equal(p.manifest.history.length,history+1);
+ const reopened=await ModProject.open(root);await reopened.export(root+'/handover-export');assert.deepEqual(await fs.readFile(root+'/handover-export/'+name),created);
+ await reopened.undo();assert.deepEqual(await reopened.read(name),scene);for(const[n,b]of [[geometryPath,geometry],[textPath,text],['tables/predmety.def',items]])assert.deepEqual(await reopened.read(n),b);
+ p=await ModProject.open(root);const batch=p.changeBatch;
+ p.changeBatch=async function(files,...args){await this.change('tables/predmety.def',Buffer.concat([items,Buffer.alloc(188)]),'Concurrent item definition');return batch.call(this,files,...args);};
+ await assert.rejects(()=>p.changeSceneObject(name,{...request,dialogue},hash(scene)),/změnil/);assert.deepEqual(await p.read(name),scene);p.changeBatch=batch;await p.undo();
+ const save=p.saveManifest;p.saveManifest=async()=>{throw Error('Handover publication failed');};await assert.rejects(()=>p.changeSceneObject(name,{...request,dialogue},hash(scene)),/publication failed/);p.saveManifest=save;assert.deepEqual(await p.read(name),scene);assert.equal(p.manifest.history.length,history);
+});
