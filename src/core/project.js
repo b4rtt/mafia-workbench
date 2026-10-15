@@ -9,6 +9,7 @@ import { parseFourDs, editFourDs } from './fourds.js';
 import { parseFiveDs, editFiveDs } from './fiveds.js';
 import { editAnimationTimeline } from './animation-timeline.js';
 import { inspectCache, editCache } from './cache.js';
+import { cacheMap } from '../shared/cache-map.js';
 import { parseItems, editItems } from './items.js';
 import { pickupParameters } from '../shared/pickups.js';
 import { resolveMissionFlow } from '../shared/mission-flow.js';
@@ -927,6 +928,13 @@ export class ModProject {
     }, 'Úprava statických modelů cache.bin');
   }
   async checkMission(name, textDb = null) { return checkMission(this, name, textDb); }
+  async inspectCacheMap(name, partId) {
+    if(!/^missions\/[^/]+\/cache\.bin$/i.test(name))throw new Error('Vyberte cache.bin mise.');
+    const cache=await this.inspect(name);let scene=null,warning=null;
+    try{scene=await this.inspectMap(cache.path.slice(0,cache.path.lastIndexOf('/'))+'/scene2.bin');}
+    catch(error){warning='Okolní scénu nelze načíst: '+error.message;}
+    return cacheMap(cache,partId,scene,warning);
+  }
   async inspectMap(name) {
     if (!/scene2\.bin$/i.test(name)) throw new Error('Vyberte scene2.bin mapy.');
     const scene = await this.inspect(name), folder = scene.path.slice(0, scene.path.lastIndexOf('/'));

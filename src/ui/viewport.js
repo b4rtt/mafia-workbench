@@ -236,7 +236,7 @@ export class Viewport {
     }
     return reload;
   }
-  fit(object = this.root) {
+  fit(object = this.root, resetAngle = false) {
     object.updateWorldMatrix(true, true); const box = new THREE.Box3();
     // Hidden backdrop geometry must not expand the map bounds or enclose its camera.
     const visit = node => {
@@ -248,7 +248,7 @@ export class Viewport {
     visit(object);
     if (box.isEmpty()) box.setFromCenterAndSize(object.getWorldPosition(new THREE.Vector3()), new THREE.Vector3(1, 1, 1));
     const center = box.getCenter(new THREE.Vector3()), size = Math.max(box.getSize(new THREE.Vector3()).length(), .1);
-    const direction = object === this.root ? new THREE.Vector3(.9,.6,1.1) : this.camera.position.clone().sub(this.controls.target);
+    const direction = object === this.root || resetAngle ? new THREE.Vector3(.9,.6,1.1) : this.camera.position.clone().sub(this.controls.target);
     if (direction.lengthSq() < 1e-10) direction.set(.9,.6,1.1);
     direction.normalize();
     const right = new THREE.Vector3().crossVectors(this.camera.up, direction);

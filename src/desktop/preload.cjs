@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('workbench', {
   inspect: name => invoke('asset:inspect', name),
   media: name => invoke('asset:media', name),
   map: name => invoke('asset:map', name),
+  cacheMap: (name,part) => invoke('asset:cache-map',name,part),
   missionDestination: name => invoke('mission:destination',name),
   checkMission: (name, textDb = null) => invoke('mission:check', name, textDb),
   createTerrain: (options,textureHash) => invoke('model:terrain',options,textureHash),

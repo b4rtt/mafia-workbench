@@ -2,6 +2,13 @@
 
 Aktualizace: 15. října 2026. Vývoj pokračuje; komplexní editor není dokončený. Implementace, datové testy, ověření UI a ověření ve hře jsou různé úrovně dokončení; neoznačovat jednu za druhou. Podrobnosti existujících funkcí a jejich omezení jsou v README.md a research/formats.md. Původní hra se nemění, úpravy mají kontrolu verze, zálohu, export a undo. Herní data a soukromé reference nepatří do veřejného repozitáře.
 
+## Statické části města v kontextu mise (2026-10-15)
+
+- 3D scéna → Statické části města… otevře zvolenou část cache.bin s okolní geometrií a objekty mise. Kontext se nedá z tohoto pohledu přepisovat. Výběr části přímo v mapě, vlastnosti seskupené po modelech, zarámování části a paměť kamery/výběru zvlášť pro každou část i projekt. Původní world TRS beze změny; žádná transformace podle streaming bounds.
+- Zápis používá dosavadní saveCache s kontrolou hashe. Save/undo/obnova zachovají část; po jejím odstranění návrat do katalogu. Přenos obsahuje pouze instance vybrané části, bez původního limitu 500. Ostatní části nejsou hromadně načtené. Kolize, streaming bounds a druhé měřítko se automaticky nepřepočítávají.
+- Čtyři nové testy, 28/28 cílených testů a check/build. První zarámování části používá šikmý přehled bez zahrnutí vzdáleného kontextu; další zarámování zachová směr kamery. Produkční prohlížeč nad samostatnou kopií: uložení X 4→5, přepínání částí a návrat do scény, ochrana rozepsaného posunu, čtecí okolní geometrie, přesný export/reopen a UI undo na historii 43 se shodnými baseline hashi. Další UI undo odstranilo testovací části a správně vrátilo prázdný katalog na historii 42. Ostatní i chráněné hashe shodné, konzole čistá; testovací okno a server ukončené. Při prvním ověření byl Mac zamčený; nejde o ověření Electronu nebo nové změny cache ve hře. Soukromý index local/cache-map-ui.json.
+- Goal pokračuje. Ruční kompletní průchod vlastní ukázky zůstává otevřený předpoklad samostatného AI/OSM pluginu.
+
 ## Vystoupení NPC po jízdě a ověření návazností (2026-10-15)
 
 - Jízda vozidlem nabízí přirozené vystoupení po poslední zastávce/čekání jednorázové trasy. Dokončení se posílá až po opuštění auta; aktivní NPC, žádný teleport. Přesné v3, v1/v2 beze změny (18 kombinací porovnaných s předchozím HEAD). Blokace opakování, stejný formulář při přidání/configure, detail v Logice a kontrola mise. Podklady i limity v research/human-driving.md.

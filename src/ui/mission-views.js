@@ -2,8 +2,8 @@ import { missionParts, missionViewKey } from '../shared/mission-parts.js';
 
 // Retain only views of mission assets, scoped to the project and editor type.
 export class MissionViews {
-  constructor() { this.views = new Map(); }
-  clear() { this.views.clear(); }
+  constructor() { this.views = new Map(); this.cacheParts = new Map(); }
+  clear() { this.views.clear(); this.cacheParts.clear(); }
   remember(view) {
     if (!view || view.disposed || !view.projectRoot) return;
     if (view.logicPath) {
@@ -12,7 +12,7 @@ export class MissionViews {
     }
     let path, type, value;
     if (view.mapPath) {
-      path=view.mapPath;type='map';value={selectedName:view.selectedName,mode:view.gizmo.mode,backdrop:view.backdrop?.visible,collisions:view.collisionOverlay?.visible,sounds:view.soundExtentVisible,lights:view.lightPreviewVisible,areas:view.missionAreasVisible};
+      path=view.mapPath;type=view.cachePart?'cache-map/'+view.cachePart:'map';value={selectedName:view.selectedName,mode:view.gizmo.mode,backdrop:view.backdrop?.visible,collisions:view.collisionOverlay?.visible,sounds:view.soundExtentVisible,lights:view.lightPreviewVisible,areas:view.missionAreasVisible};
     } else if (view.modelPath) {
       path=view.modelPath;type='model';value={selectedId:view.selectedId,mode:view.gizmo.mode,wireframe:view.modelWireframe,sectors:view.sectorsVisible};
     } else if (view.navigationPath || view.roadPath) {
@@ -24,7 +24,9 @@ export class MissionViews {
       path=view.collisionPath;type='collision';value={selectedId:view.selectedId,search:view.collisionSearch,type:view.collisionType,mode:view.gizmo.mode,geometry:view.collisionGeometryWanted};
     } else return;
     if (!missionParts([{path}],path).length) return;
+    if(view.cachePart)this.cacheParts.set(missionViewKey(view.projectRoot,path,'cache'),view.cachePart);
     this.views.set(missionViewKey(view.projectRoot,path,type),{...value,camera:view.captureCamera()});
   }
-  get(root, file) { return this.views.get(missionViewKey(root,file.path,file.type))??null; }
+  get(root, file) { return this.views.get(missionViewKey(root,file.path,file.cacheSource?'cache-map/'+file.cachePart:file.type))??null; }
+  cachePart(root,path) { return this.cacheParts.get(missionViewKey(root,path,'cache'))??null; }
 }

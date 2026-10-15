@@ -172,6 +172,10 @@ function renderFiles() {
   listElement.scrollTop = scroll;
   $('count').textContent = `${files.length.toLocaleString('cs')} SOUBORŮ · ${groups.length} SLOŽEK`;
 }
+async function reopenCacheMap(file, catalog = null) {
+  catalog ??= await api.inspect(file.path);
+  return catalog.type === 'cache' && catalog.parts.some(part => part.id === file.cachePart) ? api.cacheMap(file.path,file.cachePart) : catalog;
+}
 async function openFile(name) { state.file = await api.inspect(name); renderDetail(); renderFiles(); status(`Otevřeno: ${name}`); }
 function renderMissionParts(main, file) {
   const parts = missionParts(state.project.assets, file.path);
@@ -212,8 +216,9 @@ function renderDetail() {
   const previous = state.viewport;
   missionViews.remember(previous);
   const remembered = missionViews.get(state.project.root, file);
-  const mapView = file.type === 'map' && previous?.mapPath === file.path && previous.projectRoot === state.project.root
+  let mapView = file.type === 'map' && previous?.mapPath === file.path && previous.cachePart === file.cachePart && previous.projectRoot === state.project.root
     ? { camera: previous.captureCamera(), selectedName: previous.selectedName, mode: previous.gizmo.mode, backdrop: previous.backdrop?.visible, collisions: previous.collisionOverlay?.visible, sounds: previous.soundExtentVisible, lights: previous.lightPreviewVisible } : remembered;
+  if(state.nextMapCamera&&file.type==='map'){mapView={...mapView,camera:state.nextMapCamera};delete state.nextMapCamera;}
   const modelView = file.type === 'model' && previous?.modelPath === file.path && previous.projectRoot === state.project.root
     ? { camera: previous.captureCamera(), selectedId: previous.selectedId, mode: previous.gizmo.mode, wireframe: previous.modelWireframe } : remembered;
   const effectsView = file.type === 'effects' && previous?.effectsPath === file.path && previous.projectRoot === state.project.root
@@ -243,9 +248,9 @@ function renderDetail() {
   main.append(element('div', `${file.size.toLocaleString('cs')} bajtů · ${source?.archive} · ${source?.variants ?? 1} variant archivů`, 'file-meta'));
   const toolbar = element('div', undefined, 'tools');
   const restore = element('button', source?.created ? 'Obnovit výchozí verzi' : 'Obnovit originál');
-  restore.onclick = () => run(async () => { if (!await discard()) return; state.file = await api.restore(file.path); if(file.type==='logic')state.file={...await api.map(file.path),type:'logic'}; state.texts.clear(); await refresh(); renderDetail(); status(source?.created ? 'Výchozí verze obnovena; obnovení lze také vrátit.' : 'Originál obnoven; obnovení lze také vrátit.'); });
+  restore.onclick = () => run(async () => { if (!await discard()) return; state.file = await api.restore(file.path); if(file.cacheSource)state.file=await reopenCacheMap(file,state.file);else if(file.type==='logic')state.file={...await api.map(file.path),type:'logic'}; state.texts.clear(); await refresh(); renderDetail(); status(source?.created ? 'Výchozí verze obnovena; obnovení lze také vrátit.' : 'Originál obnoven; obnovení lze také vrátit.'); });
   const replace = element('button', 'Nahradit souborem…');
-  replace.onclick = () => run(async () => { if (!await discard()) return; const replacement = await api.replace(file.path); if (!replacement) return; state.file = replacement; if(file.type==='logic')state.file={...await api.map(file.path),type:'logic'}; state.texts.clear(); await refresh(); renderDetail(); status('Soubor nahrazen se zálohou.'); });
+  replace.onclick = () => run(async () => { if (!await discard()) return; const replacement = await api.replace(file.path); if (!replacement) return; state.file = replacement; if(file.cacheSource)state.file=await reopenCacheMap(file,replacement);else if(file.type==='logic')state.file={...await api.map(file.path),type:'logic'}; state.texts.clear(); await refresh(); renderDetail(); status('Soubor nahrazen se zálohou.'); });
   toolbar.append(restore, replace); main.append(toolbar);
   if (/^missions\/[^/]+\//i.test(file.path)) {
     const check = element('button', 'Zkontrolovat misi'); check.dataset.checkMission = '';
@@ -846,7 +851,7 @@ function renderProperties(main, file, saveAPI, onEdit = () => {}, onPick = () =>
   const workspace = element('div', undefined, 'text-workspace'), indexPanel = element('div', undefined, 'text-index'), form = element('div', undefined, 'text-form');
   const search = element('input'); search.type = 'search'; search.placeholder = 'Objekt, vlastnost nebo skript…'; search.setAttribute('aria-label', 'Hledat ve scéně');
   const list = element('div', undefined, 'text-list');
-  const groups = ['scene','map','effects'].includes(file.type) && !file.cacheSource ? groupSceneProperties(file) : file.type==='model' ? (()=>{
+  const groups = ['scene','map','effects'].includes(file.type) ? groupSceneProperties(file) : file.type==='model' ? (()=>{
     const byObject=new Map();for(const entry of file.entries){const [type,index]=entry.id.split('/'),id=type+'/'+index;if(!byObject.has(id))byObject.set(id,{id,name:type==='meshes'?file.meshes[Number(index)]?.name??entry.context:type==='materials'?'Materiál '+(Number(index)+1):entry.context,context:entry.context,entries:[]});byObject.get(id).entries.push({entry,label:entry.label});}return [...byObject.values()];
   })() : null;
   const objectMode=Boolean(groups&&main.classList.contains('model-inspector'));
@@ -964,7 +969,7 @@ function renderProperties(main, file, saveAPI, onEdit = () => {}, onPick = () =>
   search.oninput = () => {limit=100;fill();}; fill(); indexPanel.append(search, list); workspace.append(indexPanel, form); main.append(element('p', `${groups?`${groups.length.toLocaleString('cs')} objektů · `:''}${file.entries.length.toLocaleString('cs')} rozpoznaných vlastností. Nerozpoznaná data se zachovají beze změny.`, 'notice'), workspace);
   if (file.entries.length && initialSelection) select((file.entries.find(e => e.kind === 'script') ?? file.entries[0]).id);
   else form.append(element('p','Vyberte objekt v seznamu nebo přímo ve 3D pohledu.'));
-  return { select, changed: () => { const entry = file.entries.find(e => e.id === state.selectedProperty); if (entry) edit(entry); } };
+  return { select, clear:text=>{selected=null;markSelection();form.replaceChildren(element('p',text));}, changed: () => { const entry = file.entries.find(e => e.id === state.selectedProperty); if (entry) edit(entry); } };
 }
 function renderEffects(main,file,previous=null){
   const layout=element('div',undefined,'model-workspace'),center=element('section',undefined,'model-center'),inspector=element('section',undefined,'model-inspector');layout.append(center,inspector);main.append(layout);
@@ -1182,12 +1187,12 @@ function renderCache(main, file) {
   const tools = element('div', undefined, 'tools'), parts = element('select'), preview = element('button', 'Otevřít část ve 3D');
   parts.setAttribute('aria-label', 'Část města v cache.bin');
   for (const part of file.parts) { const option = element('option', `${part.name} · ${part.objects.length} modelů`); option.value = part.id; parts.append(option); }
+  parts.value=file.parts.find(part=>part.id===missionViews.cachePart(state.project.root,file.path))?.id??file.parts.find(part=>part.objects.length)?.id??file.parts[0]?.id??'';
   preview.disabled = !file.parts.length;
   preview.onclick = () => run(async () => {
     if (!await discard()) return;
     const part = file.parts.find(p => p.id === parts.value);
-    if (part.objects.length > 500) throw new Error('Tato část má přes 500 modelů; její 3D náhled zatím není podporovaný. Vlastnosti lze upravit v seznamu.');
-    state.texts.clear(); state.file = { ...file, type: 'map', cacheSource: true, geometry: { meshes: [], materials: [] }, objects: part.objects, entries: file.entries.filter(e => e.id.startsWith(part.id + '/')) }; renderDetail();
+    state.texts.clear(); state.file = await api.cacheMap(file.path,part.id); renderDetail();
   });
   tools.append(parts, preview); main.append(tools); renderProperties(main, file, api.saveCache);
 }
@@ -1249,7 +1254,7 @@ function renderMap(main, file, previous = null) {
     state.file = next; renderDetail(); renderFiles(); status(`Fyzika auta: ${definition.name} · společná pro všechny varianty modelu.`);
   });
   const view = new Viewport(viewport, frame => {
-    const object = frame.sceneObject; selected.textContent = object ? object.name : `${frame.name} · geometrie ve scene.4ds`;
+    const object = frame.sceneObject; selected.textContent = object?.contextOnly||file.cacheSource&&!object ? `${frame.name} · okolní scéna (pouze kontext)` : object ? object.name : `${frame.name} · geometrie ve scene.4ds`;
     selectedObject = object;
     assignSector.disabled=!object||![1,2,4,6,9].includes(object.frameType??frame.type);
     selectedFrame=frame;
@@ -1271,7 +1276,8 @@ function renderMap(main, file, previous = null) {
     const actorBound=file.entries.some(entry=>entry.label==='Název aktéra'&&entry.value.toLowerCase()===(object?.name??frame.name).toLowerCase());
     addDoor.disabled=Boolean(frame.ownerId)||actorBound||!(object?.frameType===9||frame.type===1&&[0,1].includes(frame.visual));
     addPhysical.disabled=Boolean(frame.ownerId)||actorBound||object?.frameType!==9||!object?.model||file.geometry.meshes.some(mesh=>mesh.name.toLowerCase()===object.name.toLowerCase());
-    if (object) { objects.value = String(frame.id); properties?.select(object.fields.position ?? object.fields.name); }
+    if (object&&!object.contextOnly) { objects.value = String(frame.id); properties?.select(object.fields.position ?? object.fields.name); }
+    else if(file.cacheSource){objects.value='';properties?.clear('Okolní scéna slouží jako kontext. Pro úpravy vyberte model části města nebo se vraťte do 3D scény.');}
     updateSoundExtent();
     updateLightPreview();
     updateMissionAreas();
@@ -1281,11 +1287,12 @@ function renderMap(main, file, previous = null) {
     state.texts.set(id, values[field]); properties?.select(id); status('Úprava mapy je rozepsaná. Uložte ji v inspektoru.');
   }); state.viewport = view;
   view.soundExtentVisible=soundExtentVisible;view.missionAreasVisible=areasVisible;
-  view.mapPath = file.path; view.projectRoot = state.project.root; view.focusOnSelect = true;
+  view.mapPath = file.path; view.cachePart=file.cachePart; view.projectRoot = state.project.root; view.focusOnSelect = true;
   let cameraMoved = false;
   view.controls.addEventListener('start', () => { cameraMoved = true; });
-  if (previous) { view.restoreCamera(previous.camera); view.gizmo.setMode(previous.mode); }
-  const overrides = new Map(file.objects.map(object => [object.name.toLowerCase(), object]));
+  if (previous) { view.restoreCamera(previous.camera); if(previous.mode)view.gizmo.setMode(previous.mode); }
+  const contextObjects=file.contextObjects??[];
+  const overrides = new Map((file.cacheSource?contextObjects:file.objects).map(object => [object.name.toLowerCase(), object]));
   const byField = new Map();
   function addFields(id, object) { for (const [kind, field] of Object.entries(object.fields)) byField.set(field, { id, kind }); }
   function addOption(id, object) { const option = element('option', object.name); option.value = id; objects.append(option); addFields(id, object); }
@@ -1293,11 +1300,12 @@ function renderMap(main, file, previous = null) {
     view.addModel(file.geometry, view.root, '', overrides);
     for (const object of view.frames.values()) {
       const frame = object.userData.frame, sceneObject = frame.sceneObject; frame.editable = Boolean(sceneObject?.fields.position);
-      if (sceneObject) addOption(frame.id, sceneObject);
+      if (sceneObject&&!sceneObject.contextOnly) addOption(frame.id, sceneObject);
     }
-    if (!previous) view.fit();
+    if (!previous&&!file.cacheSource) view.fit();
   } catch (error) { status(error.message, true); }
-  const existing = new Set([...view.frames.values()].map(object => object.userData.frame.sceneObject?.id).filter(Boolean)), pending = file.objects.filter(object => !existing.has(object.id) && object.position);
+  const existing = new Set([...view.frames.values()].map(object => object.userData.frame.sceneObject?.id).filter(Boolean)), pending = [...file.objects,...contextObjects].filter(object => !existing.has(object.id) && object.position);
+  const cacheGroup=file.cacheSource?new Group():null;if(cacheGroup)view.root.add(cacheGroup);
   const modelCache = new Map();
   const resolveTexture = async texture => { const p = texture.replaceAll('\\', '/').toLowerCase(), asset = state.project.assets.find(a => a.path.toLowerCase() === `maps/${p}` || a.path.toLowerCase() === p); return asset ? api.media(asset.path) : null; };
   async function addObjects() {
@@ -1312,11 +1320,12 @@ function renderMap(main, file, previous = null) {
         }
       }
       if (view.disposed) return;
-      const id = view.addSceneObject(object, model); addOption(id, object);
+      const id = view.addSceneObject(object, model); if(!object.contextOnly)addOption(id, object);
     }
     const warnings = view.linkScene();
+    if(cacheGroup)for(const object of file.objects){const frame=view.frames.get(`scene:${object.id}`);if(frame)cacheGroup.add(frame);}
     if (previous?.backdrop) view.showBackdrop(true);
-    if (!previous && !cameraMoved) view.fit();
+    if (!previous && !cameraMoved) view.fit(cacheGroup??view.root,Boolean(cacheGroup));
     const selectedName = state.selectSceneName ?? previous?.selectedName;
     if (selectedName) {
       const object = [...view.frames.values()].find(o => (o.userData.frame.sceneObject?.name ?? o.name) === selectedName && !o.userData.frame.ownerId);
@@ -1328,7 +1337,18 @@ function renderMap(main, file, previous = null) {
   view.loadPromise=addObjects();view.loadPromise.catch(error => status(error.message, true));
   for (const [mode, label] of [['translate', 'Posun'], ['rotate', 'Rotace'], ['scale', 'Měřítko']]) { const button = element('button', label); button.onclick = () => view.gizmo.setMode(mode); tools.append(button); }
   const displayActions=[],collisionActions=[];
-  const fit = element('button', 'Zarámovat mapu'); fit.onclick = () => { cameraMoved = true; view.fit(); };
+  const fit = element('button', file.cacheSource?'Zarámovat část města':'Zarámovat mapu'); fit.onclick = () => { cameraMoved = true; view.fit(cacheGroup??view.root); };
+  if(file.cacheSource){
+    const parts=element('select');parts.setAttribute('aria-label','Část města v mapě');
+    for(const part of file.cacheParts){const option=element('option',`${part.name} · ${part.count} modelů`);option.value=part.id;parts.append(option);}parts.value=file.cachePart;
+    parts.onchange=()=>run(async()=>{parts.disabled=true;try{if(!await discard()){parts.value=file.cachePart;return;}const next=await api.cacheMap(file.path,parts.value);state.texts.clear();state.nextMapCamera=view.captureCamera();state.file=next;renderDetail();}finally{parts.disabled=false;}});
+    tools.append(parts);
+    if(file.scenePath){const back=element('button','Zpět do 3D scény');back.onclick=()=>run(async()=>{if(!await discard())return;const next=await api.map(file.scenePath);state.texts.clear();state.nextMapCamera=view.captureCamera();state.file=next;renderDetail();renderFiles();});tools.append(back);}
+    if(file.contextWarning)center.append(element('p',file.contextWarning,'notice'));
+  }else{
+    const cache=state.project.assets.find(asset=>asset.path.toLowerCase()===file.path.replace(/scene2\.bin$/i,'cache.bin').toLowerCase());
+    if(cache){const editCache=element('button','Statické části města…');editCache.onclick=()=>run(async()=>{if(!await discard())return;const catalog=await api.inspect(cache.path);if(catalog.type!=='cache')throw Error(catalog.warning??'Cache není podporovaná.');if(!catalog.parts.length)throw Error('Cache této mise neobsahuje části města.');const part=catalog.parts.find(part=>part.id===missionViews.cachePart(state.project.root,cache.path))??catalog.parts.find(part=>part.objects.length)??catalog.parts[0];const remembered=missionViews.get(state.project.root,{path:cache.path,type:'map',cacheSource:true,cachePart:part.id});const next=await api.cacheMap(cache.path,part.id);state.texts.clear();state.nextMapCamera=remembered?.camera??view.captureCamera();state.file=next;renderDetail();renderFiles();});tools.append(editCache);}
+  }
   const sky = element('button', 'Obloha'); let showSky = Boolean(previous?.backdrop); sky.setAttribute('aria-pressed', String(showSky)); sky.onclick = () => { showSky = !showSky; view.showBackdrop(showSky); sky.setAttribute('aria-pressed', String(showSky)); updateSoundExtent(); updateLightPreview(); };
   tools.append(fit); displayActions.push(sky); objects.onchange = () => view.select(objects.value);
   if(file.collision){
@@ -1400,11 +1420,11 @@ function renderMap(main, file, previous = null) {
   tools.append(actionMenu('Zobrazení',displayActions));
   if(collisionActions.length)tools.append(actionMenu('Kolize',collisionActions));
   view.loadTextures(resolveTexture);
-  properties = renderProperties(inspector, file, file.cacheSource ? api.saveCache : async (...args) => { await api.saveScene(...args); return api.map(file.path); }, (entry, value) => { const field = byField.get(entry.id); if (field && ['position','rotation','scale'].includes(field.kind)) view.update(field.id, { [field.kind]: value }); updateSoundExtent(); updateLightPreview(); updateMissionAreas(); }, entry => {
+  properties = renderProperties(inspector, file, file.cacheSource ? async(...args)=>{await api.saveCache(...args);return api.cacheMap(file.path,file.cachePart);} : async (...args) => { await api.saveScene(...args); return api.map(file.path); }, (entry, value) => { const field = byField.get(entry.id); if (field && ['position','rotation','scale'].includes(field.kind)) view.update(field.id, { [field.kind]: value }); updateSoundExtent(); updateLightPreview(); updateMissionAreas(); }, entry => {
     const field=byField.get(entry.id);
     if(field&&selectedId!==field.id){view.select(field.id);properties.select(entry.id);}
   }, false);
-  center.append(element('p', file.cacheSource ? 'Statické modely vybrané části cache.bin. Transformace se ukládají do samostatného modu; oranžové body označují chybějící modely.' : 'Geometrie scene.4ds a objekty scene2.bin. Reproduktor označuje zvuk, žárovka světlo a závorky skriptový bod. Modré body: ostatní objekty bez modelu, oranžové: chybějící model. Generované kolize se přepočítají při uložení transformace a vracejí se společně s objektem.', 'notice'));
+  center.append(element('p', file.cacheSource ? 'Upravujete statické modely vybrané části cache.bin; geometrie a objekty mise slouží jako kontext. Zápis mění pouze cache.bin a má undo. Oblasti streamování, druhé měřítko a kolize se nepřepočítávají automaticky; při změně rozmístění je zkontrolujte samostatně. Oranžové body označují chybějící modely.' : 'Geometrie scene.4ds a objekty scene2.bin. Reproduktor označuje zvuk, žárovka světlo a závorky skriptový bod. Modré body: ostatní objekty bez modelu, oranžové: chybějící model. Generované kolize se přepočítají při uložení transformace a vracejí se společně s objektem.', 'notice'));
 }
 function pickupDialog(file,catalog,object=null,position=[0,0,0]){
   const dialog=element('dialog'),form=element('form',undefined,'mission-form'),fields=element('div',undefined,'mission-fields');
@@ -1727,7 +1747,7 @@ for (const [id, action] of [['open', api.open], ['create', api.create]]) $(id).o
 $('undo').onclick = () => run(async () => {
   if (!await discard()) return;
   const project = await api.undo(); state.texts.clear(); await refresh(project);
-  if (state.file && project.assets.some(a => a.path === state.file.path)) { if(state.file.type==='logic'){state.file={...await api.map(state.file.path),type:'logic'};renderDetail();}else await openFile(state.file.path); }
+  if (state.file && project.assets.some(a => a.path === state.file.path)) { if(state.file.cacheSource){state.file=await reopenCacheMap(state.file);renderDetail();}else if(state.file.type==='logic'){state.file={...await api.map(state.file.path),type:'logic'};renderDetail();}else await openFile(state.file.path); }
   else if (state.file) { state.viewport?.dispose(); state.viewport = null; state.file = null; shell.spatial(false); $('detail').classList.remove('spatial-detail','view-focus','logic-detail'); $('detail').replaceChildren(element('h2', 'Vytvoření mise vráceno'), element('p', 'Vyberte soubor vlevo.')); }
   status('Poslední uložená změna vrácena.');
 });

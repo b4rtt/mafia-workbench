@@ -35,6 +35,14 @@ test('framing fits all transformed corners in narrow and wide viewports and keep
     assert.deepEqual(view.controls.target.toArray(),[99,3,-45]);
   }
 });
+test('initial cache-part framing uses an overview angle and excludes distant scene context',()=>{
+  const view=viewport(),part=new THREE.Group();view.root.add(part);part.add(new THREE.Mesh(new THREE.BoxGeometry(2,1,2)));part.position.set(4,0,6);
+  const distant=new THREE.Mesh(new THREE.BoxGeometry(500,1,500));distant.position.set(10000,0,10000);view.root.add(distant);
+  view.camera.position.set(0,.01,0);view.fit(part,true);
+  const direction=view.camera.position.clone().sub(view.controls.target).normalize();assert(direction.distanceTo(new THREE.Vector3(.9,.6,1.1).normalize())<1e-10);
+  assert.deepEqual(view.controls.target.toArray(),[4,0,-6]);assert(view.camera.position.distanceTo(view.controls.target)<20);
+  view.camera.position.set(6,1,-4);view.fit(part);assert(view.camera.position.clone().sub(view.controls.target).normalize().distanceTo(new THREE.Vector3(2,1,2).normalize())<1e-10);
+});
 test('camera restoration clears old damping, preserves a close detail view and suppresses automatic selection focus', () => {
   const view=viewport(); view.controls.enableDamping=true;
   const snapshot={position:[100.03,2,-8],target:[100,2,-8],near:.001,far:20000};
