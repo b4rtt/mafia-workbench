@@ -52,6 +52,9 @@ test('downloads validate before caching, reuse offline cache, bound responses an
   const second=await downloadOsm(area,{cacheRoot:root,fetcher:()=>{throw Error('network must not run');},now:()=>time+1});assert.equal(second.cached,true);
   await assert.rejects(downloadOsm(area,{fetcher,now:()=>time+2}),/30 sekund/);
   time+=40000;await assert.rejects(downloadOsm(area,{fetcher:async()=>{calls++;return new Response('busy',{status:429});},now:()=>time}),/429/);assert.equal(calls,2);
+  time+=40000;await assert.rejects(downloadOsm(area,{fetcher:async()=>{calls++;return new Response('<html>All query workers are busy and the request queue is full.</html>',{status:502});},now:()=>time}),error=>{assert.match(error.message,/HTTP 502.*přetížený.*fronta/);assert.doesNotMatch(error.message,/<html>/);return true;});assert.equal(calls,3);
+  let cancelled=false,pulls=0;const stream=new ReadableStream({pull(controller){pulls++;controller.enqueue(new Uint8Array(4096));},cancel(){cancelled=true;}});
+  time+=40000;await assert.rejects(downloadOsm(area,{fetcher:async()=>new Response(stream,{status:504}),now:()=>time}),/HTTP 504.*Brána/);assert.equal(cancelled,true);assert.ok(pulls<=2);
   time+=40000;await assert.rejects(downloadOsm(area,{fetcher:async()=>new Response(JSON.stringify({remark:'timeout',elements:[]})),now:()=>time}),/neúplná/);
   time+=40000;await assert.rejects(downloadOsm(area,{fetcher:async()=>new Response(Buffer.alloc(8*1024*1024+1)),now:()=>time}),/8 MB/);
   await assert.rejects(downloadOsm(area,{provider:'https://untrusted.example',fetcher}),/poskytovatel/);

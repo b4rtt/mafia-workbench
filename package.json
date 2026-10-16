@@ -20,6 +20,7 @@
   "dependencies": {
     "@mediapipe/tasks-vision": "0.10.32",
     "iconv-lite": "0.7.3",
+    "polygon-clipping": "0.15.7",
     "three": "^0.186.1"
   },
   "devDependencies": {

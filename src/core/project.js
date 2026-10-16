@@ -200,7 +200,7 @@ export class ModProject {
       catch(error){this.manifest.history.pop();this.manifest.version=previousVersion;for(const row of changed){if(row.previousOverlay===undefined)delete row.asset.overlay;else row.asset.overlay=row.previousOverlay;}throw error;}
     }finally{this.busy=false;}
   }
-  async createFiles(files, label = 'Přidání souborů', dependencies = [], archive = 'Nová mise') {
+  async createFiles(files, label = 'Přidání souborů', dependencies = [], archive = 'Nová mise', ownership = null) {
     if (this.busy) throw new Error('Probíhá jiné ukládání.');
     if (!Array.isArray(files) || !files.length || files.length > 64) throw new Error('Neplatné nové soubory.');
     if (!Array.isArray(dependencies) || dependencies.length > 64) throw new Error('Neplatné závislosti nových souborů.');
@@ -214,6 +214,15 @@ export class ModProject {
         if (this.index.has(canonical) || seen.has(canonical)) throw new Error(`Soubor již existuje: ${name}`);
         seen.add(canonical); return { path: name, bytes: Buffer.from(file.data) };
       });
+      // A newly generated mission can publish its scene, model and owned KLZ
+      // in one undo step. Later model moves/deletions must update that KLZ too.
+      if(ownership){
+        const scenePath=relativeAssetPath(ownership.path),folder=scenePath.slice(0,scenePath.lastIndexOf('/'));
+        if(!/^missions\/[^/]+\/scene2\.bin$/i.test(scenePath)||!seen.has(key(scenePath)))throw new Error('Neplatná scéna nových kolizí.');
+        const klz=data.find(file=>key(file.path)===key(folder+'/tree.klz'));
+        if(!klz)throw new Error('Chybí soubor nových kolizí.');
+        ownedCollisionRecords(parseCollision(klz.bytes),collisionOwnership({history:[{collisionOwnership:ownership}]},scenePath));
+      }
       if (data.reduce((sum, f) => sum + f.bytes.length, 0) > 64 * 1024 * 1024) throw new Error('Nové soubory jsou příliš velké.');
       // Refuse unindexed overlays as well.
       for (const file of data) {
@@ -228,6 +237,7 @@ export class ModProject {
         assets.push({ path: file.path, ...variant, created: true, creation: id, variants: [variant] });
       }
       const entry = { id, kind: 'create', files: assets.map(a => ({ path: a.path, sha256: a.sha256 })), label, date: new Date().toISOString() };
+      if(ownership)entry.collisionOwnership=structuredClone(ownership);
       await writeSafe(this.root, `history/${id}.json`, JSON.stringify(entry), true);
       await checkDependencies();
       this.manifest.assets = [...previous, ...assets].sort((a,b) => a.path.localeCompare(b.path));
