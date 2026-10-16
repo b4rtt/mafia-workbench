@@ -67,6 +67,7 @@ import { renderMissionLogic } from './mission-logic.js';
 import { newMissionLogicName } from '../shared/mission-logic-authoring.js';
 import { newAnimationDialog } from './new-animation.js';
 import { missionCheckDialog } from './mission-check.js';
+import { osmDialog } from '../plugins/osm/ui.js';
 const api = window.workbench;
 const shell = initializeWorkspace();
 const missionViews = new MissionViews();
@@ -85,6 +86,8 @@ function buttons() {
   $('undo').disabled = state.busy || !state.project?.history;
   $('export').disabled = state.busy || !state.project;
   $('new-mission').disabled = state.busy || !state.project;
+  $('osm-import').disabled = state.busy || !state.project || Boolean(state.texts.size);
+  $('osm-import').title = state.texts.size ? 'Nejdřív uložte rozepsané změny.' : 'Načíst skutečnou oblast a vytvořit novou misi se sítí ulic.';
   $('import-model').disabled = state.busy || !state.project || Boolean(state.texts.size);
   $('create-terrain').disabled = state.busy || !state.project || Boolean(state.texts.size);
   for (const action of document.querySelectorAll('[data-create-animation]')) { action.disabled = state.busy || !state.project || Boolean(state.texts.size); action.title = state.texts.size ? 'Nejdřív uložte rozepsané změny.' : 'Vytvořit vlastní 5DS z lokální pózy modelu.'; }
@@ -1822,6 +1825,13 @@ $('new-mission').onclick = () => run(async () => {
   dialog.addEventListener('cancel', event => { if (state.busy) event.preventDefault(); });
   dialog.addEventListener('close', () => dialog.remove(), { once: true }); document.body.append(dialog); dialog.showModal(); name.focus(); name.select();
 });
+$('osm-import').onclick = () => {
+  if(state.busy||!state.project||state.texts.size)return;
+  osmDialog({api,element,assets:state.project.assets,setBusy:value=>{state.busy=value;buttons();},onCreated:result=>run(async()=>{
+    state.category='levels';$('filter').value=result.path.slice(0,result.path.lastIndexOf('/')+1);await refresh(result.project);await openFile(result.path);
+    status(`OpenStreetMap: vytvořeno ${result.roads} úseků a ${result.crossings} uzlů. Síť lze upravit v 3D; povrchy a budovy zatím nejsou vygenerované. Vytvoření má jedno undo.`);
+  })});
+};
 $('export').onclick = () => run(async () => {
   if (state.texts.size) throw new Error('Před exportem uložte rozepsané změny.');
   const result = await api.export(); if (result) status(`Export: ${result.files} souborů → ${result.destination}`);

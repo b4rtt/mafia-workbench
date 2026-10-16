@@ -283,3 +283,28 @@ body.spatial-open .workspace>aside { position: absolute; inset: 0 auto 0 0; z-in
 .segment-inspector textarea { min-height: 65px; }
 .segment-inspector .mission-fields { grid-template-columns: minmax(0, 1fr); }
 .segment-inspector fieldset { min-width: 0; }
+
+/* Independent OpenStreetMap import preview. */
+.osm-dialog{width:min(1120px,94vw);max-width:94vw;max-height:92vh;overflow:auto}
+.osm-dialog h2{margin-top:0}
+.osm-dialog>p{font-size:12px;margin:8px 0}
+.osm-dialog form{display:block}
+.osm-dialog .tools{flex-wrap:wrap}
+.osm-location{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:8px 0}
+.osm-location label{display:flex;flex-direction:column;gap:4px;min-width:0;font-size:12px}
+.osm-location label:nth-child(4){grid-column:span 2}
+.osm-location input,.osm-location select{width:100%;min-width:0;height:auto}
+.osm-body{display:grid;grid-template-columns:minmax(0,1fr) 310px;gap:16px;min-height:300px}
+.osm-map{min-width:0}
+.osm-map canvas{display:block;width:100%;height:300px;object-fit:contain;border:1px solid var(--line);border-radius:6px}
+.osm-map small{display:block;margin-top:6px}
+.osm-selection{min-width:0}
+.osm-selection h3{margin:0 0 8px}
+.osm-ways{max-height:250px;overflow:auto;margin-top:8px}
+.osm-way{display:flex;align-items:flex-start;gap:8px;padding:8px 2px;border-bottom:1px solid var(--line);cursor:pointer}
+.osm-way input{width:auto;margin-top:4px}
+.osm-way span{min-width:0;overflow-wrap:anywhere}
+.osm-way strong,.osm-way small{display:block}
+.osm-way small{color:var(--muted);font-size:12px;margin-top:3px}
+.osm-attribution{font-size:12px;margin-bottom:0}
+@media(max-width:1050px){.osm-body{grid-template-columns:minmax(0,1fr) 260px}}

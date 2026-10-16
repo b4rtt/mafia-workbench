@@ -13,6 +13,9 @@ import { facePermissionGate } from './face-permissions.js';
 import { writeSafe } from '../core/files.js';
 import { Playtest } from '../core/playtest.js';
 import { readEmptyMissionZip } from '../core/mission.js';
+import { downloadOsm } from '../plugins/osm/download.js';
+import { osmSource, osmRoadPlan } from '../plugins/osm/area.js';
+import { createOsmMission } from '../plugins/osm/mission.js';
 import { replayMissions, loadCutsceneContext } from '../core/cutscene.js';
 const directory = path.dirname(fileURLToPath(import.meta.url));
 const uiRoot = path.resolve(directory, '../ui');
@@ -21,7 +24,7 @@ await fs.mkdir(profileRoot, { recursive: true });
 app.setPath('userData', profileRoot);
 app.setPath('sessionData', profileRoot);
 protocol.registerSchemesAsPrivileged([{ scheme: 'workbench', privileges: { standard: true, secure: true, supportFetchAPI: true } }]);
-let window, project, missionTemplate, voiceImport, modelImport, busy = false;
+let window, project, missionTemplate, voiceImport, modelImport, osmImport, busy = false;
 // The user's verified runtime stays local, outside the public repository.
 const runtimeRoot = path.resolve(directory, '../../../.runtime');
 const playtest = new Playtest({ wine: path.join(runtimeRoot, 'wine-cx/wswine.bundle/bin/wine'), server: path.join(runtimeRoot, 'wine-cx/wswine.bundle/bin/wineserver'), dependencies: path.join(runtimeRoot, 'wine-cx/dependencies'), prefixTemplate: path.join(runtimeRoot, 'prefix-cx') });
@@ -247,6 +250,28 @@ app.whenReady().then(async () => {
     if (!missionTemplate || missionTemplate.project !== active) throw new Error('Nejdřív vyberte šablonu mise pro tento projekt.');
     const name = await active.createMission(missionTemplate.bytes, options); missionTemplate = null;
     return { project: await active.list(), path: name };
+  }));
+  handle('osm:area', (area,provider) => operation(async () => {
+    const active=current(),result=await downloadOsm(area,{provider,cacheRoot:path.resolve(directory,'../../local/osm-cache')});
+    const source=osmSource(result.data,area),token=randomUUID();
+    osmImport={project:active,token,data:result.data,area:source.area};
+    return {token,source,cached:result.cached};
+  }));
+  handle('osm:open', area => operation(async () => {
+    const active=current(),result=await dialog.showOpenDialog(window,{title:'Podklad OpenStreetMap (Overpass JSON nebo osm-source.json)',properties:['openFile'],filters:[{name:'OpenStreetMap JSON',extensions:['json']}]});
+    if(result.canceled)return null;
+    const stat=await fs.stat(result.filePaths[0]);if(!stat.isFile()||stat.size>8*1024*1024)throw Error('Podklad přesahuje 8 MB.');
+    const input=JSON.parse(await fs.readFile(result.filePaths[0],'utf8'));
+    const saved=input?.format==='mafia-workbench-osm-source'&&input.version===1,data=saved?input.data:input,source=osmSource(data,saved?input.area:area),token=randomUUID();
+    if(saved)osmRoadPlan(source,input.selected);
+    osmImport={project:active,token,data,area:source.area};return {token,source,cached:true,...(saved?{selected:input.selected}:{})};
+  }));
+  handle('osm:cancel', token => {if(osmImport?.token===token)osmImport=null;});
+  handle('osm:create', (token,selected,options) => operation(async () => {
+    const active=current();if(!osmImport||osmImport.project!==active||osmImport.token!==token)throw Error('Nejdřív načtěte oblast pro tento projekt.');
+    if(!missionTemplate||missionTemplate.project!==active)throw Error('Nejdřív vyberte šablonu Empty_Mission.zip.');
+    const result=await createOsmMission(active,missionTemplate.bytes,osmImport.data,osmImport.area,selected,options);
+    osmImport=null;missionTemplate=null;return {...result,project:await active.list()};
   }));
   handle('asset:restore', name => operation(async () => { await current().restore(name); return current().inspect(name); }));
   handle('project:undo', () => operation(async () => { await current().undo(); return current().list(); }));

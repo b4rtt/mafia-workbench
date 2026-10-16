@@ -1,10 +1,10 @@
 # Navazující projekt: AI plugin pro generování města
 
-Požadavek uživatele, uložený 13. října 2026. Jde o budoucí samostatný modul; tento zápis nezahajuje implementaci ani nenahrazuje aktivní goal editoru.
+Požadavek uživatele, uložený 13. října 2026. Modul zůstává oddělený od editoru; celý generátor města dosud není hotový.
 
 ## Podmínka zahájení
 
-Nejdříve dokončit schopnost editoru vytvořit a spustit celou vlastní hratelnou misi. Potom založit další samostatný goal podle tohoto zadání. Uživatel výslovně požaduje oddělení od editoru jako plugin či samostatný modul.
+Původně měl navazovat po dokončení celé vlastní hratelné mise. **16. října 2026 uživatel výslovně přesunul prioritu na OSM integraci už dnes.** Začíná proto první oddělený importní blok v `src/plugins/osm/` v rámci probíhající práce. Původní požadavek na kompletní kvalitní město i odložené vytváření TCK drah zůstávají uložené; první síť ulic není splněním celého generátoru. [Aktuální implementace a hranice](osm-integration.md).
 
 ## Požadovaný výsledek
 
