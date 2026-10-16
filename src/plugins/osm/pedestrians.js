@@ -79,6 +79,25 @@ export function osmPedestrianPlan(source,roads,surface,props=null,green=null,opt
     }
     if(links.length>before)regions.push(polygon);
   }
+  if(crossings?.placements.length){
+    // Portal centres in long, thin sidewalk triangles can force a huge
+    // detour before reaching a nearby crossing. Give each crossing a local
+    // spine and attach its landings only through body-wide grounded links.
+    const existing=new Set(links.flat()),clear=(a,b)=>clipping.difference([capsule(a,b,.4)],walkable).reduce((s,p)=>s+p.reduce((n,r,i)=>n+(i?-1:1)*area(r),0),0)<1e-6;
+    for(const crossing of crossings.placements){
+      const [a,b]=crossing.landings,steps=Math.ceil(Math.hypot(b[0]-a[0],b[1]-a[1])/2),spine=Array.from({length:steps+1},(_,i)=>add(a.map((n,k)=>n+(b[k]-n)*i/steps),y));
+      for(let i=1;i<spine.length;i++){
+        const p=points[spine[i-1]],q=points[spine[i]];
+        if(!clear([p[0],p[2]],[q[0],q[2]]))fail('přechod nelze bezpečně napojit na skutečný povrch.');
+        connect(spine[i-1],spine[i]);
+      }
+      for(const end of [spine[0],spine.at(-1)]){
+        const p=points[end],candidates=[...existing].filter(i=>points[i][1]===p[1]).map(i=>({i,d:Math.hypot(...points[i].map((n,k)=>n-p[k]))})).filter(c=>c.d<=4).sort((a,b)=>a.d-b.d||a.i-b.i);let joined=0;
+        for(const {i}of candidates)if(i===end||clear([p[0],p[2]],[points[i][0],points[i][2]])){connect(end,i);if(++joined===4)break;}
+        if(!joined)fail('nástup na přechod nemá bezpečné místní spojení s chodníkem.');
+      }
+    }
+  }
   const live=new Set(links.flat()),remap=new Map(),positions=[];for(const [i,p]of points.entries())if(live.has(i)){remap.set(i,positions.length);positions.push(p);}
   const unique=[...new Map(links.map(([a,b])=>[a<b?`${a}/${b}`:`${b}/${a}`,[remap.get(a),remap.get(b)]])).values()];
   if(!unique.length)fail('po odečtení hran a překážek nezbyla pěší trasa alespoň 1 m². Rozšiřte chodník nebo změňte osazení.');

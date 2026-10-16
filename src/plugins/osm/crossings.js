@@ -72,7 +72,7 @@ export function osmCrossingPlan(source,roads,surface,props=null){
     const a=-(profile.width/2+profile.right/2)/cosine,b=(profile.width/2+profile.left/2)/cosine,spine=[[[vertex(a,-.41),vertex(a,.41),vertex(b,.41),vertex(b,-.41)]]];
     if(area(clipping.difference(spine,ground))>1e-6||blocks.length&&area(clipping.intersection(polygons,blocks))>1e-6){skip('Přechod protíná chybějící povrch, budovu nebo mobiliář.');continue;}
     if(placements.length>=64)fail('více než 64 podporovaných přechodů; zmenšete oblast.');
-    placements.push({id,way:roads.roads[c.index].way,point:item.point.map(Math.fround),width,widthSource,direction,directionSource,height:roadHeight,polygons:polygons.map(p=>p.map(r=>r.map(v=>v.map(Math.fround))))});
+    placements.push({id,way:roads.roads[c.index].way,point:item.point.map(Math.fround),width,widthSource,direction,directionSource,height:roadHeight,landings:[vertex(a,0),vertex(b,0)].map(v=>v.map(Math.fround)),polygons:polygons.map(p=>p.map(r=>r.map(v=>v.map(Math.fround))))});
   }
   return {placements,skipped};
 }

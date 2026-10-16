@@ -20,6 +20,11 @@ function fixture({tags={},roadTags={},surfaceOptions={},angle=0,diagonal=null,po
 }
 const enabled=f=>osmPedestrianPlan(f.source,f.roads,f.surface,null,null,{crossings:true});
 const reachable=(p,a,b)=>{const stack=[a],seen=new Set(stack),adj=p.positions.map(()=>[]);for(const[a,b]of p.links){adj[a].push(b);adj[b].push(a);}while(stack.length)for(const n of adj[stack.pop()])if(!seen.has(n)){seen.add(n);stack.push(n);}return seen.has(b);};
+function shortest(p,a,b){
+  const distances=p.positions.map(()=>Infinity),queue=new Set(p.positions.map((_,i)=>i)),adj=p.positions.map(()=>[]);distances[a]=0;for(const[a,b]of p.links){adj[a].push(b);adj[b].push(a);}
+  while(queue.size){const i=[...queue].reduce((a,b)=>distances[a]<distances[b]?a:b);queue.delete(i);if(i===b||!Number.isFinite(distances[i]))break;for(const j of adj[i])distances[j]=Math.min(distances[j],distances[i]+Math.hypot(...p.positions[i].map((n,k)=>n-p.positions[j][k])));}
+  return distances[b];
+}
 function floor(model,x,z){let height=null;for(const mesh of model.meshes){const lod=mesh.lods[0];for(const f of lod.faces)for(let i=0;i<f.indices.length;i+=3){const v=f.indices.slice(i,i+3).map(i=>new Vector3(...lod.positions.slice(i*3,i*3+3))),hit=new Ray(new Vector3(x,2,z),new Vector3(0,-1,0)).intersectTriangle(...v,true,new Vector3());if(hit)height=Math.max(height??-Infinity,hit.y);}}return height;}
 test('mapped uncontrolled crossings join opposite pavements on actual ground with native reciprocal navigation',()=>{
   for(const angle of [0,.57]){
@@ -32,6 +37,13 @@ test('mapped uncontrolled crossings join opposite pavements on actual ground wit
 test('explicit crossing footways set the diagonal direction and node width, without mutating source tags',()=>{
   const f=fixture({diagonal:.3,tags:{width:'4 m'}}),p=enabled(f),c=p.crossings.placements[0];assert.equal(p.components,1);assert.equal(c.directionSource,'OSM footway=crossing');assert.equal(c.width,4);assert.equal(c.widthSource,'OSM width');assert(Math.abs(c.direction[0]/c.direction[1]-.3)<1e-8);assert.equal(f.source.ways.find(w=>w.id===102).tags.footway,'crossing');
   for(const angle of [0,.57]){const split=enabled(fixture({split:true,angle}));assert.equal(split.crossings.placements.length,1);assert.equal(split.components,1);}const fallback=enabled(fixture()).crossings.placements[0];assert.equal(fallback.width,3);assert.match(fallback.widthSource,/náhradní/);assert.match(fallback.directionSource,/odhad/);
+});
+test('nearby crossing landings have a local route instead of a detour through distant sidewalk triangles',()=>{
+  for(const options of [{},{angle:.57},{diagonal:.3},{split:true},{tags:{width:'8'}},{surfaceOptions:{sidewalkWidth:.9,curbHeight:.25}}]){
+    const f=fixture(options),p=enabled(f),native=parseNavigation(osmPedestrianBytes(p)),[a,b]=p.crossings.placements[0].landings,nearest=q=>p.positions.reduce((best,v,i)=>Math.hypot(v[0]-q[0],v[2]-q[1])<Math.hypot(p.positions[best][0]-q[0],p.positions[best][2]-q[1])?i:best,0),from=nearest(a),to=nearest(b),direct=Math.hypot(b[0]-a[0],b[1]-a[1]);
+    assert(shortest(p,from,to)<=direct+.1,`local crossing route: ${JSON.stringify(options)}`);assert.equal(p.components,1);assert(native.points.every(p=>p.connectionCount<=255));
+    for(const end of [from,to])assert(p.links.some(([a,b])=>(a===end||b===end)&&p.positions[a][1]===p.positions[b][1]),'landing also joins the sidewalk graph');
+  }
 });
 test('signals, islands, restricted access and unsupported crossing geometry are skipped explicitly',()=>{
   for(const tags of [{crossing:'traffic_signals'},{'crossing:signals':'yes'},{crossing:'marked'},{crossing:undefined},{'crossing:island':'yes'},{traffic_calming:'table'},{'crossing:continuous':'yes'},{foot:'no'},{access:'private'},{'foot:conditional':'yes @ (day)'},{'access:conditional':'no @ (night)'},{layer:'1'},{bridge:'yes'},{tunnel:'yes'},{width:'.5'},{width:'9'},{width:'bad'}]){
