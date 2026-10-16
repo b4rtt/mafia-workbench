@@ -2,6 +2,7 @@ import clipping from 'polygon-clipping';
 import {ShapeUtils,Vector2} from 'three';
 import {osmRing,osmMultipolygon,osmBuildingFootprints} from './footprints.js';
 import {osmShellModel} from './building-shells.js';
+import {osmFoundationVertices} from './building-terrain.js';
 import {osmNavigationElevation} from './navigation-elevation.js';
 import {elevationCoordinate} from './elevation.js';
 import {osmGreenTerrainMeshes} from './green-terrain.js';
@@ -46,7 +47,7 @@ export function osmGreenPathFootprints(source,o){
   return {polygons:parts.length?clipping.union(integer).map(p=>p.map(r=>r.map(pt=>pt.map(n=>n/1000)))):[],profiles};
 }
 const vertexCount=model=>new Set(model.meshes.flatMap(m=>{const p=m.lods[0].positions;return Array.from({length:p.length/3},(_,i)=>p.slice(i*3,i*3+3).map(Math.fround).join('/'));})).size;
-export function osmGreenReservation(surface,buildings,catalog=[]){return (surface?vertexCount(surface.model):0)+(buildings?.placements??[]).reduce((sum,b)=>sum+(b.style?vertexCount(osmShellModel(b)):catalog.find(m=>m.path===b.model)?.vertices??60000),0);}
+export function osmGreenReservation(surface,buildings,catalog=[]){return (surface?vertexCount(surface.model):0)+(buildings?.placements??[]).reduce((sum,b)=>sum+(b.style?vertexCount(osmShellModel(b)):(catalog.find(m=>m.path===b.model)?.vertices??60000)+(b.support?osmFoundationVertices(b.support):0)),0);}
 export function osmGreenPlan(source,surface,o,reservedVertices=surface?vertexCount(surface.model):0){
   validateOsmGreenOptions(o);if(!Number.isFinite(source?.area?.size)||source.area.size<50||source.area.size>450)fail('neplatná oblast.');
   if(!Number.isSafeInteger(reservedVertices)||reservedVertices<0)fail('neplatný rozpočet kolizí.');

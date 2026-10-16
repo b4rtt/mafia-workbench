@@ -4,6 +4,7 @@ import {osmBuildingFootprints} from './footprints.js';
 import {osmBuildingHeight} from './buildings.js';
 import {osmSurfaceDefaults,osmSurfaceModel} from './surface.js';
 import {osmRoofPlan,osmRaisedRoof,validateOsmRoofOptions} from './building-roofs.js';
+import {osmBuildingSupport,osmBuildingFoundation} from './building-terrain.js';
 
 // Recipes reference the user's original BMPs. No game pixels are distributed.
 // Tile sizes follow the facade UVs of 3rad03/newdum8, in native metres.
@@ -45,7 +46,9 @@ export function osmShellModel(item){
     if(!roof.length)fail('střechu nelze triangulovat.');
     for(let ids of roof){let p=ids.map(i=>vertices[i]);if((p[1].x-p[0].x)*(p[2].y-p[0].y)-(p[1].y-p[0].y)*(p[2].x-p[0].x)>0)p=[p[0],p[2],p[1]];triangle(p.map(p=>[p.x,top,p.y]),p.map(p=>[p.x/4,p.y/4]),3);}
   }
-  return {version:29,materials:style.textures.map(path=>({flags:0x00840001,ambient:[1,1,1],diffuse:[1,1,1],emission:[0,0,0],opacity:1,texture:path.slice(5)})),meshes:[{id:1,name:'OSM_HOUSE',type:1,visual:0,renderFlags:0,logicFlags:0x2a,culling:9,parent:0,position:[0,0,0],rotation:[1,0,0,0],scale:[1,1,1],lods:[{distance:0,vertices:positions.length/3,positions,normals,uv,faces}]}],animated:0};
+  const result={version:29,materials:style.textures.map(path=>({flags:0x00840001,ambient:[1,1,1],diffuse:[1,1,1],emission:[0,0,0],opacity:1,texture:path.slice(5)})),meshes:[{id:1,name:'OSM_HOUSE',type:1,visual:0,renderFlags:0,logicFlags:0x2a,culling:9,parent:0,position:[0,0,0],rotation:[1,0,0,0],scale:[1,1,1],lods:[{distance:0,vertices:positions.length/3,positions,normals,uv,faces}]}],animated:0};
+  if(item.support){const foundation=osmBuildingFoundation(item.support,item.position);result.materials.push(...foundation.materials);result.meshes.push(...foundation.meshes.map(m=>({...m,id:2,lods:m.lods.map(l=>({...l,faces:l.faces.map(f=>({...f,material:5}))}))})));}
+  return result;
 }
 export function osmShellPlan(source,roads,surface,options){
   settings(options);if(!Number.isFinite(source?.area?.size)||source.area.size<50||source.area.size>450)fail('neplatná oblast.');
@@ -65,9 +68,10 @@ export function osmShellPlan(source,roads,surface,options){
     const item={way:id,name:feature.relation?`OSM_R_${feature.relation}_${feature.component??1}`:`OSM_B_${id}`,label:tags.name??`Budova ${id}`,polygon:structuredClone(polygon),footprint:structuredClone(ring),style,position:[Math.fround(center[0]),options.ground,Math.fround(center[1])],rotation:[1,0,0,0],scale:[1,1,1],coverage:1,modelHeight:target.height,...target,roof:'flat',...(feature.relation?{relation:feature.relation,component:feature.component}:{}),notes:['Vnější plášť bez interiéru; plochá střecha je zjednodušení.']};
     const roof=osmRoofPlan(tags,polygon,target,options.roof);if(roof){Object.assign(item,roof);item.modelHeight=item.height;item.notes.unshift('Vnější plášť bez interiéru; tvar střechy je zjednodušení.');}
     if(item.height>120){skip('Odhad výšky přesahuje podporovaných 120 m.');continue;}
-    const model=osmShellModel(item),lod=model.meshes[0].lods[0],vertices=new Set(Array.from({length:lod.vertices},(_,i)=>lod.positions.slice(i*3,i*3+3).join('/'))).size;
+    if(surface.elevation){const support=osmBuildingSupport(surface,source.area,polygon,options.ground);if(support.reason){skip(support.reason);continue;}item.support=support;item.position[1]=support.ground;item.notes.push('Vodorovná základna se soklem podle celého terénního půdorysu; odhad bez terasování.');}
+    const model=osmShellModel(item),vertices=new Set(model.meshes.flatMap(m=>{const lod=m.lods[0];return Array.from({length:lod.vertices},(_,i)=>lod.positions.slice(i*3,i*3+3).join('/'));})).size;
     if(vertices>budget){skip('Dům by překročil bezpečný limit vrcholů nativních kolizí.');continue;}budget-=vertices;
-    item.triangles=lod.faces.reduce((s,f)=>s+f.indices.length/3,0);placements.push(item);occupied.push(polygon);
+    item.triangles=model.meshes.reduce((s,m)=>s+m.lods[0].faces.reduce((n,f)=>n+f.indices.length/3,0),0);placements.push(item);occupied.push(polygon);
   }
   return {mode:'footprint',placements,skipped};
 }
