@@ -1,6 +1,7 @@
 import { dialogueSpeakers } from './mission-dialogue.js';
 import { missionFlowTargets } from './mission-flow.js';
 import { attachedInteraction } from './mission-interaction.js';
+import { choiceMenuStatusMarkerBase } from './choice-menu-protocol.js';
 
 const key = name => name.normalize('NFC').toLowerCase();
 const validName = name => typeof name === 'string' && name.trim() && name.length <= 255 && !/["\x00-\x1f]/.test(name);
@@ -80,10 +81,11 @@ export function choiceControllers(scene, { includeFull = false } = {}) {
   });
 }
 
-export function missionChoicePrograms({ name, controller, waitForSignal = false, answers, atController = false, lockPlayer = false, promptId } = {}, groups = []) {
+export function missionChoicePrograms({ name, controller, waitForSignal = false, answers, atController = false, lockPlayer = false, autoOpen = false, promptId } = {}, groups = []) {
   if (!ownerName(name)) throw new Error('Volba: název musí mít 1–55 ASCII písmen, číslic nebo podtržítek a začínat písmenem či podtržítkem.');
   if (!validName(controller) || typeof waitForSignal !== 'boolean' || typeof atController !== 'boolean') throw new Error('Volba: vyberte řídicí postavu a platný způsob spuštění.');
   if (typeof lockPlayer !== 'boolean' || (lockPlayer && !atController)) throw new Error('Volba: zámek pohybu potřebuje nabídku u řídicí postavy.');
+  if (typeof autoOpen !== 'boolean' || (autoOpen && (!atController || lockPlayer))) throw new Error('Volba: automatické otevření potřebuje odpovědi u postavy a vypnuté předčasné zastavení.');
   if (promptId !== undefined && (!Number.isSafeInteger(promptId) || promptId < 0 || promptId > 0x7fffffff)) throw new Error('Volba: pokyn potřebuje platné ID textu.');
   if (key(name) === key(choiceMovementName)) throw new Error('Volba: tento název je vyhrazen správě pohybu.');
   if (!Array.isArray(answers) || answers.length < 2 || answers.length > 4) throw new Error('Volba: zadejte 2–4 odpovědi.');
@@ -94,14 +96,20 @@ export function missionChoicePrograms({ name, controller, waitForSignal = false,
   if (!Array.isArray(groups) || groups.length >= 16) throw new Error('Volba: řídicí postava podporuje nejvýše 16 sad odpovědí.');
   const claim = `${name}_CLAIM`, names = answers.map((_, index) => answerName(name, index)), event = eventId(groups.length);
   const count = answers.length;
-  const start = [`dim_act ${count + (lockPlayer ? 4 : 0)}`, ...(lockPlayer ? ['dim_flt 1'] : []), ...names.map((name, index) => `findactor ${index}, "${name}"`),
+  const start = [`dim_act ${count + (lockPlayer ? 4 : autoOpen ? 1 : 0)}`, ...(lockPlayer ? ['dim_flt 1'] : autoOpen ? ['dim_flt 2'] : []), ...names.map((name, index) => `findactor ${index}, "${name}"`),
+    ...(autoOpen ? [`findactor ${count}, "${claim}"`] : []),
     ...(lockPlayer ? [`findactor ${count}, "${choiceMovementName}"`, `findactor ${count + 1}, "${claim}"`, `getactiveplayer ${count + 2}`, `findactor ${count + 3}, "${controller}"`] : []),
     // Mark the program as saveable without discarding an early incoming signal.
     'detector_issignal -1, 3, -1', 'detector_setsignal -1, 0', 'label 3', 'wait 2000'];
   if (waitForSignal) start.push('label 1', 'detector_issignal -1, 2, -1', 'wait 100', 'goto 1', 'label 2');
   if (lockPlayer) start.push('label 4', `getactorsdist ${count + 2}, ${count + 3}, 0`, 'if flt[0] < 1.5, 5, -1', 'wait 100', 'goto 4', 'label 5',
     `detector_setsignal ${count + 1}, 1`, 'label 6', `detector_issignal ${count}, 7, -1`, 'wait 50', 'goto 6', 'label 7');
-  start.push('detector_setsignal -1, 1', ...names.map((_, index) => `detector_setsignal ${index}, 1`), ...(promptId === undefined ? [] : [`subtitle_add ${promptId}`]), 'end');
+  start.push('detector_setsignal -1, 1', ...names.map((_, index) => `detector_setsignal ${index}, 1`));
+  if (autoOpen) start.push('let flt[1] = 0', 'label 8', `detector_issignal ${count}, 9, -1`,
+    'let flt[0] = -1', `human_candie ${choiceMenuStatusMarkerBase + count}`,
+    'if flt[0] = 1, 9, -1', 'if flt[0] = -1, 10, -1',
+    'let flt[1] = flt[1] + 1', 'if flt[1] < 20, 11, 10', 'label 11', 'wait 100', 'goto 8', 'label 10');
+  start.push(...(promptId === undefined ? [] : [`subtitle_add ${promptId}`]), ...(autoOpen ? ['label 9'] : []), 'end');
   const nodes = [{ name, code: start.join('\n') }, { name: claim, code: 'detector_setsignal -1, 0\nlabel 1\nwait 1000\ngoto 1' }];
   for (const [index, answer] of answers.entries()) nodes.push({ name: names[index], code: [
     'dim_act 3', ...(atController ? ['dim_frm 2', 'dim_flt 3'] : []), `findactor 0, "${claim}"`, `findactor 1, "${controller}"`, `findactor 2, "${answer.target}"`,
@@ -148,7 +156,7 @@ function inspectChoiceGroup(scene, controller, index) {
     return { textId: Number(id?.[1]), target: target?.[1] };
   });
   const prompt = /^subtitle_add (\d+)$/m.exec(nodes[0].entry.value.code.replaceAll('\r\n', '\n'));
-  const choice = { ...(prompt ? { promptId: Number(prompt[1]) } : {}), ...(nodes[2].entry.value.code.includes('frm_linkto 1, 0') ? { atController: true } : {}), ...(nodes[0].entry.value.code.includes(`, "${choiceMovementName}"`) ? { lockPlayer: true } : {}), name: group.owner, controller: controller.name, waitForSignal: nodes[0].entry.value.code.replaceAll('\r\n', '\n').includes('label 1\ndetector_issignal -1, 2, -1\n'), answers };
+  const choice = { ...(prompt ? { promptId: Number(prompt[1]) } : {}), ...(nodes[2].entry.value.code.includes('frm_linkto 1, 0') ? { atController: true } : {}), ...(nodes[0].entry.value.code.includes(`, "${choiceMovementName}"`) ? { lockPlayer: true } : {}), ...(nodes[0].entry.value.code.includes(`human_candie ${choiceMenuStatusMarkerBase + answers.length}`) ? { autoOpen: true } : {}), name: group.owner, controller: controller.name, waitForSignal: nodes[0].entry.value.code.replaceAll('\r\n', '\n').includes('label 1\ndetector_issignal -1, 2, -1\n'), answers };
   try {
     const expected = missionChoicePrograms(choice, controller.groups.slice(0, index));
     if (expected.nodes.some((node, i) => node.code !== nodes[i].entry.value.code.replaceAll('\r\n', '\n'))) return null;

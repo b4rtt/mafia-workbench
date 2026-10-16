@@ -216,3 +216,35 @@ test('prompt rejects unsafe text changes and rolls back both files on publicatio
   await assert.rejects(p.changeSceneObject(name, prompted, hash(scene)), /změnil/); p.changeBatch = batch;
   assert.deepEqual(await p.read(name), scene); await p.undo(); assert.deepEqual(await p.read(textPath), texts); assert.equal(JSON.stringify(p.manifest), baseline);
 });
+
+
+test('automatic choices round-trip, resize and export with manual fallback and one undo', async t => {
+  const { p, root, name, scene, request } = await fixture(t), history = p.manifest.history.length;
+  const config = { ...request.choice, atController: true, autoOpen: true, promptId: 90002 };
+  for (const extra of [{autoOpen:1}, {atController:false}, {lockPlayer:true}]) {
+    await assert.rejects(p.changeSceneObject(name, { ...request, choice:{...config,...extra} }, hash(scene)), /Volba/);
+    assert.deepEqual(await p.read(name), scene); assert.equal(p.manifest.history.length, history);
+  }
+  await p.changeSceneObject(name, { ...request, choice:config }, hash(scene));
+  const added = await p.read(name), current = editableMissionChoice(await p.inspectMap(name), 'ANSWER_ANSWER1');
+  assert.equal(current.choice.autoOpen, true); assert.equal(current.choice.lockPlayer, undefined);
+  const code = current.nodes[0].entry.value.code;
+  assert(code.includes('dim_flt 2')); assert(code.includes('findactor 2, "ANSWER_CLAIM"'));
+  assert(code.includes('human_candie 1463960338')); assert(code.includes('if flt[1] < 20, 11, 10'));
+  assert(!code.includes('player_lockcontrols')); assert(!code.includes('human_setproperty'));
+  const table = hash(await p.read('tables/textdb_cz.def'));
+  const update = async choice => p.changeSceneObject(name, {kind:'configure-choice',target:'ANSWER',choice:{...choice,textDb:'tables/textdb_cz.def',textHash:table}}, hash(await p.read(name)));
+  await update(current.choice); assert.equal(p.manifest.history.length, history+1);
+  const answers = [...current.choice.answers, {textId:90002,target:'YES'}];
+  await update({...current.choice,answers});
+  const resized=editableMissionChoice(await p.inspectMap(name),'ANSWER');
+  assert.equal(resized.choice.autoOpen,true); assert.equal(resized.choice.answers.length,3);
+  assert(resized.nodes[0].entry.value.code.includes('human_candie 1463960339'));
+  await p.undo(); assert.deepEqual(await p.read(name), added);
+  const reopened = await ModProject.open(root); assert.equal(editableMissionChoice(await reopened.inspectMap(name),'ANSWER').choice.autoOpen,true);
+  await reopened.export(root+'/automatic-export'); assert.deepEqual(await fs.readFile(root+'/automatic-export/'+name),added);
+  assert(!(await fs.readdir(root+'/automatic-export')).some(file=>/\.exe$/i.test(file)));
+  await update({...current.choice,autoOpen:false}); assert.equal(editableMissionChoice(await p.inspectMap(name),'ANSWER').choice.autoOpen,undefined);
+  await p.undo(); assert.deepEqual(await p.read(name),added);
+  await p.undo(); assert.deepEqual(await p.read(name),scene); assert.equal(p.manifest.history.length,history);
+});

@@ -6,7 +6,9 @@ import { hash, safePath, readSafe, writeSafe } from './files.js';
 import { relativeAssetPath } from './dta.js';
 import { availableCheckpoints, checkpointFile, checkpointInventory, collectCheckpoints, playtestRevision, projectCheckpointState } from './checkpoints.js';
 
-export const SUPPORTED_GAME_HASH = '303eb95ee2de3433511ce0cb518921dcb96b62b0f64ebfcc436723ff5083f298';
+import { SUPPORTED_GAME_HASH } from './game-build.js';
+import { patchScopedChoiceMenuRuntime } from './choice-menu-runtime.js';
+export { SUPPORTED_GAME_HASH } from './game-build.js';
 // GOG 1.2 only. Addresses were verified in this exact executable, not borrowed
 // from the Game 1.0 reference. Every edit is applied to a new Buffer/copy.
 const patches = [
@@ -159,7 +161,8 @@ export class Playtest {
       selected = (await this.checkpoints(project, name)).find(saved => saved.slot === checkpoint.slot && saved.sha256 === checkpoint.sha256);
       if (!selected?.compatible) throw new Error('Checkpoint nepatří k aktuální verzi projektu. Spusťte novou misi a vytvořte nový checkpoint.');
     }
-    const executable = patchDirectLevelExe(await readSafe(source, 'Game.exe'), selected?.slot ?? null);
+    const originalExe = await readSafe(source, 'Game.exe');
+    const executable = patchScopedChoiceMenuRuntime(originalExe, patchDirectLevelExe(originalExe, selected?.slot ?? null)).bytes;
     project.asset(`${level}/scene2.bin`); project.asset(`${level}/scene.4ds`); project.asset(`${level}/tree.klz`);
     await fs.access(this.runtime.wine, constants.X_OK); await fs.access(this.runtime.server, constants.X_OK);
     const root = path.join(project.root, 'playtest'), game = path.join(root, 'game'), prefix = path.join(root, 'prefix');
