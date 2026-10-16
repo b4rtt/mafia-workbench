@@ -9,6 +9,8 @@ export function dialogueInteractionFields({ api, file, initial, editing, element
   };
   const humans = dialogueInteractionHumans(file), human = choose('Akci nabídnout u postavy', [['', 'Na pozici skriptového bodu'], ...humans.map(actor => [actor.name, actor.name])], initial?.interactionHuman);
   const lock = field('Během replik uzamknout ovládání hráče', element('input')); lock.type = 'checkbox'; lock.checked = initial?.lockPlayer ?? !editing;
+  const queue = field('Řadit rozhovory za sebe', element('input')); queue.type = 'checkbox'; queue.checked = initial?.serialize ?? !editing;
+  queue.parentElement.append(element('span', 'Po aktivaci počká na dokončení jiného rozhovoru se stejnou volbou. Kamera, ovládání i předmět se převezmou až potom. Starší a vlastní skripty se fronty neúčastní. Pomocný bod WB_DIALOGUE_QUEUE se vytvoří při uložení.'));
   const death = field('Přerušit rozhovor po smrti účastníka', element('input')); death.type = 'checkbox'; death.checked = initial?.interruptOnDeath ?? !editing;
   death.parentElement.append(element('span', 'Život všech mluvčích, posluchačů kamery, hráče a postavy akce se ověří před první a po každé replice. Při přerušení se uvolní kamera i zámek a neodešle se dokončení. Právě přehrávaná věta může doběhnout; čekání na akční tlačítko se tím neruší.'));
   const required = field('Rozhovor / předání vyžaduje předmět v inventáři', element('input')); required.type = 'checkbox'; required.checked = Boolean(initial?.inventory);
@@ -27,10 +29,10 @@ export function dialogueInteractionFields({ api, file, initial, editing, element
     } catch (error) { if (!closed) failure = error.message; }
     finally { loading = false; if (!closed) changed(); }
   }
-  human.onchange = lock.onchange = death.onchange = item.onchange = consume.onchange = changed;
+  human.onchange = lock.onchange = queue.onchange = death.onchange = item.onchange = consume.onchange = changed;
   required.onchange = () => { changed(); if (required.checked) load(); };
   return {
-    options: trigger => ({ ...(death.checked ? { interruptOnDeath: true } : {}), ...(lock.checked ? { lockPlayer: true } : {}), ...(trigger === 'use' && human.value ? { interactionHuman: human.value } : {}), ...(trigger === 'use' && required.checked ? { inventory: { itemId: item.value ? Number(item.value) : NaN, consume: consume.checked, tableHash: table?.sha256 } } : {}) }),
+    options: trigger => ({ ...(queue.checked ? { serialize: true } : {}), ...(death.checked ? { interruptOnDeath: true } : {}), ...(lock.checked ? { lockPlayer: true } : {}), ...(trigger === 'use' && human.value ? { interactionHuman: human.value } : {}), ...(trigger === 'use' && required.checked ? { inventory: { itemId: item.value ? Number(item.value) : NaN, consume: consume.checked, tableHash: table?.sha256 } } : {}) }),
     interruptOnDeath: () => death.checked,
     update(trigger) {
       human.disabled = required.disabled = trigger !== 'use'; human.parentElement.style.display = required.parentElement.style.display = trigger !== 'use' ? 'none' : '';

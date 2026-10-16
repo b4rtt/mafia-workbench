@@ -5,6 +5,18 @@ import { attachedInteraction } from './mission-interaction.js';
 const key=name=>name.normalize('NFC').toLowerCase();
 const validName=name=>typeof name==='string'&&name.trim()&&name.length<=255&&!/["\x00-\x1f]/.test(name);
 const validId=id=>Number.isSafeInteger(id)&&id>=0&&id<=0x7fffffff;
+export const dialogueQueueName='WB_DIALOGUE_QUEUE';
+// Never reset an acquired lease during helper initialization or checkpoint
+// restoration. Only the participating conversations change its value.
+export const dialogueQueueProgram='detector_issignal -1, 1, -1\nlabel 1\nwait 1000\ngoto 1';
+export function dialogueQueueState(scene){
+  const named=list=>(list??[]).filter(value=>key(value.name)===key(dialogueQueueName));
+  const actors=named(scene.actors),objects=named(scene.objects),meshes=named(scene.geometry?.meshes),scripts=(scene.entries??[]).filter(entry=>entry.actorScript&&key(entry.value.name)===key(dialogueQueueName));
+  if(!actors.length&&!objects.length&&!meshes.length&&!scripts.length)return null;
+  const masks=(scene.entries??[]).filter(entry=>entry.detectorParameter&&entry.id.startsWith(actors[0]?.id+'/'));
+  if(actors.length!==1||actors[0].kind!==5||actors[0].name!==dialogueQueueName||objects.length!==1||objects[0].frameType!==6||objects[0].name!==dialogueQueueName||meshes.length||scripts.length!==1||scripts[0].actorKind!==5||scripts[0].value.name!==dialogueQueueName||masks.length!==1||masks[0].value!==0||scripts[0].value.code.replaceAll('\r\n','\n')!==dialogueQueueProgram)throw new Error('Rozhovor: bod WB_DIALOGUE_QUEUE není nezměněný pomocný bod fronty. Vlastní data nebudou přepsána.');
+  return {entry:scripts[0]};
+}
 
 // Actor lookup requires a living human/player at runtime. The file can prove
 // type and unique binding, but cannot prove that another script keeps it alive.
@@ -20,8 +32,10 @@ export function dialogueInteractionHumans(scene){
   const frames=[...(scene.objects??[]),...(scene.geometry?.meshes??[])];
   return dialogueSpeakers(scene).filter(actor=>actor.kind===27&&frames.filter(frame=>key(frame.name)===key(actor.name)).length===1);
 }
-export function missionDialogueScript({trigger='use',triggerRadius=null,interactionId,camera=false,lines,flow=null,lockPlayer=false,interactionHuman=null,inventory=null,interruptOnDeath=false}={}){
+export function missionDialogueScript({trigger='use',triggerRadius=null,interactionId,camera=false,lines,flow=null,lockPlayer=false,interactionHuman=null,inventory=null,interruptOnDeath=false,serialize=false}={}){
   const activation=missionActivation(trigger,triggerRadius,'Rozhovor');
+  if(typeof serialize!=='boolean')throw new Error('Rozhovor: neplatné řazení rozhovorů.');
+  if(serialize&&[flow?.onComplete,flow?.onFailure].some(name=>typeof name==='string'&&key(name)===key(dialogueQueueName)))throw new Error('Rozhovor: pomocný bod fronty nelze použít jako návaznost.');
   if(typeof lockPlayer!=='boolean')throw new Error('Rozhovor: neplatný zámek ovládání hráče.');
   if(typeof interruptOnDeath!=='boolean')throw new Error('Rozhovor: neplatná kontrola života účastníků.');
   if(interactionHuman!==null&&(trigger!=='use'||!validName(interactionHuman)))throw new Error('Rozhovor: akce u postavy potřebuje NPC a spuštění tlačítkem akce.');
@@ -43,8 +57,9 @@ export function missionDialogueScript({trigger='use',triggerRadius=null,interact
   // an invalid runtime binding cannot reuse the previous participant's health.
   // HUMAN_TALK blocks: a listener's death is handled when that line finishes.
   const alive=label=>participants.flatMap((_,i)=>['let flt[0] = 0',`human_getproperty ${i}, 0, Energy`,`if flt[0] > 0, -1, ${label}`]);
-  const release=[...(camera?['dialog_end']:[]),...(lockPlayer?['player_lockcontrols 0']:[])];
-  const code=[`dim_act ${participants.length+link.actors}`,...(interactionHuman?['dim_frm 2']:[]),...((inventory||interactionHuman)?['dim_flt 3']:trigger==='area'||interruptOnDeath?['dim_flt 1']:[]),'wait 2000',...(link.gate+link.start).trimEnd().split('\n').filter(Boolean),...participants.map((name,i)=>`findactor ${i}, "${name}"`)];
+  const mutex=participants.length+link.actors,scratch=mutex+1;
+  const release=[...(camera?['dialog_end']:[]),...(lockPlayer?['player_lockcontrols 0']:[]),...(serialize?[`detector_setsignal ${mutex}, 0`]:[])];
+  const code=[`dim_act ${participants.length+link.actors+(serialize?2:0)}`,...(interactionHuman?['dim_frm 2']:[]),...((inventory||interactionHuman)?['dim_flt 3']:trigger==='area'||interruptOnDeath||serialize?['dim_flt 1']:[]),'wait 2000',...(link.gate+link.start).trimEnd().split('\n').filter(Boolean),...participants.map((name,i)=>`findactor ${i}, "${name}"`)];
   if(activation)code.push(activation.trimEnd());
   if(interactionHuman)code.push(attachedInteraction(interactionHuman).trimEnd());
   if(inventory)code.push('label 10',`human_isweapon ${index('Tommy')}, 0, ${inventory.itemId}`,'if flt[0] = 1, 11, -1','wait 100','goto 10','label 11');
@@ -52,7 +67,15 @@ export function missionDialogueScript({trigger='use',triggerRadius=null,interact
   // Recheck at the action itself: dropping an item after the menu appeared
   // must never deliver it. The next offer waits until it is held again.
   if(inventory)code.push(`human_isweapon ${index('Tommy')}, 0, ${inventory.itemId}`,'if flt[0] = 1, 12, 10','label 12');
-  if(interruptOnDeath)code.push(...alive(91));
+  if(serialize){
+    code.push(`findactor ${mutex}, "${dialogueQueueName}"`,`setnullactor ${scratch}`,`compareactors ${mutex}, ${scratch}, 0`,'if flt[0] = 1, 91, -1','label 20');
+    if(interruptOnDeath)code.push(...alive(91));
+    // Test and claim in one VM frame. Every retry closes the command block
+    // before yielding; never hold it around blocking speech or a wait loop.
+    code.push('commandblock 1',`detector_issignal ${mutex}, 21, 22`,'label 21','commandblock 0','wait 100','goto 20','label 22');
+    if(inventory)code.push(`human_isweapon ${index('Tommy')}, 0, ${inventory.itemId}`,'if flt[0] = 1, -1, 23');
+    code.push(`detector_setsignal ${mutex}, 1`,'commandblock 0');
+  }else if(interruptOnDeath)code.push(...alive(91));
   if(inventory?.consume)code.push(`human_delweapon ${index('Tommy')}, ${inventory.itemId}`);
   if(lockPlayer)code.push('player_lockcontrols 1');
   if(camera)code.push(`dialog_begin 0, ${participants.length}`);
@@ -61,7 +84,9 @@ export function missionDialogueScript({trigger='use',triggerRadius=null,interact
   if(link.complete)code.push(link.complete.trimEnd());
   code.push('end');
   // Never tear down a camera or controls that this conversation did not acquire.
-  if(interruptOnDeath)code.push('label 90',...release,'label 91',...(link.failure?[link.failure.trimEnd()]:[]),'end');
+  if(interruptOnDeath)code.push('label 90',...release);
+  if(interruptOnDeath||serialize)code.push('label 91',...(link.failure?[link.failure.trimEnd()]:[]),'end');
+  if(serialize&&inventory)code.push('label 23','commandblock 0','goto 10');
   return code.join('\n');
 }
 
@@ -71,9 +96,9 @@ export function inspectMissionDialogue(code){
   if(typeof code!=='string'||code.length>1000000)return null;
   const source=code.replaceAll('\r\n','\n'),bindings=new Map([...source.matchAll(/^findactor (\d+), "([^"\x00-\x1f]+)"$/gm)].map(match=>[Number(match[1]),match[2]])),camera=/^dialog_begin \d+, \d+$/m.test(source);
   const lines=camera?[...source.matchAll(/^dialog_camswitch (\d+), (\d+)\nhuman_talk (\d+), (\d+)$/gm)].map(match=>({speaker:bindings.get(Number(match[3])),listener:bindings.get(Number(match[1])),textId:Number(match[4])})):[...source.matchAll(/^human_talk (\d+), (\d+)$/gm)].map(match=>({speaker:bindings.get(Number(match[1])),textId:Number(match[2])}));
-  const interruptOnDeath=/^label 91$/m.test(source),use=/^detector_waitforuse (\d+)$/m.exec(source),signal=/^detector_setsignal (\d+), 1$/m.exec(source.split('\nend')[0]),failed=interruptOnDeath?/^label 91\n(?:detector_setsignal (\d+), 1\n)?end$/m.exec(source):null,waitForSignal=source.includes('label 1\ndetector_issignal -1, 2, -1\n'),onComplete=signal?bindings.get(Number(signal[1])):null,onFailure=failed?.[1]?bindings.get(Number(failed[1])):null;
+  const serialize=/^findactor (\d+), "WB_DIALOGUE_QUEUE"\nsetnullactor (\d+)\ncompareactors \1, \2, 0$/m.test(source),interruptOnDeath=/^label 90$/m.test(source),use=/^detector_waitforuse (\d+)$/m.exec(source),signal=[...source.split('\nend')[0].matchAll(/^detector_setsignal (\d+), 1$/gm)].find(match=>!serialize||bindings.get(Number(match[1]))!==dialogueQueueName),failed=interruptOnDeath?/^label 91\n(?:detector_setsignal (\d+), 1\n)?end$/m.exec(source):null,waitForSignal=source.includes('label 1\ndetector_issignal -1, 2, -1\n'),onComplete=signal?bindings.get(Number(signal[1])):null,onFailure=failed?.[1]?bindings.get(Number(failed[1])):null;
   const attached=/^findframe 0, "([^"\x00-\x1f]+)"\nfindframe 1, ""\nfrm_linkto 1, 0$/m.exec(source),item=/^human_isweapon \d+, 0, (\d+)$/m.exec(source);
-  const dialogue={...(interruptOnDeath?{interruptOnDeath:true}:{}),...(attached?{interactionHuman:attached[1]}:{}),...(item?{inventory:{itemId:Number(item[1]),consume:/^human_delweapon \d+, \d+$/m.test(source)}}:{}),...(source.includes('player_lockcontrols 1')?{lockPlayer:true}:{}),...inspectMissionActivation(source),...(use?{interactionId:Number(use[1])}:{}),camera,lines,flow:waitForSignal||onComplete||onFailure?{waitForSignal,onComplete,onFailure}:null};
+  const dialogue={...(serialize?{serialize:true}:{}),...(interruptOnDeath?{interruptOnDeath:true}:{}),...(attached?{interactionHuman:attached[1]}:{}),...(item?{inventory:{itemId:Number(item[1]),consume:/^human_delweapon \d+, \d+$/m.test(source)}}:{}),...(source.includes('player_lockcontrols 1')?{lockPlayer:true}:{}),...inspectMissionActivation(source),...(use?{interactionId:Number(use[1])}:{}),camera,lines,flow:waitForSignal||onComplete||onFailure?{waitForSignal,onComplete,onFailure}:null};
   try{if(missionDialogueScript(dialogue)===source)return dialogue;}catch{/* Unknown or modified programs are not wizard recipes. */}
   return null;
 }

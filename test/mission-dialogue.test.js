@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs/promises';import os from 'node:os';import path from 'node:path';
-import {missionDialogueScript,dialogueSpeakers,inspectMissionDialogue,editableMissionDialogue} from '../src/shared/mission-dialogue.js';import {ModProject} from '../src/core/project.js';import {changeSceneObject,inspectScene,editScene} from '../src/core/scene.js';import {hash,writeSafe} from '../src/core/files.js';
+import {missionDialogueScript,dialogueSpeakers,inspectMissionDialogue,editableMissionDialogue,dialogueQueueName,dialogueQueueProgram,dialogueQueueState} from '../src/shared/mission-dialogue.js';import {ModProject} from '../src/core/project.js';import {changeSceneObject,inspectScene,editScene} from '../src/core/scene.js';import {hash,writeSafe} from '../src/core/files.js';
 import {missionLogic} from '../src/shared/mission-logic.js';
 const conversation={trigger:'use',interactionId:90002,camera:true,lines:[{speaker:'NPC',listener:'Tommy',textId:90000},{speaker:'Tommy',listener:'NPC',textId:90001},{speaker:'npc',listener:'Tommy',textId:90000}]};
 const chunk=(type,data)=>{const header=Buffer.alloc(6);header.writeUInt16LE(type);header.writeUInt32LE(data.length+6,2);return Buffer.concat([header,data]);};
@@ -158,4 +158,31 @@ test('guarded dialogue editing has a distinct failure edge, exact export/reopen/
  // A pure NPC-to-NPC conversation still checks the actual Player, even with
  // camera, lock and inventory disabled. A Human merely named Tommy is invalid.
  const player=inspectScene(scene).entries.find(e=>e.label==='Typ aktéra'&&e.context.endsWith('/ Tommy')),invalid=editScene(scene,player.id,27);await reopened.change(name,invalid,'No player');await assert.rejects(()=>reopened.changeSceneObject(name,{...operation,dialogue:{...operation.dialogue,lockPlayer:false,camera:false,lines:[{speaker:'NPC',textId:90000}]}},hash(invalid)),/kontrola života/);await reopened.undo();assert.deepEqual(await reopened.read(name),scene);
+});
+
+
+test('queued dialogue creates one owned helper atomically, reuses it, and preserves export, reopen, disable and exact undo',async t=>{
+ const {p,root,name,scene,request}=await fixture(t),history=p.manifest.history.length,dialogue={...request.dialogue,serialize:true,interruptOnDeath:true,lockPlayer:true};
+ await p.changeSceneObject(name,{...request,dialogue},hash(scene));const first=await p.read(name),map=await p.inspectMap(name),queue=dialogueQueueState(map);assert(queue);
+ for(const variant of [{...map,actors:[...map.actors,map.actors.find(a=>a.name===dialogueQueueName)]},{...map,objects:map.objects.map(o=>o.name===dialogueQueueName?{...o,name:'wb_dialogue_queue'}:o)},{...map,geometry:{meshes:[{name:dialogueQueueName}]}}])assert.throws(()=>dialogueQueueState(variant),/nebudou přepsána/);assert.equal(queue.entry.value.code,dialogueQueueProgram);assert.equal(editableMissionDialogue(map,'CONVERSATION').dialogue.serialize,true);
+ assert.deepEqual(p.manifest.history.at(-1).files.map(file=>file.path),[name]);assert(first.includes(Buffer.from('opaque')));
+ const edit={kind:'configure-dialogue',target:'CONVERSATION',dialogue};await p.changeSceneObject(name,edit,hash(first));assert.equal(p.manifest.history.length,history+1);
+ await p.changeSceneObject(name,{...request,name:'SECOND',dialogue},hash(first));const second=await p.read(name);assert.equal((await p.inspectMap(name)).actors.filter(actor=>actor.name===dialogueQueueName).length,1);
+ const reopened=await ModProject.open(root);await reopened.export(root+'/queue-export');assert.deepEqual(await fs.readFile(root+'/queue-export/'+name),second);await reopened.undo();assert.deepEqual(await reopened.read(name),first);
+ await reopened.changeSceneObject(name,{...edit,dialogue:{...dialogue,serialize:false}},hash(first));assert(!editableMissionDialogue(await reopened.inspectMap(name),'CONVERSATION').dialogue.serialize);assert(dialogueQueueState(await reopened.inspectMap(name)),'keep the inert shared helper when one user disables queuing');await reopened.undo();assert.deepEqual(await reopened.read(name),first);await reopened.undo();assert.deepEqual(await reopened.read(name),scene);assert.equal(reopened.manifest.history.length,history);
+});
+
+test('queue ownership, missing helper, stale publication and rollback never overwrite custom mission state',async t=>{
+ const {p,name,scene,request,geometryPath}=await fixture(t),history=p.manifest.history.length,dialogue={...request.dialogue,serialize:true};
+ await assert.rejects(()=>p.changeSceneObject(name,{...request,name:dialogueQueueName,dialogue},hash(scene)),/vyhrazen/);
+ const custom=changeSceneObject(scene,{kind:'add-detector',name:'wb_dialogue_queue',mask:0,code:'end',position:[0,0,0]});await p.change(name,custom,'User helper');await assert.rejects(()=>p.changeSceneObject(name,{...request,dialogue},hash(custom)),/nebudou přepsána/);assert.deepEqual(await p.read(name),custom);await p.undo();
+ const save=p.saveManifest;p.saveManifest=async()=>{throw Error('Queue publication failed');};await assert.rejects(()=>p.changeSceneObject(name,{...request,dialogue},hash(scene)),/publication failed/);p.saveManifest=save;assert.deepEqual(await p.read(name),scene);assert.equal(p.manifest.history.length,history);
+ const batch=p.changeBatch,geometry=await p.read(geometryPath);p.changeBatch=async function(files,...args){await this.change(geometryPath,Buffer.concat([geometry,Buffer.from([1])]),'Concurrent geometry');return batch.call(this,files,...args);};await assert.rejects(()=>p.changeSceneObject(name,{...request,dialogue},hash(scene)),/změnil/);p.changeBatch=batch;assert.deepEqual(await p.read(name),scene);await p.undo();
+ await p.changeSceneObject(name,{...request,dialogue},hash(scene));const created=await p.read(name),map=await p.inspectMap(name),state=dialogueQueueState(map),mask=map.entries.find(entry=>entry.detectorParameter&&entry.context.endsWith('/ '+dialogueQueueName));
+ for(const [id,value]of [[state.entry.id,{...state.entry.value,code:'end'}],[mask.id,1]]){
+  const broken=editScene(created,id,value);await p.change(name,broken,'Custom queue');const inspected=await p.inspectMap(name);assert.throws(()=>dialogueQueueState(inspected),/nebudou přepsána/);await assert.rejects(()=>p.changeSceneObject(name,{kind:'configure-dialogue',target:'CONVERSATION',dialogue},hash(broken)),/nebudou přepsána/);assert((await p.checkMission(name)).issues.some(issue=>issue.code==='dialogue-queue'));await p.undo();
+ }
+ // A readable generated conversation without its helper remains editable so a
+ // single ordinary wizard save can repair the missing helper.
+ const missing=changeSceneObject(scene,{...request,mask:1,code:missionDialogueScript(dialogue)});await p.change(name,missing,'Missing helper');assert.equal(dialogueQueueState(await p.inspectMap(name)),null);assert((await p.checkMission(name)).issues.some(issue=>issue.code==='dialogue-queue'));await p.changeSceneObject(name,{kind:'configure-dialogue',target:'CONVERSATION',dialogue},hash(missing));assert(dialogueQueueState(await p.inspectMap(name)));await p.undo();await p.undo();assert.deepEqual(await p.read(name),created);await p.undo();assert.deepEqual(await p.read(name),scene);
 });

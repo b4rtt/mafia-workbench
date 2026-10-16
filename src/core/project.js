@@ -21,7 +21,7 @@ import { inspectMissionDestination } from './mission-destination.js';
 import { checkMission } from './mission-check.js';
 import { createTerrain } from './terrain.js';
 import { createRoadSurface } from './road-surface.js';
-import { missionDialogueScript, dialogueSpeakers, dialogueInteractionHumans, editableMissionDialogue } from '../shared/mission-dialogue.js';
+import { missionDialogueScript, dialogueSpeakers, dialogueInteractionHumans, editableMissionDialogue, dialogueQueueName, dialogueQueueProgram, dialogueQueueState } from '../shared/mission-dialogue.js';
 import { prepareMissionChoice } from './mission-choice.js';
 import { prepareMissionCombat } from './mission-combat.js';
 import { editableMissionCombat } from '../shared/mission-combat.js';
@@ -512,6 +512,13 @@ export class ModProject {
       const code=missionDialogueScript({...dialogue,lines,interactionHuman,inventory,flow:resolveMissionFlow({...inspectScene(before),geometry},dialogue.flow,current?.entry.value.name??operation.name)});
       if(current){choiceScene=editScene(before,current.entry.id,{...current.entry.value,code});dependencies.push({path:geometryPath,data:geometryBytes,expectedHash:hash(geometryBytes)});}
       else request={...operation,mask:1,code};
+      if(dialogue.serialize){
+        const scene={...inspectScene(before),geometry},queue=dialogueQueueState(scene),owner=current?.entry.value.name??operation.name;
+        if(typeof owner==='string'&&key(owner)===key(dialogueQueueName))throw new Error('Rozhovor: název WB_DIALOGUE_QUEUE je vyhrazen pomocnému bodu fronty.');
+        if(!current)choiceScene=changeSceneObject(before,request,geometry.meshes.map(mesh=>mesh.name),geometry.meshes);
+        if(!queue)choiceScene=changeSceneObject(choiceScene,{kind:'add-detector',name:dialogueQueueName,mask:0,code:dialogueQueueProgram,position:[0,0,0]},geometry.meshes.map(mesh=>mesh.name),geometry.meshes);
+        dependencies.push({path:geometryPath,data:geometryBytes,expectedHash:hash(geometryBytes)});
+      }
     }
     if((operation?.kind==='add-detector' && operation.task)||operation?.kind==='configure-task'){
       if(operation.dialogue||operation.combat||operation.behavior||operation.finish||operation.branch||operation.coordination)throw new Error('Úkol: vyberte pouze jednu šablonu.');

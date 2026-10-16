@@ -6,7 +6,7 @@ import { parseCollision } from './collision.js';
 import { parseTextDb } from './textdb.js';
 import { parseItems } from './items.js';
 import { dialogueSoundPath } from './dialogue-audio.js';
-import { dialogueSpeakers, dialogueInteractionHumans } from '../shared/mission-dialogue.js';
+import { dialogueSpeakers, dialogueInteractionHumans, dialogueQueueState } from '../shared/mission-dialogue.js';
 import { missionTaskVehicles, resolveMissionTaskEscort } from '../shared/mission-task.js';
 import { resolveMissionBranch } from '../shared/mission-branch.js';
 import { resolveMissionCoordination } from '../shared/mission-coordination.js';
@@ -148,6 +148,10 @@ export async function checkMission(project, name, textDb = null) {
       for (const line of recipe.lines ?? []) {
         text(line.textId, node, true);
         for (const participant of [line.speaker, ...(recipe.camera ? [line.listener] : [])]) if (!speakers.some(actor => key(actor.name) === key(participant))) issue('error', 'speaker', `${node.name}: postava ${participant} nemá jednoznačnou lidskou vazbu.`, location);
+      }
+      if (node.kind === 'dialogue' && recipe.serialize) {
+        try { if (!dialogueQueueState(scene)) throw new Error('Chybí pomocný bod WB_DIALOGUE_QUEUE. Otevřete a uložte nastavení rozhovoru.'); }
+        catch (error) { issue('error', 'dialogue-queue', `${node.name}: ${error.message}`, location); }
       }
       if (recipe.interactionHuman && !dialogueInteractionHumans(scene).some(actor => key(actor.name) === key(recipe.interactionHuman))) issue('error', 'interaction', `${node.name}: akce nemá jednoznačnou NPC ${recipe.interactionHuman}.`, location);
       if ((recipe.lockPlayer || recipe.inventory || recipe.interruptOnDeath) && !speakers.some(actor => actor.kind === 2 && key(actor.name) === 'tommy')) issue('error', 'player', `${node.name}: zámek, inventář nebo kontrola života potřebuje hráče Tommy typu Player.`, location);
