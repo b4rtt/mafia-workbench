@@ -2,10 +2,11 @@ import clipping from 'polygon-clipping';
 import {ShapeUtils,Vector2} from 'three';
 import {osmBuildingFootprints} from './footprints.js';
 import {osmGreenPathFootprints} from './green-areas.js';
+import {osmCrossingPlan} from './crossings.js';
 
 const fail=m=>{throw Error('OpenStreetMap · chodci: '+m);};
 export function validateOsmPedestrians(o){
-  if(!o||o.version!==1||o.parkPaths!==undefined&&typeof o.parkPaths!=='boolean'||!Number.isInteger(o.density)||o.density<1||o.density>100||!Number.isInteger(o.capacity)||o.capacity<1||o.capacity>20||!Array.isArray(o.models)||!o.models.length||o.models.length>16||new Set(o.models.map(m=>m?.path?.toLowerCase())).size!==o.models.length||o.models.some(m=>!/^models\/civil\d+\.4ds$/i.test(m?.path??'')||!/^civil\d+\.i3d$/i.test(m?.model??'')||m.path.slice(7,-4).toLowerCase()!==m.model.slice(0,-4).toLowerCase()||m.model.length>16||!/^[a-f0-9]{64}$/.test(m?.sha256??'')))fail('načtěte 1–16 civilních modelů; hustota je 1–100 a kapacita každého modelu 1–20.');
+  if(!o||o.version!==1||['parkPaths','crossings'].some(k=>o[k]!==undefined&&typeof o[k]!=='boolean')||!Number.isInteger(o.density)||o.density<1||o.density>100||!Number.isInteger(o.capacity)||o.capacity<1||o.capacity>20||!Array.isArray(o.models)||!o.models.length||o.models.length>16||new Set(o.models.map(m=>m?.path?.toLowerCase())).size!==o.models.length||o.models.some(m=>!/^models\/civil\d+\.4ds$/i.test(m?.path??'')||!/^civil\d+\.i3d$/i.test(m?.model??'')||m.path.slice(7,-4).toLowerCase()!==m.model.slice(0,-4).toLowerCase()||m.model.length>16||!/^[a-f0-9]{64}$/.test(m?.sha256??'')))fail('načtěte 1–16 civilních modelů; hustota je 1–100 a kapacita každého modelu 1–20.');
 }
 const snap=n=>Math.round(n*1000)/1000;
 function capsule(a,b,r){
@@ -27,9 +28,9 @@ function parkInset(edges){
   while(groups.length>1){const merged=[];for(let i=0;i<groups.length;i+=8)merged.push(clipping.union(...groups.slice(i,i+8)).map(p=>p.map(r=>r.map(v=>v.map(Math.round)))));groups=merged;}
   return groups[0].map(p=>p.map(r=>r.map(v=>v.map(n=>n/1000))));
 }
-// Park navigation is opt-in and uses only generated path surfaces. A small
-// curb step keeps its actual two heights; missing ground is never bridged.
-export function osmPedestrianPlan(source,roads,surface,props=null,green=null){
+// Additional park/crossing routes are opt-in. A small curb step keeps
+// the actual surface heights; missing ground is never bridged.
+export function osmPedestrianPlan(source,roads,surface,props=null,green=null,options={}){
   if(!surface?.footprints?.sidewalk?.length)fail('vybrané ulice nemají chodníky; zapněte povrchy a zvolte průchozí profil.');
   const y=Math.fround(surface.model.meshes.reduce((height,m)=>m.lods[0].positions.reduce((h,n,i)=>i%3===1?Math.max(h,n):h,height),-Infinity));
   let paths=[],ground=surface.footprints.sidewalk;
@@ -46,7 +47,9 @@ export function osmPedestrianPlan(source,roads,surface,props=null,green=null){
     if(!paths.length)fail('zapněte zeleň a vyberte plochu s podporovanou veřejnou pěší cestou.');
     ground=clipping.union(ground.map(p=>p.map(r=>r.map(v=>v.map(Math.fround)))),...paths.map(p=>p.polygons));
   }
-  const heightAt=p=>{const path=paths.find(r=>contains(r.polygons,p));return path&&!boundary(surface.footprints.sidewalk,p)?path.height:y;};
+  const crossings=options.crossings?osmCrossingPlan(source,roads,surface,props):null,mixed=paths.length||crossings?.placements.length;
+  if(crossings?.placements.length)ground=clipping.union(ground.map(p=>p.map(r=>r.map(v=>v.map(Math.fround)))),...crossings.placements.map(p=>p.polygons));
+  const heightAt=p=>{if(!crossings){const path=paths.find(r=>contains(r.polygons,p));return path&&!boundary(surface.footprints.sidewalk,p)?path.height:y;}if(contains(surface.footprints.sidewalk,p)||boundary(surface.footprints.sidewalk,p))return y;const path=paths.find(r=>contains(r.polygons,p));return path?.height??crossings?.placements.find(r=>contains(r.polygons,p))?.height??y;};
   const blocks=osmBuildingFootprints(source).filter(b=>!b.suppressed&&!b.reason).flatMap(b=>b.polygons).concat((props?.placements??[]).map(p=>[p.footprint]));
   for(const [i,road]of roads.roads.entries()){
     const t=road.tags??{};
@@ -58,13 +61,13 @@ export function osmPedestrianPlan(source,roads,surface,props=null,green=null){
   let walkable,safe;
   try{
     walkable=blocks.length?clipping.difference(ground,blocks):ground;
-    const edges=[];for(const polygon of walkable)for(const ring of polygon)for(let i=1;i<ring.length;i++)if(Math.hypot(ring[i][0]-ring[i-1][0],ring[i][1]-ring[i-1][1])>.001)edges.push(capsule(ring[i-1],ring[i],paths.length?.405:.4));
-    const inset=edges.length?(paths.length?parkInset(edges):clipping.union(edges)):[];
+    const edges=[];for(const polygon of walkable)for(const ring of polygon)for(let i=1;i<ring.length;i++)if(Math.hypot(ring[i][0]-ring[i-1][0],ring[i][1]-ring[i-1][1])>.001)edges.push(capsule(ring[i-1],ring[i],mixed?.405:.4));
+    const inset=edges.length?(mixed?parkInset(edges):clipping.union(edges)):[];
     safe=edges.length?clipping.difference(walkable,inset):[];
   }catch{fail('průchozí plochy nelze bezpečně spojit; zmenšete oblast nebo upravte osazení.');}
   const points=[],links=[],regions=[],used=new Map();
-  const add=(p,y)=>{const v=[Math.fround(p[0]),y,Math.fround(p[1])];if(paths.length)v[1]=heightAt([v[0],v[2]]);const key=v.join('/');if(!used.has(key)){if(points.length>=8192)fail('síť přesahuje 8192 bodů; zmenšete oblast.');used.set(key,points.length);points.push(v);}return used.get(key);};
-  const connect=(a,b)=>{if(a===b)return;const p=points[a],q=points[b],steps=Math.ceil(Math.hypot(p[0]-q[0],p[2]-q[2])/(paths.length?Math.sqrt(16-.25**2):4));let prev=a;for(let n=1;n<=steps;n++){const next=n===steps?b:add([p[0]+(q[0]-p[0])*n/steps,p[2]+(q[2]-p[2])*n/steps],p[1]);if(prev!==next)links.push([prev,next]);prev=next;}};
+  const add=(p,y)=>{const v=[Math.fround(p[0]),y,Math.fround(p[1])];if(mixed)v[1]=heightAt([v[0],v[2]]);const key=v.join('/');if(!used.has(key)){if(points.length>=8192)fail('síť přesahuje 8192 bodů; zmenšete oblast.');used.set(key,points.length);points.push(v);}return used.get(key);};
+  const connect=(a,b)=>{if(a===b)return;const p=points[a],q=points[b],steps=Math.ceil(Math.hypot(p[0]-q[0],p[2]-q[2])/(mixed?Math.sqrt(16-.25**2):4));let prev=a;for(let n=1;n<=steps;n++){const next=n===steps?b:add([p[0]+(q[0]-p[0])*n/steps,p[2]+(q[2]-p[2])*n/steps],p[1]);if(prev!==next)links.push([prev,next]);prev=next;}};
   for(const polygon of safe){
     if(area(polygon[0])-polygon.slice(1).reduce((s,r)=>s+area(r),0)<1)continue;
     const rings=polygon.map(r=>r.slice(0,-1).map(p=>new Vector2(...p))),vertices=rings.flat(),triangles=ShapeUtils.triangulateShape(rings[0],rings.slice(1)),portals=new Map(),centers=[];
@@ -84,7 +87,7 @@ export function osmPedestrianPlan(source,roads,surface,props=null,green=null){
   const neighbors=positions.map(()=>[]),visited=new Set();let components=0;
   for(const [a,b]of unique){neighbors[a].push(b);neighbors[b].push(a);}
   for(let i=0;i<positions.length;i++)if(!visited.has(i)){components++;const queue=[i];visited.add(i);while(queue.length)for(const n of neighbors[queue.pop()])if(!visited.has(n)){visited.add(n);queue.push(n);}}
-  return {positions,links:unique,components,clearance:.4,radius:.1,regions,...(green?{parkPoints:positions.filter(p=>p[1]!==y).length}: {})};
+  return {positions,links:unique,components,clearance:.4,radius:.1,regions,...(green?{parkPoints:positions.filter(p=>p[1]!==y&&(!crossings||paths.some(r=>contains(r.polygons,[p[0],p[2]])))).length}: {}),...(crossings?{crossings}:{})};
 }
 
 export function osmPedestrianBytes(plan){
