@@ -1,3 +1,4 @@
+import {readOsmBuildings} from './footprints.js';
 // Versioned city source plan. This module has no Electron or project access.
 export const osmPlugin = Object.freeze({id:'openstreetmap-city',version:1,api:1});
 export const osmProviders=Object.freeze({fossgis:{name:'Overpass · FOSSGIS',url:'https://overpass-api.de/api/interpreter'},coffee:{name:'Overpass · Private.coffee',url:'https://overpass.private.coffee/api/interpreter'}});
@@ -22,7 +23,6 @@ const knownTags=['highway','name','ref','oneway','junction','width','width:carri
 export function osmSource(data,area){
   area=osmArea(area);
   if(!data||!Array.isArray(data.elements)||data.elements.length>60000||data.remark||data.error)fail(data?.remark||data?.error?'server vrátil neúplná data; zmenšete oblast nebo zkuste později.':'neplatná nebo příliš velká odpověď.');
-  const buildingMembers=new Set(data.elements.filter(r=>r?.type==='relation'&&(r.tags?.building&&r.tags.building!=='no'||r.tags?.type==='building')).flatMap(r=>Array.isArray(r.members)?r.members.filter(m=>m?.type==='way').map(m=>m.ref):[]));
   const nodes=new Map(),ways=[],seen=new Set();
   for(const row of data.elements){
     if(!row||!['node','way','relation'].includes(row.type)||!Number.isSafeInteger(row.id)||row.id<=0||seen.has(`${row.type}/${row.id}`))fail('neplatný nebo opakovaný OSM prvek.');seen.add(`${row.type}/${row.id}`);
@@ -41,9 +41,10 @@ export function osmSource(data,area){
   const project=node=>[(node.longitude-area.longitude)*rad*earth*Math.cos(area.latitude*rad),0,(node.latitude-area.latitude)*rad*earth];
   const list=ways.map(way=>{
     const t=way.tags,blocked=!motor.has(t.highway)?'Pěší cesta nebo jiný typ bez automobilové sítě.':t.bridge&&t.bridge!=='no'||t.tunnel&&t.tunnel!=='no'||t.layer&&t.layer!=='0'?'Most, tunel nebo jiná úroveň vyžaduje výškový podklad.':['access','vehicle','motor_vehicle'].some(key=>['no','private'].includes(t[key]))?'Omezený přístup pro vozidla.':t.oneway&&!['yes','1','true','no','0','false','-1'].includes(t.oneway)?'Podmíněný nebo neznámý jednosměrný provoz.':null;
-    return {...way,...(way.tags.building&&buildingMembers.has(way.id)?{buildingRelation:true}:{}),points:way.nodes.map(id=>project(nodes.get(id))),blocked,eligible:Boolean(t.highway&&!blocked)};
+    return {...way,points:way.nodes.map(id=>project(nodes.get(id))),blocked,eligible:Boolean(t.highway&&!blocked)};
   });
-  return {format:'mafia-workbench-osm',version:1,plugin:osmPlugin,area,attribution:osmAttribution,nodes:[...nodes.values()],ways:list,timestamp:typeof data.osm3s?.timestamp_osm_base==='string'?data.osm3s.timestamp_osm_base.slice(0,80):null};
+  const buildings=readOsmBuildings(data,nodes,project,ways,knownTags),members=new Set(buildings.filter(b=>b.suppressed).map(b=>b.id));for(const way of list)if(members.has(way.id))way.buildingRelation=true;
+  return {format:'mafia-workbench-osm',version:1,plugin:osmPlugin,area,attribution:osmAttribution,nodes:[...nodes.values()],ways:list,buildings,timestamp:typeof data.osm3s?.timestamp_osm_base==='string'?data.osm3s.timestamp_osm_base.slice(0,80):null};
 }
 // Liang–Barsky clipping: boundary vertices retain shared identity, intersections
 // between unconnected ways never invent a junction (bridges in particular).

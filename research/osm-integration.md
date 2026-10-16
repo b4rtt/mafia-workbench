@@ -25,9 +25,9 @@ Explicitní `oneway=yes/1/true`, `-1`, `no/0/false`, implicitní kruhové objezd
 
 - Vzniká **automobilová síť a volitelně souvislé povrchy vozovek/chodníků s přesnými kolizemi**, nikoli celý model města. Start hráče je u prvního vybraného úseku, Y = 10 jako v šabloně.
 - Jeden výchozí pruh v každém povoleném směru, rychlost 1.2 herních jednotek. Zákazy odbočení a OSM restrikční relace nejsou implementované. Provoz a chodci jsou vypnutí.
-- Budovy mohou být náhrady z omezeného katalogu původních modelů uvnitř jednoduchých uzavřených way půdorysů. Multipolygonové relace a jejich otvory/části, přesné památky, automatické skládání uličních bloků a interiéry zatím nejsou implementované.
+- Budovy mohou být náhrady z omezeného katalogu původních modelů uvnitř uzavřených way půdorysů a úplných multipolygonových relací s nádvořími. Každá oddělená vnější část dostane nanejvýš jeden vhodný model. Přesné památky, skládání souvislých uličních bloků, 3D building parts a interiéry zatím nejsou implementované.
 - Žádné skutečné výšky, DEM, modely terénu, pěší navigace, vybavení, zvuky ani automatické sektory. Existující ruční authoring zůstává dostupný.
-- Individuální profily jsou hotové pro podporované rozměry a strany chodníků. Zbývají samostatné pěší cesty, parkovací/cyklistické pásy a značení. Další větší bloky: souvislé uliční bloky a složené budovy, terén a osazení. Nedostupné informace se musí dát nastavit; nelze vydávat domněnku o výšce či šířce za skutečnost z OSM.
+- Individuální profily jsou hotové pro podporované rozměry a strany chodníků. Zbývají samostatné pěší cesty, parkovací/cyklistické pásy a značení. Další větší bloky: souvislé uliční bloky, 3D části budov, terén a osazení. Nedostupné informace se musí dát nastavit; nelze vydávat domněnku o výšce či šířce za skutečnost z OSM.
 
 ## Geometrie povrchů
 
@@ -53,11 +53,21 @@ Jeden statický model v `scene2.bin` a jednostranné nativní trojúhelníky v `
 
 `building-assets.js` načítá malý kurátorovaný katalog 16 původních domů, bez přibalování dat hry. Ověří soubory, texturové reference, celou statickou hierarchii, obálku a kolizní plochy. Nepoužije postavy, billboardy, animované modely ani domy vyžadující výrazně jiné výškové usazení. Chybějící model je v katalogu uvedený s důvodem, ne nahrazený náhodným objektem.
 
-`buildings.js` hledá orientaci a umístění konzervativní obálky XZ, podle zvolené minimální vyplněnosti 25–90 %. Kontroluje celou plochu proti skutečnému, i konkávnímu půdorysu a proti sjednoceným vozovkám, chodníkům a již vloženým domům. Bez generovaných povrchů chrání výchozí pás 6 m vozovky + 2 m chodníků po stranách. Nevyhovující objekt zůstane vynechaný s důvodem. Dům přes hranici oblasti se neořezává. Speciální stavby, části, jiné vrstvy a zvýšené základy vyžadují ruční model. Je-li v podkladu známá relace složené budovy, její členy se také vynechají, aby samostatný vnější way nezaplnil nádvoří. Současný way dotaz rodičovské relace automaticky nezjišťuje.
+`buildings.js` hledá orientaci a umístění konzervativní obálky XZ, podle zvolené minimální vyplněnosti 25–90 %. Kontroluje celou plochu proti skutečnému, i konkávnímu půdorysu a proti sjednoceným vozovkám, chodníkům a již vloženým domům. Bez generovaných povrchů chrání výchozí pás 6 m vozovky + 2 m chodníků po stranách. Nevyhovující objekt zůstane vynechaný s důvodem. Dům přes hranici oblasti se neořezává. Speciální stavby, části, jiné vrstvy a zvýšené základy vyžadují ruční model. Celá obálka musí zůstat také mimo všechny vnitřní otvory multipolygonu; vyplněnost se počítá z plochy po odečtení otvorů. Členské cesty se samostatně nenabízejí, aby jejich půdorys nevložil druhou budovu do nádvoří.
 
 Geometrie ani UV původního modelu se nepřepisují. Volitelně se použije stejnoměrné měřítko 85–115 %, jinak původní velikost. Cílem je `height` v metrech nebo stopách, odhad `building:levels × 3 m + 3 m střecha`, nebo ruční náhradní výška. Poslední dvě varianty jsou výslovně označené odhady; model musí mít výšku 65–145 % cíle. OSM výška není přepsaná na skutečnou přesnou výšku herního domu. Orientace vybírá mezi protilehlými směry podle nejbližší vozovky za předpokladu přední strany lokální −Z; umístění a směr zůstávají ručně upravitelné. Nejde o přesnou rekonstrukci staveb.
 
 Nejvýše 128 vybraných půdorysů a 32 vložených domů; konzervativní společný rozpočet 60 000 kolizních vrcholů včetně povrchu ulic ponechává rezervu pro šablonu. Zápis KLZ navíc ověří skutečný limit a mřížku. Každý dům má přesný statický povrch, evidenci vlastnictví a hash zdrojového modelu. Změněný katalog import odmítne před zápisem. Uložený zdroj obsahuje volby, hashe, přiřazení, důvody vynechání a výškové odhady; stejný podklad/katalog/nastavení vytvoří byteově shodnou scénu a KLZ. Vše vznikne jednou projektovou transakcí s exportem a undo.
+
+### Složené půdorysy a nádvoří
+
+`footprints.js` spojuje úplné `type=multipolygon` relace s `building` na relaci. Cesty outer/inner mohou být neoznačené, rozdělené, otočené či v jiném pořadí; propojují se podle ID koncových uzlů. Každý obrys se kanonizuje podle ID, takže pořadí a směr členů nemění identitu části `relation/ID/část`. Way ID a relation ID mají oddělený jmenný prostor. Starší uložené číselné výběry cest zůstávají načitatelné.
+
+Nejvýše 128 členských cest, 32 prstenců a 256 hran na uzavřený obrys. Chybějící cesty/uzly, otevřené či nejednoznačné spoje, duplicity, samoprůniky, dotýkající se či překryté obrysy a otvory mimo vnější část se označí konkrétním důvodem. Otvor musí mít právě jednoho vlastníka. Vnořené relace, role jiné než outer/inner, starší značení jen na členské cestě a `type=building` s 3D částmi vyžadují ruční model; jejich známé členské building ways se nikdy tiše nenahradí plným vnějším půdorysem. Dotyk vnitřního a vnějšího prstence se zatím nepodporuje.
+
+Náhled používá stejná normalizovaná data a vykreslí otvory průhledně. Výběr oddělených částí a hashe katalogu se ukládají do zdroje; host znovu sestaví půdorysy a osazení z raw dat. Jeden původní model vyplní jen vyhovující část obálky a nevytvoří celý prstencový dům. Úzká křídla nebo příliš malá vyplněnost zůstanou vynechané. Tato funkce chrání nádvoří, ale ještě nestaví souvislé městské bloky.
+
+Dotaz Overpass získává cesty a building relace oblasti, rodičovské building/multipolygon relace vybraných cest a jejich členské cesty/uzly. Jediné `out body` po sjednocení brání duplicitním prvkům. Změněný dotaz má jiný klíč cache; původní uložené neúplné podklady si uživatel může ponechat, chybějící členové se v nich nedoplňují odhadem.
 
 ## Síť, zdroj a licence
 
@@ -72,6 +82,7 @@ Primární reference ověřené 16. 10. 2026:
 - [OSM width: jednotky a šířka vozovky](https://wiki.openstreetmap.org/wiki/Key:width).
 - [OSM sidewalk: směry stran, hierarchie a separate](https://wiki.openstreetmap.org/wiki/Key:sidewalk).
 - [OSM šířka chodníku](https://wiki.openstreetmap.org/wiki/Key:sidewalk:both:width).
+- [OSM multipolygon: outer/inner, spojování a platnost](https://wiki.openstreetmap.org/wiki/Relation:multipolygon), [3D seskupení building](https://wiki.openstreetmap.org/wiki/Relation:building).
 - [OSM budovy](https://wiki.openstreetmap.org/wiki/Key:building), [výšky a části](https://wiki.openstreetmap.org/wiki/Simple_3D_Buildings), [počet podlaží](https://wiki.openstreetmap.org/wiki/Key:building:levels).
 - [OSM lanes: počet pruhů a výluky](https://wiki.openstreetmap.org/wiki/Key:lanes).
 - [OSM copyright a ODbL](https://www.openstreetmap.org/copyright).
@@ -117,3 +128,15 @@ Soukromý Electron audit `local/osm-buildings-ui-1JN6yB`: skutečný pražský p
 Po tomto bloku 92 relevantních testů prošlo. Celá sada má 682 testů, 681 úspěšných a tentýž dřívější nesouvisející nesoulad textu chyby v `mission-dialogue.test.js` popsaný výše.
 
 Běžící nasazená aplikace také přes skutečné IPC načetla katalog a vytvořila novou ukázku `WB_OSM_BUILDINGS` v soukromém kontrolním projektu. V seznamu i 3D mapě je všech devět samostatných domů; starší mise zůstala zachovaná.
+
+### Multipolygonové budovy (16. 10. 2026)
+
+Sedm veřejných testů `test/osm-footprints.test.js` ověřuje dělené a otočené členské cesty, stabilní oddělené části, nádvoří, neúplná či nejednoznačná data, překryvy, starší značení na outer way a výběry bez kolize ID. Plánování ověřuje celou plochu i výslednou nativní transformaci domu mimo otvor. Související sada: 71/71; `npm run check` a build prošly. Celá sada: 688/689; jediná dřívější chyba `mission-dialogue.test.js` očekává `/současně/` místo stávající zprávy „vyberte pouze jednu šablonu“, mimo tento blok.
+
+Soukromé skutečné Electron UI `local/osm-multipolygons-ui-idwfi4`: 67 půdorysů, 13 složených relací, výběr a zrušení textových relation ID, 10 původních domů (jeden v multipolygonu), 57 vynechaných, jeden společný krok historie. Pixel nádvoří má barvu pozadí, ne vyplněné budovy. Export/reopen, posun kolize se scénou, smazání/undo, byteově shodný opakovaný import, změněný hash bez zápisu a explicitně vypnuté budovy prošly. `local/osm-multipolygons-view-pGDSW9` používá skutečný WebGL a 54 původních BMP bez chyb načítání.
+
+Nativní GOG/Wine `local/osm-multipolygons-game-DUFu4Y`: čtyři svislé paprsky zasáhnou skutečné střechy (včetně domu složené budovy) do 2 cm od očekávaných ploch; pátý paprsek v nádvoří zasáhne pouze původní podlahu Y=0. Kontrolní běh po vypnutí kolizí domů střechy mine a nádvoří stále zasáhne podlahu. Výsledky jsou z čerstvých autosavů, nasazené soubory mají očekávané hashe. Vlastní Wine po testu ukončeno, původní projekt i herní data byteově beze změny.
+
+Živý dotaz Private.coffee úspěšně vrátil 1756 prvků a všech 13 úplných building relací pražského vzorku. Pozdější kontrola konečného rozšířeného dotazu s rodiči starších multipolygonů narazila na HTTP 500 (Private.coffee) a HTTP 504 s výslovně přetíženým dispatcherem (FOSSGIS); tuto poslední variantu proto nelze označit za úspěšně živě ověřenou. Offline import úplného získaného podkladu prošel výše uvedenými kontrolami. Žádné automatické retry ani změny síťových limitů nebyly přidány.
+
+Nasazená hlavní aplikace přes skutečný systémový výběr načetla nový úplný podklad a obnovila půdorysy i katalog. V kontrolním projektu vytvořila `WB_OSM_COURTYARDS` jedním krokem historie (41 → 42): 10 domů, 11 kolizních skupin včetně ulic, opravená dlažba `^chdnk02.bmp`. Nová mise i vybraný dům `OSM_R_4444474_1` byly ověřené ve 3D pohledu. Předchozí ukázky zůstaly zachované.

@@ -41,7 +41,7 @@ test('map links and bounded queries reject foreign URLs and invalid regions',()=
   assert.deepEqual(osmMapLocation('https://www.openstreetmap.org/#map=18/50/14&layers=N'),{latitude:50,longitude:14});
   for(const text of ['https://example.com/#map=18/50/14','http://openstreetmap.org/#map=18/50/14','https://openstreetmap.org/#map=18/90/14'])assert.throws(()=>osmMapLocation(text));
   for(const value of [{...area,size:451},{...area,latitude:'50'},{...area,longitude:NaN}])assert.throws(()=>osmArea(value));
-  assert.match(osmQuery(area),/out body;>;out skel qt/);
+  assert.match(osmQuery(area),/rel\(bw.seed\)\["building"\]/);assert.match(osmQuery(area),/\(\._;>;\);out body qt;/);
 });
 test('downloads validate before caching, reuse offline cache, bound responses and never retry a failed request',async t=>{
   const root=await fs.mkdtemp(path.join(os.tmpdir(),'mafia-osm-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));let calls=0,time=Date.now()+1e8;
