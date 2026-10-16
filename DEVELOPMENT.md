@@ -2,6 +2,12 @@
 
 Aktualizace: 16. října 2026. Vývoj pokračuje; komplexní editor není dokončený. Implementace, datové testy, ověření UI a ověření ve hře jsou různé úrovně dokončení; neoznačovat jednu za druhou. Podrobnosti existujících funkcí a jejich omezení jsou v README.md a research/formats.md. Původní hra se nemění, úpravy mají kontrolu verze, zálohu, export a undo. Herní data a soukromé reference nepatří do veřejného repozitáře.
 
+## Automatické otevření odpovědí: nativní důkaz a fallback (2026-10-16)
+
+- Izolovaný GOG 1.2 prototyp po řeči skutečně otevřel nativní nabídku se dvěma odpověďmi bez dalšího stisku akce. Žádná emulovaná klávesa ani automatická volba; dva soukromé snímky ukazují původní menu. První diagnostická značka v PLAYER_LOCKCONTROLS byla nevhodná pro běžné EXE, proto druhý prototyp používá nečinný HUMAN_CANDIE. GOG má opcode 0x160, starší podklady 0x15a; skutečné adresy ověřené v konkrétním hashi EXE.
+- Stejná scéna bez rozšíření vytvořila oba checkpointy v 8 025 / 9 070 ms; obě odpovědi dál čekaly a controlsLocked zůstal 0 před příkazem i po něm. Rozšířená kopie zobrazila menu na snímku; v předchozím pasivním běhu nevznikl další checkpoint během 30 s a ve snímkovaném ani za následujících 10 s. Nyní je tedy doložený i bezpečný fallback na ruční akci; výběr/Exit, filtrování jen dané sady, další stavy hráče a save/load ještě ne. Editor ani export protokol zatím nepoužívají.
+- Primární podklady, přesné bajtové hranice a soukromá evidence v research/dialogue-choices.md. Druhá diagnostika měla tři selhání před oknem; úspěšné běhy používají společný start přes pojmenovanou Wine plochu. Není to oprava produkčního spouštěče. Vlastní procesy ukončené, projektová historie 53 a čerstvé chráněné hashe přesné; původní hra nezměněná. Aplikační kód se v tomto bloku neměnil, veřejně se uloží pouze zjištění. Goal aktivní, bez požadavků na spícího uživatele.
+
 ## Obnovení fronty rozhovorů bez účasti uživatele (2026-10-16)
 
 - Produkční nový start vytvořil sedm úplných checkpointů a sběr je zaevidoval jako kompatibilní. Následovala tři produkční načtení: současné A/B během první řeči, C po smrti čekajícího D a F po smrti vlastníka E. Druhý a třetí save pocházejí z předchozího obnoveného běhu, tedy také save/load/save/load. Budoucí soubory se před každým startem odstranily pouze ve vlastní kopii; jejich nový vznik dokládá pokračování.

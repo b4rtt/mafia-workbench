@@ -86,3 +86,50 @@ Uživatel potvrdil, že po řeči musí znovu stisknout akci, teprve pak se obje
 `player_ai` (0x004cb1b0) volá `player_do_action_button_on_foot` (0x004cbd00) až při odemčeném ovládání a aktivním vstupu akce. Tento handler shromáždí blízké registrace přes `using_object_find_near_objects`, vytvoří `gui_action_menu_ctor` a spustí `gui_menu_execute_modal`. Kontrola všech 391 položek [tabulky opcode](https://github.com/st0rm94/mafia-reverse-engineering-export/blob/main/script-mapping/artifacts/opcode-table.md) nenašla příkaz přímo otevírající tuto nabídku: `GUNSHOP_MENU` je jiná nabídka, `CTRL_READ`/`CTRL_READEX` vstup pouze čtou. Podklad: těla uvedených funkcí ve stejné PC dekompilaci, nikoli jen komentáře exportu.
 
 Samotné vyslání události odpovědi by vybralo větev místo zobrazení nabídky. Nezavádí se proto falešná automatická odpověď ani emulace klávesy. Plynulý automatický přechod potřebuje jiný doložený mechanismus nebo rozšíření běhu hry a samostatné ověření; v tomto kroku se herní EXE ani runtime nemění.
+
+
+## Automatické otevření: izolovaný nativní prototyp (16. října 2026)
+
+Prototyp v oddělené kopii GOG 1.2 skutečně po řeči otevřel původní nabídku **Sebrat/použít** s odpověďmi „Ano, donesu je“ a „Ne, mám jinou práci“, včetně Exit. Nebyla poslána žádná klávesa ani automaticky vybraná větev. Soukromý snímek `local/choice-menu-hook-pVM3Yn/menu-screen.png` zachycuje otevřenou nabídku. Jde o diagnostické rozšíření EXE; generátor editoru, běžný spouštěč ani export tento protokol zatím nepoužívají.
+
+Primární podklad tvoří disassemblace konkrétního GOG EXE se SHA-256 `303eb95ee2de3433511ce0cb518921dcb96b62b0f64ebfcc436723ff5083f298` a výše uvedená PC dekompilace pro vysvětlení volacího řetězce. Adresy mezi verzemi nejsou zaměnitelné:
+
+| Místo v GOG 1.2 | Ověřená role |
+| --- | --- |
+| `0x4799bc` | Začátek tabulky základního dispatcheru, index `opcode - 1`. |
+| `0x479b34` → `0x4702c8` | Položka a původní handler `PLAYER_LOCKCONTROLS` (`0x5e`). |
+| `0x47be10` | Získání aktuální instrukce z vektoru programu. |
+| `[0x63788c]` → `0x47ae50` → `0x47b520` | Cesta od mise ke skutečnému hráčskému aktérovi. |
+| `0x594300` | Původní obsluha akčního tlačítka hráče pěšky, která vytvoří nativní nabídku. |
+| `0x479996` | Běžné pokračování dispatcheru po vykonání instrukce. |
+| `0x6222b0` | Ověřená nulová výplň `.text`, použitá pro 92bajtový diagnostický stub. |
+
+První prototyp rozlišuje jedinou celočíselnou značku `1463960392` v payloadu `player_lockcontrols`; ostatní hodnoty deleguje do původního handleru. Zachová registry a nevstoupí do pěší obsluhy, pokud není hráč nebo má některou vazbu na vozidlo `+0x98`/`+0x9c`. Mění jen vlastní staging: oproti již existujícímu přímému startu přibylo 79 změněných bajtů v délce `.text`, jedné položce tabulky a stubu. `VirtualSize` roste z `0x2212aa` na `0x22130c`; rozměr a oprávnění sekce ani obraz hry se nerozšiřují. Zdrojový buffer a originál zůstaly hashově shodné.
+
+**Tato značka není použitelný produkční protokol.** Neupravený `PLAYER_LOCKCONTROLS` chápe každé nenulové číslo jako zapnutí zámku. Export stejného skriptu do běžné hry by hráče zamkl. Dokud nebude doložená bezpečná cesta pro export a fallback, tento diagnostický příkaz se nesmí objevit ve vygenerovaných misích.
+
+### Co přesně proběhlo bez obsluhy
+
+Soukromá kopie ukázky přesunula zadavatele jeden metr před hráče, spustila původní řeč bez počátečního čekání na použití a ponechala předání signálu volbě. Diagnostický program počkal osm sekund, vytvořil úplný save 590, zavolal značku a po návratu měl vytvořit save 591. Save 590 v čase 8 023 ms nezávisle potvrdil oba registrované čekající detektory odpovědí. Snímek doložil nabídku. Hra zůstala dalších 30 s spuštěná a save 591 nevznikl: modální volání bez výběru nepokračovalo do dalšího měřicího příkazu. Tento pasivní test nedokládá výběr ani zrušení nabídky.
+
+První dva omezené starty selhaly před grafickým oknem, třetí se stejnou kopií prošel; nejde o opravu Wine. Po ověření byly ukončené pouze vlastní procesy/prefix a změna soukromé scény vrácená undo na historii 53 a původní hash. Čerstvě zachycené chráněné hashe včetně uživatelského projektu zůstaly přesné. Evidence je v ignorovaných `local/choice-menu-hook-pVM3Yn/{setup,result,cleanup,patch-check}.json`; snímek, EXE, save a herní data se nepublikují.
+
+Další nutné kroky jsou bezpečný protokol s funkčním chováním také bez rozšíření, filtrování pouze odpovědí dané volby, výběr/zrušení, opakované otevření a save/load. Původní pěší handler sbírá všechny blízké akce a při nesení těla jej může odložit; přímé volání nelze obecně nasadit na každý stav hráče. Není zatím doložená koordinace s jinou nabídkou ani dokončení dialogové kamery při skutečném výběru.
+
+
+### Druhý prototyp: nečinný příkaz jako bezpečný fallback
+
+Následující izolovaný experiment nahradil nebezpečnou značku v zámku příkazem `human_candie 1463960392`. Primární parser starší PC verze přijímá jeden `atoi` parametr a dispatcher jej ignoruje, přestože MSDR popisuje dva parametry a jiný zamýšlený účinek. GOG inicializátor slovníku potvrzuje **`HUMAN_CANDIE = 0x160`**, nikoli `0x15a` ze starší dekompilace: jméno ze stringu `0x632c38` zapisuje od `0x46b479` do záznamu s opcode uloženým u `0x46b508`. Jeho GOG tabulková položka **`0x479f38` → `0x479996`** vede přímo na běžné pokračování bez obsluhy. Staré příkazy s jiným parametrem zůstanou v tomto prototypu nečinné; původní `PLAYER_LOCKCONTROLS` se již nehookuje.
+
+Stejná diagnostická scéna byla otestovaná s oběma verzemi EXE:
+
+| Běh | Doložený výsledek |
+| --- | --- |
+| Běžné GOG EXE pouze s existujícím přímým startem | Save 590 v 8 025 ms a 591 v 9 070 ms; příkaz se vykonal bez kompilátorové chyby, oba detektory odpovědí dál čekaly a hráčský `controlsLocked` byl v obou save 0. Bez rozšíření se tedy pokračuje s původní ruční akcí, nikoli se zapnutým zámkem. |
+| GOG s diagnostickým hookem `0x160` | Dva samostatné běhy dosáhly save před nabídkou v 8 026 a 8 029 ms; v prvním nevznikl navazující save během 30 s. Ve druhém místní snímek zachytil stejnou skutečnou nabídku se dvěma odpověďmi a Exit, potom následovalo 10 s bez navazujícího save. Bez vstupu se žádná větev nevybrala. |
+
+První tři starty fallbacku přes samostatně připravovaný výchozí Explorer selhaly ještě před oknem a nejsou důkazem chování příkazu. Úspěšné tři běhy výše používají diagnostické společné spuštění `explorer.exe /desktop=ChoiceSafe,1024x768 Game.exe` v témže vlastním prefixu. To neprokazuje opravu produkčního launcheru ani obecnou spolehlivost studeného startu. První samostatný pokus zachytit bezpečný prototyp přišel až po ukončení jeho třicetisekundového okna; nevytvořil snímek. Platný druhý snímek byl pořízen automaticky během dalšího běhu.
+
+Soukromé běhové logy jsou `local/choice-menu-safe-{existing,named-hook,named-hook-capture}.log`; evidence v `local/choice-menu-safe-plain-hURHEL`: `plain-named-result.json`, `plain-controls-result.json`, původní dva plain checkpointy, `hook-named-result.json`, `safe-menu-screen.png` a samostatné cleanup záznamy. Statický rozbor `local/choice-menu-safe-patch-check.json` ověřil 79 změněných bajtů oproti přímému startu, jen v délce `.text`, položce `0x479f38` a stejném 92bajtovém stubu; originál se nezměnil. Vlastní procesy ukončené, soukromé EXE po každém hook testu vrácené, čerstvé chráněné hashe včetně uživatelského projektu shodné. Projektová historie zůstává 53.
+
+**Bezpečný průchod bez rozšíření a zobrazení nabídky s rozšířením jsou nyní doložené pro tento scénář hráče pěšky.** Nejde stále o hotovou funkci editoru: zbývá filtrovat pouze odpovědi konkrétní sady, ošetřit všechny stavy hráče, výběr, Exit/opětovné otevření, save/load a exportní balení. Vygenerované mise ani veřejný spouštěč zatím značku nepoužívají.
