@@ -169,6 +169,8 @@ CHG editor prošel čtením, zápisem beze změn a editací s přesným návrate
 
 REP parser a writer prošly 92 z 93 skutečných záznamů: 33 988 objektových klíčů, 6 855 klíčů kamery a 7 287 klíčů cíle. Zápis beze změn a úpravy s návratem zachovaly přesné původní bajty. Starší signatura 0x1630 zůstává nepodporovaná. Na odděleném projektu jsou ověřené save/reopen/export/undo. V běžícím Electronu byly ověřené výběr kliknutím na časovou osu, přehrání drah do konce, koncový záznam kamery pouze ke čtení, uložení její polohy a změna času skriptové události. Výsledek přesně odpovídal writeru a undo obnovilo originál; původní uživatelský projekt zůstal shodný. Na izolované testovací kopii se INTERMEZZO02 přehrálo s původním záběrem a následně s polovičním FOV u 180 kamerových poloh v recordi02.rep. Snímky hry potvrzují přiblížený záběr; aplikované bajty přesně odpovídají writeru, undo obnovilo REP a původní projekt i Game.exe zůstaly zachované. Náhled dále respektuje 2 990 pomocných střihových záznamů v obou kamerových kanálech všech 92 podporovaných souborů; jejich nulové/raw polohy nezobrazuje a záběry přes střih nepropojuje.
 
+Volitelná sekce OSM **Zvukové prostředí** přidává upravitelné opakované bodové zvuky ulic a zeleně. Pro každou vrstvu lze zvolit projektový mono WAV, přehrát náhled a nastavit rozestup, hlasitost a dosah. Nejvýše 64 bodů leží na vytvořených površích mimo budovy a otvory. Výběr nahrávek je ruční; OSM akustiku neurčuje. Nastavení a hashe WAV se zachovávají pro opakovaný import, export a společné undo. Starší podklad zvuky sám nezapne. [Postup a omezení](research/osm-integration.md#zvukové-prostředí-ulic-a-zeleně).
+
 ## Reference a rozsah
 
 - [Celé zadání](goal.json)

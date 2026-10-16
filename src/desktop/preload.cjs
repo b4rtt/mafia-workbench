@@ -30,6 +30,7 @@ contextBridge.exposeInMainWorld('workbench', {
   createMission: options => invoke('mission:create', options),
   osmArea: (area,provider) => invoke('osm:area',area,provider),
   openOsm: area => invoke('osm:open',area),
+  osmAmbientSounds: sounds => invoke('osm:ambient-sounds',sounds),
   osmPedestrianModels: () => invoke('osm:pedestrian-models'),
   osmTrafficModels: () => invoke('osm:traffic-models'),
   osmPropModels: () => invoke('osm:prop-models'),
