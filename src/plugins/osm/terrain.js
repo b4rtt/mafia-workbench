@@ -14,10 +14,13 @@ export function osmTerrainSurface(plan,area,options,settings){
   const flat=osmSurfaceModel(plan,area,options),meshes=[],unique=new Set(),counts=[0,0,0,0];let positions=[],normals=[],uv=[],faces=[1,2,3,4].map(material=>({material,indices:[]})),triangles=0;
   // The planar generator rounds its clipped rings to millimetres. On a
   // fractional-size area that can move an edge just outside the native grid.
-  // Clip both tops and curbs to the actual float32 domain before subdividing.
+  // Restore rounded boundary planes before clipping: inward rounding must
+  // not leave a thin unpaved strip under a native road endpoint either.
+  const low=Math.round(-area.size/2*1000)/1000,high=Math.round(area.size/2*1000)/1000,restore=(n,axis)=>n===low?axis[0]:n===high?axis.at(-1):n;
   const bounds=[[[field.x[0],field.z[0]],[field.x.at(-1),field.z[0]],[field.x.at(-1),field.z.at(-1)],[field.x[0],field.z.at(-1)],[field.x[0],field.z[0]]]],footprints={};
   for(const kind of ['road','sidewalk']){
-    try{footprints[kind]=clipping.intersection(flat.footprints[kind],bounds).map(p=>p.map(r=>r.map(v=>v.map(elevationCoordinate))));}catch{fail('okraj povrchu nelze oříznout k výškovému podkladu.');}
+    const restored=flat.footprints[kind].map(p=>p.map(r=>r.map(([x,z])=>[restore(x,field.x),restore(z,field.z)])));
+    try{footprints[kind]=clipping.intersection(restored,bounds).map(p=>p.map(r=>r.map(v=>v.map(elevationCoordinate))));}catch{fail('okraj povrchu nelze oříznout k výškovému podkladu.');}
   }
   function flush(){
     if(!positions.length)return;
@@ -56,5 +59,5 @@ export function osmTerrainSurface(plan,area,options,settings){
       for(const ids of [[0,2,1],[1,2,3]])triangle(ids.map(i=>p[i]),ids.map(i=>tex[i]),3);
     }distance+=length;
   }}
-  flush();return {...flat,footprints,model:{...flat.model,materials:[...flat.model.materials,{...flat.model.materials[0],texture:settings.groundTexture.slice(5)}],meshes},triangles,elevation:field,counts:{road:counts[0],sidewalk:counts[1],curb:counts[2],ground:counts[3],vertices:unique.size}};
+  flush();return {...flat,footprints,levels:Object.freeze({road:base,sidewalk:top,ground:0}),model:{...flat.model,materials:[...flat.model.materials,{...flat.model.materials[0],texture:settings.groundTexture.slice(5)}],meshes},triangles,elevation:field,counts:{road:counts[0],sidewalk:counts[1],curb:counts[2],ground:counts[3],vertices:unique.size}};
 }

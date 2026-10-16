@@ -1,5 +1,6 @@
 import clipping from 'polygon-clipping';
 import {osmBuildingFootprints} from './footprints.js';
+import {osmNavigationElevation} from './navigation-elevation.js';
 
 const fail=m=>{throw Error('OpenStreetMap · přechody: '+m);};
 const keys=['highway','crossing','crossing:signals','crossing:markings','crossing:island','crossing:continuous','traffic_calming','width','foot','foot:conditional','access','access:conditional','layer','bridge','tunnel'];
@@ -25,9 +26,9 @@ function nearest(chain,p){
 export function osmCrossingPlan(source,roads,surface,props=null){
   const placements=[],skipped=[],ground=clipping.union(surface.footprints.road,surface.footprints.sidewalk),half=source.area.size/2;
   const blocks=osmBuildingFootprints(source).filter(b=>!b.suppressed&&!b.reason).flatMap(b=>b.polygons).concat((props?.placements??[]).map(p=>[p.footprint]));
-  const heights=[];for(const mesh of surface.model.meshes){const lod=mesh.lods[0];for(const face of lod.faces)if(face.material===1)for(const index of face.indices)heights.push(lod.positions[index*3+1]);}
-  const roadHeight=heights[0],walkHeight=surface.model.meshes.reduce((h,m)=>m.lods[0].positions.reduce((h,n,i)=>i%3===1?Math.max(h,n):h,h),-Infinity);
-  if(!Number.isFinite(roadHeight)||heights.some(h=>h!==roadHeight))fail('vozovka musí mít společnou rovinnou výšku.');
+  const terrain=osmNavigationElevation(surface),heights=[];if(!terrain)for(const mesh of surface.model.meshes){const lod=mesh.lods[0];for(const face of lod.faces)if(face.material===1)for(const index of face.indices)heights.push(lod.positions[index*3+1]);}
+  const roadHeight=terrain?terrain.levels.road:heights[0],walkHeight=terrain?terrain.levels.sidewalk:surface.model.meshes.reduce((h,m)=>m.lods[0].positions.reduce((h,n,i)=>i%3===1?Math.max(h,n):h,h),-Infinity);
+  if(!terrain&&(!Number.isFinite(roadHeight)||heights.some(h=>h!==roadHeight)))fail('vozovka musí mít společnou rovinnou výšku.');
   const chains=roads.roads.map(r=>[roads.crossings[r.from].position,...r.positions,roads.crossings[r.to].position].map(point));
   for(const item of source.pedestrianCrossings??[]){
     const {id,tags:t}=item,p=point(item.point),skip=reason=>skipped.push({id,reason});
@@ -72,7 +73,8 @@ export function osmCrossingPlan(source,roads,surface,props=null){
     const a=-(profile.width/2+profile.right/2)/cosine,b=(profile.width/2+profile.left/2)/cosine,spine=[[[vertex(a,-.41),vertex(a,.41),vertex(b,.41),vertex(b,-.41)]]];
     if(area(clipping.difference(spine,ground))>1e-6||blocks.length&&area(clipping.intersection(polygons,blocks))>1e-6){skip('Přechod protíná chybějící povrch, budovu nebo mobiliář.');continue;}
     if(placements.length>=64)fail('více než 64 podporovaných přechodů; zmenšete oblast.');
-    placements.push({id,way:roads.roads[c.index].way,point:item.point.map(Math.fround),width,widthSource,direction,directionSource,height:roadHeight,landings:[vertex(a,0),vertex(b,0)].map(v=>v.map(Math.fround)),polygons:polygons.map(p=>p.map(r=>r.map(v=>v.map(Math.fround))))});
+    const landings=[vertex(a,0),vertex(b,0)].map(v=>{v=v.map(Math.fround);if(!terrain)return v;const p=terrain.point([v[0],0,v[1]],walkHeight);return [p[0],p[2]];});
+    placements.push({id,way:roads.roads[c.index].way,point:terrain?terrain.point(item.point,roadHeight):item.point.map(Math.fround),width,widthSource,direction,directionSource,height:terrain?terrain.point(item.point,roadHeight)[1]:roadHeight,...(terrain?{level:roadHeight,landingHeights:landings.map(p=>terrain.point([p[0],0,p[1]],walkHeight)[1])}:{}),landings,polygons:polygons.map(p=>p.map(r=>r.map(v=>v.map(Math.fround))))});
   }
   return {placements,skipped};
 }

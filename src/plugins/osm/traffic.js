@@ -6,6 +6,7 @@ export function validateOsmTraffic(options){
 // byte-exact when this explicit, versioned feature is absent.
 export function osmTrafficPlan(plan,surface,options){
   validateOsmTraffic(options);if(!surface?.profiles||surface.profiles.length!==plan.roads.length)fail('zapněte povrchy ulic.');
+  if(surface.elevation&&!plan.elevated)fail('nejdřív usaďte silniční plán na společný výškový podklad.');
   const clearance=Math.max(...options.models.map(m=>m.width))+.4;
   const roads=plan.roads.map((road,index)=>{
     const width=surface.profiles[index]?.width,both=road.forward&&road.reverse;if(!Number.isFinite(width)||width<=0)fail('neplatný profil vozovky.');

@@ -3,6 +3,7 @@ import {ShapeUtils,Vector2} from 'three';
 import {osmBuildingFootprints} from './footprints.js';
 import {osmGreenPathFootprints} from './green-areas.js';
 import {osmCrossingPlan} from './crossings.js';
+import {osmNavigationElevation} from './navigation-elevation.js';
 
 const fail=m=>{throw Error('OpenStreetMap · chodci: '+m);};
 export function validateOsmPedestrians(o){
@@ -32,7 +33,8 @@ function parkInset(edges){
 // the actual surface heights; missing ground is never bridged.
 export function osmPedestrianPlan(source,roads,surface,props=null,green=null,options={}){
   if(!surface?.footprints?.sidewalk?.length)fail('vybrané ulice nemají chodníky; zapněte povrchy a zvolte průchozí profil.');
-  const y=Math.fround(surface.model.meshes.reduce((height,m)=>m.lods[0].positions.reduce((h,n,i)=>i%3===1?Math.max(h,n):h,height),-Infinity));
+  const terrain=osmNavigationElevation(surface),y=terrain?terrain.levels.sidewalk:Math.fround(surface.model.meshes.reduce((height,m)=>m.lods[0].positions.reduce((h,n,i)=>i%3===1?Math.max(h,n):h,height),-Infinity));
+  if(terrain&&green)fail('parkové cesty zatím nemají společný výškový povrch; nelze je spojit s terénem.');
   let paths=[],ground=surface.footprints.sidewalk;
   if(green){
     const profiles=new Map(green.pathProfiles.filter(p=>!p.skipped).map(p=>[p.way,p]));
@@ -49,7 +51,7 @@ export function osmPedestrianPlan(source,roads,surface,props=null,green=null,opt
   }
   const crossings=options.crossings?osmCrossingPlan(source,roads,surface,props):null,mixed=paths.length||crossings?.placements.length;
   if(crossings?.placements.length)ground=clipping.union(ground.map(p=>p.map(r=>r.map(v=>v.map(Math.fround)))),...crossings.placements.map(p=>p.polygons));
-  const heightAt=p=>{if(!crossings){const path=paths.find(r=>contains(r.polygons,p));return path&&!boundary(surface.footprints.sidewalk,p)?path.height:y;}if(contains(surface.footprints.sidewalk,p)||boundary(surface.footprints.sidewalk,p))return y;const path=paths.find(r=>contains(r.polygons,p));return path?.height??crossings?.placements.find(r=>contains(r.polygons,p))?.height??y;};
+  const levelAt=p=>{if(!crossings){const path=paths.find(r=>contains(r.polygons,p));return path&&!boundary(surface.footprints.sidewalk,p)?path.height:y;}if(contains(surface.footprints.sidewalk,p)||boundary(surface.footprints.sidewalk,p))return y;const path=paths.find(r=>contains(r.polygons,p)),crossing=crossings?.placements.find(r=>contains(r.polygons,p));return path?.height??crossing?.level??crossing?.height??y;};
   const blocks=osmBuildingFootprints(source).filter(b=>!b.suppressed&&!b.reason).flatMap(b=>b.polygons).concat((props?.placements??[]).map(p=>[p.footprint]));
   for(const [i,road]of roads.roads.entries()){
     const t=road.tags??{};
@@ -66,8 +68,8 @@ export function osmPedestrianPlan(source,roads,surface,props=null,green=null,opt
     safe=edges.length?clipping.difference(walkable,inset):[];
   }catch{fail('průchozí plochy nelze bezpečně spojit; zmenšete oblast nebo upravte osazení.');}
   const points=[],links=[],regions=[],used=new Map();
-  const add=(p,y)=>{const v=[Math.fround(p[0]),y,Math.fround(p[1])];if(mixed)v[1]=heightAt([v[0],v[2]]);const key=v.join('/');if(!used.has(key)){if(points.length>=8192)fail('síť přesahuje 8192 bodů; zmenšete oblast.');used.set(key,points.length);points.push(v);}return used.get(key);};
-  const connect=(a,b)=>{if(a===b)return;const p=points[a],q=points[b],steps=Math.ceil(Math.hypot(p[0]-q[0],p[2]-q[2])/(mixed?Math.sqrt(16-.25**2):4));let prev=a;for(let n=1;n<=steps;n++){const next=n===steps?b:add([p[0]+(q[0]-p[0])*n/steps,p[2]+(q[2]-p[2])*n/steps],p[1]);if(prev!==next)links.push([prev,next]);prev=next;}};
+  const add=(p,y)=>{let v=[Math.fround(p[0]),y,Math.fround(p[1])];if(mixed||terrain)v[1]=levelAt([v[0],v[2]]);if(terrain)v=terrain.point(v,v[1]);const key=v.join('/');if(!used.has(key)){if(points.length>=8192)fail('síť přesahuje 8192 bodů; zmenšete oblast.');used.set(key,points.length);points.push(v);}return used.get(key);};
+  const connect=(a,b)=>{if(a===b)return;const p=points[a],q=points[b];let prev=a;if(terrain){const chain=terrain.split(p,q,levelAt,4);for(let i=1;i<chain.length;i++){const next=i===chain.length-1?b:add([chain[i][0],chain[i][2]],y);if(prev!==next)links.push([prev,next]);prev=next;}return;}const steps=Math.ceil(Math.hypot(p[0]-q[0],p[2]-q[2])/(mixed?Math.sqrt(16-.25**2):4));for(let n=1;n<=steps;n++){const next=n===steps?b:add([p[0]+(q[0]-p[0])*n/steps,p[2]+(q[2]-p[2])*n/steps],p[1]);if(prev!==next)links.push([prev,next]);prev=next;}};
   for(const polygon of safe){
     if(area(polygon[0])-polygon.slice(1).reduce((s,r)=>s+area(r),0)<1)continue;
     const rings=polygon.map(r=>r.slice(0,-1).map(p=>new Vector2(...p))),vertices=rings.flat(),triangles=ShapeUtils.triangulateShape(rings[0],rings.slice(1)),portals=new Map(),centers=[];
@@ -92,7 +94,7 @@ export function osmPedestrianPlan(source,roads,surface,props=null,green=null,opt
         connect(spine[i-1],spine[i]);
       }
       for(const end of [spine[0],spine.at(-1)]){
-        const p=points[end],candidates=[...existing].filter(i=>points[i][1]===p[1]).map(i=>({i,d:Math.hypot(...points[i].map((n,k)=>n-p[k]))})).filter(c=>c.d<=4).sort((a,b)=>a.d-b.d||a.i-b.i);let joined=0;
+        const p=points[end],candidates=[...existing].filter(i=>terrain?levelAt([points[i][0],points[i][2]])===levelAt([p[0],p[2]]):points[i][1]===p[1]).map(i=>({i,d:Math.hypot(...points[i].map((n,k)=>n-p[k]))})).filter(c=>c.d<=4).sort((a,b)=>a.d-b.d||a.i-b.i);let joined=0;
         for(const {i}of candidates)if(i===end||clear([p[0],p[2]],[points[i][0],points[i][2]])){connect(end,i);if(++joined===4)break;}
         if(!joined)fail('nástup na přechod nemá bezpečné místní spojení s chodníkem.');
       }
