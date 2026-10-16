@@ -1,3 +1,5 @@
+import {loadOsmTrafficModels} from './traffic-assets.js';
+import {osmTrafficPlan} from './traffic.js';
 import {osmSource,osmRoadPlan,osmAttribution,osmPlugin} from './area.js';
 import {changeRoadTopology} from '../../core/road-topology.js';
 import {parseRoads} from '../../core/roads.js';
@@ -10,7 +12,7 @@ import {Vector3} from 'three';
 import {frameMatrix} from '../../shared/scene-world.js';
 import {loadOsmPropModels} from './prop-assets.js';
 import {osmPropPlan} from './props.js';
-import {changeSceneObject,inspectScene,editSceneSectorBindings} from '../../core/scene.js';
+import {changeSceneObject,inspectScene,editScene,editSceneSectorBindings} from '../../core/scene.js';
 import {modelCollisionSurface,geometryCollisionResolver} from '../../core/model-collision.js';
 import {replaceCollisionSurfaces} from '../../core/collision-surfaces.js';
 import {parseCollision} from '../../core/collision.js';
@@ -22,10 +24,10 @@ import {osmShellPlan,osmShellModel} from './building-shells.js';
 import {loadOsmShellStyles} from './building-shell-assets.js';
 import {osmGreenPlan,osmGreenModel,osmGreenReservation} from './green-areas.js';
 import {loadOsmGreenTextures} from './green-assets.js';
-export function osmRoadBytes(plan){
+export function osmRoadBytes(plan,traffic=null){
   let data=Buffer.alloc(12);data.writeUInt32LE(2);
   for(const crossing of plan.crossings)data=changeRoadTopology(data,{action:'create-crossing',position:crossing.position,speed:1.2,semaphore:0}).data;
-  for(const road of plan.roads)data=changeRoadTopology(data,{action:'connect',from:road.from,to:road.to,positions:road.positions,speed:1.2,forwardEnabled:road.forward,reverseEnabled:road.reverse}).data;
+  for(const [index,road]of plan.roads.entries())data=changeRoadTopology(data,{action:'connect',from:road.from,to:road.to,positions:traffic?.roads[index].positions??road.positions,speed:1.2,forwardEnabled:road.forward,reverseEnabled:road.reverse,...(traffic?{forwardLanes:traffic.roads[index].forwardLanes,reverseLanes:traffic.roads[index].reverseLanes}:{})}).data;
   const file=parseRoads(data);if(file.warnings.length)throw Error('OpenStreetMap: síť se nepodařilo nativně sestavit.');return data;
 }
 export async function createOsmMission(project,zip,data,area,selected,options){
@@ -35,7 +37,7 @@ export async function createOsmMission(project,zip,data,area,selected,options){
   if(!parseFourDs(modelBytes).meshes.some(m=>m.type===10))throw Error('Model hráče musí mít kostru.');
   const first=plan.roads[0],start=first.positions[0],files=configureEmptyMission(readEmptyMissionZip(zip),{name,model:model.path,position:[start[0],10,start[2]],heading:0,sun:2,ambient:.4,initializePolice:false,trafficCars:0,pedestrians:0});
   files.set('road.bin',osmRoadBytes(plan));
-  const dependencies=[{path:model.path,expectedHash:hash(modelBytes)}],extra=[],collisions=[],geometry=parseFourDs(files.get('scene.4ds'),true);let ownership=null,surface=null,generated=null,buildings=null,green=null,greenTextures=null,props=null,propCatalog=null,buildingCatalog=[];
+  const dependencies=[{path:model.path,expectedHash:hash(modelBytes)}],extra=[],collisions=[],geometry=parseFourDs(files.get('scene.4ds'),true);let ownership=null,surface=null,generated=null,buildings=null,green=null,greenTextures=null,props=null,propCatalog=null,traffic=null,buildingCatalog=[];
   const add=(name,model,position,rotation,scale)=>{
     files.set('scene2.bin',changeSceneObject(files.get('scene2.bin'),{kind:'add-model',name,model,position,rotation,scale},geometry.meshes.map(m=>m.name),geometry.meshes));
     const scene=inspectScene(files.get('scene2.bin'));return {scene,object:scene.objects.find(o=>o.name===name)};
@@ -48,6 +50,13 @@ export async function createOsmMission(project,zip,data,area,selected,options){
     const {scene,object}=add('OSM_STREETS',modelName+'.i3d',[0,0,0],[1,0,0,0],[1,1,1]);
     collisions.push({...modelCollisionSurface(parseFourDs(bytes,true),object,scene,geometry),doubleSided:false,material:0});
     extra.push({path:modelPath,data:bytes});surface={model:modelPath,triangles:generated.triangles,collisionTriangles:collisions[0].indices.length/3,profiles:generated.profiles};
+  }
+  if(options.traffic!==undefined&&options.traffic!==null){
+    const catalog=await loadOsmTrafficModels(project,options.traffic);traffic=osmTrafficPlan(plan,generated,options.traffic);
+    const entry=inspectScene(files.get('scene2.bin')).entries.find(e=>e.populationParameter&&e.actorKind===12);
+    if(!entry)throw Error('OpenStreetMap · doprava: šablona nemá podporovaný generátor automobilů.');
+    files.set('scene2.bin',editScene(files.get('scene2.bin'),entry.id,{budget:traffic.density,models:catalog.models.map(m=>({sourceIndex:null,model:m.table,weight:1,colors:1,flags:[0,0,0,0]}))}));
+    files.set('road.bin',osmRoadBytes(plan,traffic));dependencies.push(...catalog.dependencies);
   }
   if(options.buildings!==undefined&&options.buildings!==null){
     const settings=options.buildings;
@@ -108,10 +117,10 @@ export async function createOsmMission(project,zip,data,area,selected,options){
     const scene=inspectScene(files.get('scene2.bin')),replacement=replaceCollisionSurfaces(files.get('tree.klz'),collisions,{resolveFrame:geometryCollisionResolver(scene,geometry)}),checked=parseCollision(replacement.bytes);
     ownership={path:folder+'scene2.bin',objects:replacement.groups.map(group=>({...group,kind:'mesh',...(collisions.find(c=>c.name===group.name)?.opaqueOnly?{opaqueOnly:true}:{}),signature:surfaceSignature(checked,group)}))};files.set('tree.klz',replacement.bytes);
   }
-  const provenance={format:'mafia-workbench-osm-source',version:1,plugin:osmPlugin,attribution:osmAttribution,area:source.area,selected:[...selected],surface:options.surface??null,surfaceProfiles:surface?.profiles??null,buildings:options.buildings??null,buildingPlan:buildings,...(green?{green:{...options.green,textures:greenTextures},greenPlan:green}:{}),...(props?{props:{...options.props,models:propCatalog.models.map(({path,sha256,textures})=>({path,sha256,textures}))},propPlan:props}:{}),timestamp:source.timestamp,projection:'local-equirectangular; X east, Z north; metres; Y=0',limitations:[...(props?['Mapped point trees and furniture substitute original models; explicit height/direction fallbacks, flat support surfaces; trees collide only on opaque bark; optional lamp lights remain editable children; no forest/row inference or species reconstruction']:[]),...(green?['Mapped planar grass and optional park/garden approximation; supported in-area footpaths use one manual paving material; no inferred vegetation, steps, water or elevation reconstruction']:[]),'No terrain elevations',buildings?.mode==='footprint'?'OSM exterior shells with courtyard walls and roof holes; original facade textures; flat/gabled/skillion roof approximation with explicit source/fallback, no interiors, functional doors, exact landmarks or 3D parts; missing heights estimated':buildings?'Original game houses substituted within OSM ways and complete multipolygon components with holes; one substitute per component, no exact landmark reconstruction or 3D building parts; height estimates only guide model matching':'No buildings generated',surface?`Supported OSM dimensions/sidewalk sides with explicit fallback profiles and optional lane-width estimates; ${green?'footpaths only inside selected green areas':'separate footway geometry not imported'}; planar metric UV; no markings`:'Road network only; street surfaces not generated','One default lane per enabled direction; speed 1.2 game units; no automatic population'],data};
+  const provenance={format:'mafia-workbench-osm-source',version:1,plugin:osmPlugin,attribution:osmAttribution,area:source.area,selected:[...selected],surface:options.surface??null,surfaceProfiles:surface?.profiles??null,...(traffic?{traffic:options.traffic,trafficPlan:traffic}:{}),buildings:options.buildings??null,buildingPlan:buildings,...(green?{green:{...options.green,textures:greenTextures},greenPlan:green}:{}),...(props?{props:{...options.props,models:propCatalog.models.map(({path,sha256,textures})=>({path,sha256,textures}))},propPlan:props}:{}),timestamp:source.timestamp,projection:'local-equirectangular; X east, Z north; metres; Y=0',limitations:[...(props?['Mapped point trees and furniture substitute original models; explicit height/direction fallbacks, flat support surfaces; trees collide only on opaque bark; optional lamp lights remain editable children; no forest/row inference or species reconstruction']:[]),...(green?['Mapped planar grass and optional park/garden approximation; supported in-area footpaths use one manual paving material; no inferred vegetation, steps, water or elevation reconstruction']:[]),'No terrain elevations',buildings?.mode==='footprint'?'OSM exterior shells with courtyard walls and roof holes; original facade textures; flat/gabled/skillion roof approximation with explicit source/fallback, no interiors, functional doors, exact landmarks or 3D parts; missing heights estimated':buildings?'Original game houses substituted within OSM ways and complete multipolygon components with holes; one substitute per component, no exact landmark reconstruction or 3D building parts; height estimates only guide model matching':'No buildings generated',surface?`Supported OSM dimensions/sidewalk sides with explicit fallback profiles and optional lane-width estimates; ${green?'footpaths only inside selected green areas':'separate footway geometry not imported'}; planar metric UV; no markings`:'Road network only; street surfaces not generated',traffic?'One lane per enabled direction, offset fitted to carriageway width; speed 1.2 game units, uniform car family weights, one color; no OSM speed/turn restrictions, pedestrian generation or police initialization':'One default lane per enabled direction; speed 1.2 game units; no automatic population'],data};
   files.set('osm-source.json',Buffer.from(JSON.stringify(provenance)));
   files.set('OSM-ATTRIBUTION.txt',Buffer.from(osmAttribution+'\nSource snapshot and import settings: osm-source.json\n'));
   const checkedDependencies=[...new Map(dependencies.map(d=>[d.path.toLowerCase(),d])).values()];
-  await project.createFiles([...files].map(([path,data])=>({path:folder+path,data})).concat(extra),`OpenStreetMap: ${props?'osazené město s kolizemi':green?'ulice, zeleň'+(buildings?' a domy':'')+' s kolizemi':buildings?'ulice a budovy s kolizemi':surface?'ulice s kolizemi':'síť ulic'} ${name}`,checkedDependencies,'OpenStreetMap · nová mise',ownership);
-  return {path:folder+(surface||buildings?'scene2.bin':'road.bin'),network:folder+'road.bin',scene:folder+'scene2.bin',crossings:plan.crossings.length,roads:plan.roads.length,surface,buildings,...(green?{green}:{}),...(props?{props}:{})};
+  await project.createFiles([...files].map(([path,data])=>({path:folder+path,data})).concat(extra),`OpenStreetMap: ${traffic?'automobilový provoz · ':''}${props?'osazené město s kolizemi':green?'ulice, zeleň'+(buildings?' a domy':'')+' s kolizemi':buildings?'ulice a budovy s kolizemi':surface?'ulice s kolizemi':'síť ulic'} ${name}`,checkedDependencies,'OpenStreetMap · nová mise',ownership);
+  return {path:folder+(surface||buildings?'scene2.bin':'road.bin'),network:folder+'road.bin',scene:folder+'scene2.bin',crossings:plan.crossings.length,roads:plan.roads.length,surface,buildings,...(traffic?{traffic}:{}),...(green?{green}:{}),...(props?{props}:{})};
 }

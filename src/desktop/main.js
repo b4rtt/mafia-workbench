@@ -1,3 +1,5 @@
+import {loadOsmTrafficModels} from '../plugins/osm/traffic-assets.js';
+import {osmTrafficPlan} from '../plugins/osm/traffic.js';
 import { app, BrowserWindow, dialog, ipcMain, protocol, net, session, Menu } from 'electron';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -275,6 +277,7 @@ app.whenReady().then(async () => {
       if(input.props!==undefined&&input.props!==null){validateOsmPropOptions(input.props);await loadOsmPropModels(active,input.props.models);if(!input.surface||input.props.selected.some(id=>!source.props.some(p=>p.id===id)))throw Error('OpenStreetMap · osazení: chybí povrchy nebo mapované body.');}
       if(input.green!==undefined&&input.green!==null){await loadOsmGreenTextures(active,input.green);if(!input.surface)throw Error('OpenStreetMap · zeleň: chybí povrchy ulic.');}
       const plan=osmRoadPlan(source,input.selected),surface=Object.hasOwn(input,'surface')&&input.surface!==null?osmSurfaceModel(plan,source.area,input.surface):null;
+      if(input.traffic!==undefined&&input.traffic!==null){await loadOsmTrafficModels(active,input.traffic);osmTrafficPlan(plan,surface,input.traffic);}
       if(Object.hasOwn(input,'buildings')&&input.buildings!==null){
         if(input.buildings.mode==='footprint'){
           if(!Array.isArray(input.buildings.styles))throw Error('OpenStreetMap · půdorysné domy: neplatné uložené styly.');
@@ -288,8 +291,9 @@ app.whenReady().then(async () => {
         }
       }
     }
-    osmImport={project:active,token,data,area:source.area};return {token,source,cached:true,...(saved?{props:input.props??null,green:input.green??null,selected:input.selected,...(Object.hasOwn(input,'surface')?{surface:input.surface}:{}),...(Object.hasOwn(input,'buildings')?{buildings:input.buildings}:{})}:{})};
+    osmImport={project:active,token,data,area:source.area};return {token,source,cached:true,...(saved?{traffic:input.traffic??null,props:input.props??null,green:input.green??null,selected:input.selected,...(Object.hasOwn(input,'surface')?{surface:input.surface}:{}),...(Object.hasOwn(input,'buildings')?{buildings:input.buildings}:{})}:{})};
   }));
+  handle('osm:traffic-models', () => operation(async () => {const {models,tableHash,warnings}=await loadOsmTrafficModels(current());return {models,tableHash,warnings};}));
   handle('osm:prop-models', () => operation(async () => {const {models,warnings}=await loadOsmPropModels(current());return {models,warnings};}));
   handle('osm:building-models', () => operation(async () => {const {models,warnings}=await loadOsmBuildingModels(current());return {models,warnings};}));
   handle('osm:building-styles', () => operation(() => loadOsmShellStyles(current())));
