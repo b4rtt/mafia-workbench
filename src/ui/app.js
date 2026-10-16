@@ -1829,7 +1829,7 @@ $('osm-import').onclick = () => {
   if(state.busy||!state.project||state.texts.size)return;
   osmDialog({api,element,assets:state.project.assets,setBusy:value=>{state.busy=value;buttons();},onCreated:result=>run(async()=>{
     state.category='levels';$('filter').value=result.path.slice(0,result.path.lastIndexOf('/')+1);await refresh(result.project);await openFile(result.path);
-    status(`OpenStreetMap: vytvořeno ${result.roads} úseků a ${result.crossings} uzlů.${result.surface?` Ulice s chodníky a ${result.surface.collisionTriangles} kolizními plochami jsou vložené do scény.`:' Povrchy nejsou vygenerované.'} Budovy a výšky zatím chybí. Vytvoření má jedno undo.`);
+    status(`OpenStreetMap: vytvořeno ${result.roads} úseků a ${result.crossings} uzlů.${result.surface?` Ulice s chodníky a ${result.surface.collisionTriangles} kolizními plochami jsou vložené do scény.`:' Povrchy nejsou vygenerované.'}${result.buildings?` Vloženo ${result.buildings.placements.length} samostatných domů s kolizemi; ${result.buildings.skipped.length} půdorysů vynecháno.`:' Budovy nejsou vygenerované.'} Výšky terénu zatím chybí. Vytvoření má jedno undo.`);
   })});
 };
 $('export').onclick = () => run(async () => {

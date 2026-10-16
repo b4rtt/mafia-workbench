@@ -1,4 +1,4 @@
-# OpenStreetMap: import oblasti a povrchy ulic
+# OpenStreetMap: import oblasti, ulice a původní domy
 
 Priorita uživatele z 16. října 2026: začít OSM integraci již dnes. Navazuje na [zadání městského pluginu](city-generator-plugin.md), nenahrazuje požadavek na plnohodnotné město. TCK authoring zůstává odložený.
 
@@ -7,10 +7,11 @@ Priorita uživatele z 16. října 2026: začít OSM integraci již dnes. Navazuj
 1. Otevřít herní projekt, uložit rozepsané změny a v horní liště zvolit **OpenStreetMap…**.
 2. Výchozí funkční ukázka zůstává se souhlasem uživatele v Praze, 50.087, 14.420 o 200 m. Jiný uživatelem vybraný střed je místně zaznamenaný v `local/osm-location.json` pro rozšíření oblasti; v načteném čtverci 450 m zatím nejsou způsobilé veřejné automobilové cesty (viz ověření níže). Vložit lze HTTPS odkaz na openstreetmap.org, nebo zadat zeměpisný střed a čtverec 50–450 m. Odkaz určuje střed; rozměr se volí samostatně.
 3. **Načíst oblast** stáhne přes Overpass pouze cesty `highway`, budovy `building` a uzly těchto cest. Ručně lze vybrat FOSSGIS nebo Private.coffee. Přepínání ani opakování není automatické. Otevřený JSON lze načíst přes **Otevřít uložený podklad…**: Overpass/OSM API JSON s uzly a cestami použije aktuální oblast, vlastní `osm-source.json` převezme uloženou oblast.
-4. Náhled má sever nahoře, modré vybrané ulice, šedé uzavřené půdorysy a oranžové vynechané komunikace. Výběr je podle OSM cest, které mohou být jen částí ulice. Nejvýše 256 cest, 512 křižovatek a 4096 mezilehlých uzlů. Více než čtyři výjezdy v jednom uzlu blokují vytvoření; výběr lze zmenšit.
+4. Náhled má sever nahoře, modré vybrané ulice, šedé uzavřené půdorysy a oranžové vynechané komunikace. Zelené obdélníky po zapnutí budov ukazují skutečné obálky přiřazených modelů. Výběr je podle OSM cest, které mohou být jen částí ulice. Nejvýše 256 cest, 512 křižovatek a 4096 mezilehlých uzlů. Více než čtyři výjezdy v jednom uzlu blokují vytvoření; výběr lze zmenšit.
 5. Volba **Povrchy ulic a kolize** přidá asfalt, vyvýšené chodníky a obrubníky. Nový import výchozí volbou použije podporované rozměry a strany chodníků z OSM. Náhradní šířka vozovky 2–20 m, chodník .5–5 m a jeho strany jsou nastavitelné; původ a nejasnosti jsou vypsané u jednotlivých ulic. Odhad podle počtu pruhů je volitelný a výchozí vypnutý. Zvolit lze také obrubník .05–.4 m, metrické opakování a tři vlastní herní BMP. Pokud v projektu existují výchozí textury, je generování zapnuté; jinak zůstává dostupný import samotné sítě.
-6. Vybrat ověřený komunitní `Empty_Mission.zip`, jedinečný název nové mise a hráčský model s kostrou. **Vytvořit misi s ulicemi a kolizemi** vytvoří osm souborů šablony plus `osm-source.json`, `OSM-ATTRIBUTION.txt` a jediný model `models/WB_OSM_<mise>.4ds` jedním krokem undo. Bez povrchů vznikne pouze deset souborů mise. Existující mise ani původní herní soubory se nepřepisují.
-7. S povrchy se otevře běžný 3D editor `scene2.bin`, kde je statický model `OSM_STREETS`; bez nich editor `road.bin`. Uzly a propojení lze dále editovat. Změna silniční sítě zatím automaticky nepřegeneruje povrch. Kolize patří vloženému modelu a jeho přesun, smazání či undo se promítnou i do KLZ. Export nese i podklad a atribuci. `osm-source.json` umožní zopakovat import offline do jiné nové mise.
+6. Volitelně otevřít **Budovy z původních modelů** a zapnout jejich vložení. Katalog načte původní modely z projektu; jednotlivé modely i půdorysy lze odškrtnout. Přehled uvádí výsledek, vyplnění, výšku a zdroj cílové výšky nebo důvod vynechání.
+7. Vybrat ověřený komunitní `Empty_Mission.zip`, jedinečný název nové mise a hráčský model s kostrou. **Vytvořit misi s ulicemi a kolizemi** vytvoří osm souborů šablony plus `osm-source.json`, `OSM-ATTRIBUTION.txt` a jediný model `models/WB_OSM_<mise>.4ds` jedním krokem undo. Bez povrchů vznikne pouze deset souborů mise; domy odkazují na původní modely a nevytvářejí kopie těchto modelů. Existující mise ani původní herní soubory se nepřepisují.
+8. S povrchy nebo domy se otevře `scene2.bin`; tlačítko **Otevřít 3D mapu** zobrazí běžný 3D editor. Při generování povrchů je ve scéně statický model `OSM_STREETS`; bez povrchů i domů se otevře editor `road.bin`. Uzly a propojení lze dále editovat. Změna silniční sítě zatím automaticky nepřegeneruje povrch. Každý dům je samostatný `OSM_B_<way ID>` s původní geometrií a texturami. Kolize patří vloženým modelům a jejich přesun, smazání či undo se promítnou i do KLZ. Export nese i podklad a atribuci. `osm-source.json` umožní zopakovat import offline do jiné nové mise.
 
 ## Rozhraní modulu a převod
 
@@ -24,9 +25,9 @@ Explicitní `oneway=yes/1/true`, `-1`, `no/0/false`, implicitní kruhové objezd
 
 - Vzniká **automobilová síť a volitelně souvislé povrchy vozovek/chodníků s přesnými kolizemi**, nikoli celý model města. Start hráče je u prvního vybraného úseku, Y = 10 jako v šabloně.
 - Jeden výchozí pruh v každém povoleném směru, rychlost 1.2 herních jednotek. Zákazy odbočení a OSM restrikční relace nejsou implementované. Provoz a chodci jsou vypnutí.
-- Budovy jsou pouze uzavřené way půdorysy v náhledu. Multipolygonové relace, otvory, 3D budovy a vazby na herní katalog se ještě nevyhodnocují.
+- Budovy mohou být náhrady z omezeného katalogu původních modelů uvnitř jednoduchých uzavřených way půdorysů. Multipolygonové relace a jejich otvory/části, přesné památky, automatické skládání uličních bloků a interiéry zatím nejsou implementované.
 - Žádné skutečné výšky, DEM, modely terénu, pěší navigace, vybavení, zvuky ani automatické sektory. Existující ruční authoring zůstává dostupný.
-- Individuální profily jsou hotové pro podporované rozměry a strany chodníků. Zbývají samostatné pěší cesty, parkovací/cyklistické pásy a značení. Další větší bloky: půdorysy/budovy, terén a osazení. Nedostupné informace se musí dát nastavit; nelze vydávat domněnku o výšce či šířce za skutečnost z OSM.
+- Individuální profily jsou hotové pro podporované rozměry a strany chodníků. Zbývají samostatné pěší cesty, parkovací/cyklistické pásy a značení. Další větší bloky: souvislé uliční bloky a složené budovy, terén a osazení. Nedostupné informace se musí dát nastavit; nelze vydávat domněnku o výšce či šířce za skutečnost z OSM.
 
 ## Geometrie povrchů
 
@@ -48,6 +49,16 @@ Vozovka leží 5 cm nad podlahou šablony (bez z-fightingu), chodníky podle zvo
 
 Jeden statický model v `scene2.bin` a jednostranné nativní trojúhelníky v `tree.klz` se připraví v paměti a zveřejní jednou transakcí. Ta současně uloží evidenci vlastnictví kolizí; následné přesuny/smazání proto nenechávají staré neviditelné překážky. Vytvoření kontroluje hash hráčského modelu i použitých textur a odmítá kolidující názvy. Silniční síť není generátorem povrchů měněna; plošné spojení vozovek samo nevytváří nový dopravní uzel.
 
+## Přiřazení původních domů
+
+`building-assets.js` načítá malý kurátorovaný katalog 16 původních domů, bez přibalování dat hry. Ověří soubory, texturové reference, celou statickou hierarchii, obálku a kolizní plochy. Nepoužije postavy, billboardy, animované modely ani domy vyžadující výrazně jiné výškové usazení. Chybějící model je v katalogu uvedený s důvodem, ne nahrazený náhodným objektem.
+
+`buildings.js` hledá orientaci a umístění konzervativní obálky XZ, podle zvolené minimální vyplněnosti 25–90 %. Kontroluje celou plochu proti skutečnému, i konkávnímu půdorysu a proti sjednoceným vozovkám, chodníkům a již vloženým domům. Bez generovaných povrchů chrání výchozí pás 6 m vozovky + 2 m chodníků po stranách. Nevyhovující objekt zůstane vynechaný s důvodem. Dům přes hranici oblasti se neořezává. Speciální stavby, části, jiné vrstvy a zvýšené základy vyžadují ruční model. Je-li v podkladu známá relace složené budovy, její členy se také vynechají, aby samostatný vnější way nezaplnil nádvoří. Současný way dotaz rodičovské relace automaticky nezjišťuje.
+
+Geometrie ani UV původního modelu se nepřepisují. Volitelně se použije stejnoměrné měřítko 85–115 %, jinak původní velikost. Cílem je `height` v metrech nebo stopách, odhad `building:levels × 3 m + 3 m střecha`, nebo ruční náhradní výška. Poslední dvě varianty jsou výslovně označené odhady; model musí mít výšku 65–145 % cíle. OSM výška není přepsaná na skutečnou přesnou výšku herního domu. Orientace vybírá mezi protilehlými směry podle nejbližší vozovky za předpokladu přední strany lokální −Z; umístění a směr zůstávají ručně upravitelné. Nejde o přesnou rekonstrukci staveb.
+
+Nejvýše 128 vybraných půdorysů a 32 vložených domů; konzervativní společný rozpočet 60 000 kolizních vrcholů včetně povrchu ulic ponechává rezervu pro šablonu. Zápis KLZ navíc ověří skutečný limit a mřížku. Každý dům má přesný statický povrch, evidenci vlastnictví a hash zdrojového modelu. Změněný katalog import odmítne před zápisem. Uložený zdroj obsahuje volby, hashe, přiřazení, důvody vynechání a výškové odhady; stejný podklad/katalog/nastavení vytvoří byteově shodnou scénu a KLZ. Vše vznikne jednou projektovou transakcí s exportem a undo.
+
 ## Síť, zdroj a licence
 
 Pouze výslovné načtení uživatelem, jeden dotaz najednou. Nejvýše 8 MB a 60 000 prvků, 45s timeout, žádné automatické retry, minimálně 30 s mezi síťovými dotazy na tentýž server, cache 24 hodin v soukromém `local/osm-cache`. Odpověď s chybou/remark nebo chybějícími uzly se odmítne. Cache se validuje stejně jako síť. Renderer nemá otevřený přístup na internet. Nepoužíváme mapové dlaždice, Nominatim, Google Maps ani placené služby. Import neupravuje OpenStreetMap.
@@ -61,6 +72,7 @@ Primární reference ověřené 16. 10. 2026:
 - [OSM width: jednotky a šířka vozovky](https://wiki.openstreetmap.org/wiki/Key:width).
 - [OSM sidewalk: směry stran, hierarchie a separate](https://wiki.openstreetmap.org/wiki/Key:sidewalk).
 - [OSM šířka chodníku](https://wiki.openstreetmap.org/wiki/Key:sidewalk:both:width).
+- [OSM budovy](https://wiki.openstreetmap.org/wiki/Key:building), [výšky a části](https://wiki.openstreetmap.org/wiki/Simple_3D_Buildings), [počet podlaží](https://wiki.openstreetmap.org/wiki/Key:building:levels).
 - [OSM lanes: počet pruhů a výluky](https://wiki.openstreetmap.org/wiki/Key:lanes).
 - [OSM copyright a ODbL](https://www.openstreetmap.org/copyright).
 - [OSM API JSON a význam bbox](https://wiki.openstreetmap.org/wiki/API_v0.6).
@@ -93,3 +105,15 @@ Soukromé skutečné UI `local/osm-profiles-ui-W33OWr`: pražský podklad s ruč
 Nativní GOG/Wine test `local/osm-profiles-game-UQJyd3`: syntetická síť v pražském středu s šířkami 8/4/6 m, levým/pravým chodníkem a opačnou jednosměrkou. Čtyři paprsky v novém autosavu potvrzují vozovku Y=.05, levý chodník Y=.2, obrubník na Z=4 a žádný chodník na protější straně (pouze základní podlaha Y=0). Kontrola bez kolizí zasáhne na obou stranách pouze podlahu a boční paprsek mine; přesné hashe nasazeného modelu/KLZ. Po testu se zastavilo vlastní Wine a vrátila historie izolovaného projektu; původní soubory jsou byteově shodné.
 
 Kontroly: 84 relevantních testů prošlo; check/build prošly, celá sada 674 testů má 673 úspěšných a jediný dříve existující nesoulad textu chyby v `mission-dialogue.test.js` (`/současně/` versus „vyberte pouze jednu šablonu“). Nesouvisející test se v tomto bloku nemění.
+
+### Ověření přiřazení domů
+
+Osm veřejných testů `test/osm-buildings.test.js`: otočené/konkávní půdorysy, přesné umístění modelů s posunutým lokálním počátkem v nativních WXYZ souřadnicích, stejnoměrné či vypnuté měřítko, vyloučení ulic/chodníků/sousedů, výškové tolerance a zdroje odhadů, nepodporované/otevřené/přesahující stavby, limity domů a kolizních vrcholů, determinismus, známé členy složených budov/multipolygonů, katalog skutečné syntetické 4DS geometrie, hash a odmítnutí neplatných cest.
+
+Soukromý Electron audit `local/osm-buildings-ui-1JN6yB`: skutečný pražský podklad, 16 dostupných modelů a 9 umístěných domů; 45 vynechaných půdorysů s vysvětlením. Skutečná tvorba mise, 10 vlastněných kolizních povrchů včetně ulic, jedno undo, přesun/smazání domu včetně KLZ, export/reopen, byteově shodné opakování importu, hashový konflikt bez zápisu a kompatibilní vypnutí domů. Test neprováděl síťové požadavky.
+
+`local/osm-buildings-view-CROBHC` zobrazuje skutečnou složenou scénu přes aplikací používaný WebGL renderer, 54 původních textur bez chyb. Nativní GOG/Wine test `local/osm-buildings-game-UThRnG` spustil skutečnou pražskou síť se stejnými devíti domy. Čtyři paprsky na střechy prvních čtyř domů v novém autosavu zasáhly vypočtené body do 2 cm. Kontrolní běh s vypnutými kolizemi těchto domů všechny čtyři plochy minul; ověřily se i přesné hashe nasazeného povrchu/KLZ. Vlastní Wine bylo po testu zastavené a historie izolovaného projektu vrácená, původní data byteově zachovaná. Nejde o test každého domu ani hráčský průchod celým městem.
+
+Po tomto bloku 92 relevantních testů prošlo. Celá sada má 682 testů, 681 úspěšných a tentýž dřívější nesouvisející nesoulad textu chyby v `mission-dialogue.test.js` popsaný výše.
+
+Běžící nasazená aplikace také přes skutečné IPC načetla katalog a vytvořila novou ukázku `WB_OSM_BUILDINGS` v soukromém kontrolním projektu. V seznamu i 3D mapě je všech devět samostatných domů; starší mise zůstala zachovaná.

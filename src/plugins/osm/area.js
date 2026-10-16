@@ -18,10 +18,11 @@ export function osmMapLocation(text){
   const latitude=Number(match[1]),longitude=Number(match[2]);osmArea({latitude,longitude,size:200});return {latitude,longitude};
 }
 const motor=new Set(['motorway','motorway_link','trunk','trunk_link','primary','primary_link','secondary','secondary_link','tertiary','tertiary_link','unclassified','residential','living_street','service','road']);
-const knownTags=['highway','name','ref','oneway','junction','width','width:carriageway','est_width','lanes','lanes:forward','lanes:backward','sidewalk','sidewalk:left','sidewalk:right','sidewalk:both','sidewalk:left:width','sidewalk:right:width','sidewalk:both:width','bridge','tunnel','layer','access','motor_vehicle','vehicle','maxspeed','surface','building','height','building:levels','ele'];
+const knownTags=['highway','name','ref','oneway','junction','width','width:carriageway','est_width','lanes','lanes:forward','lanes:backward','sidewalk','sidewalk:left','sidewalk:right','sidewalk:both','sidewalk:left:width','sidewalk:right:width','sidewalk:both:width','bridge','tunnel','layer','access','motor_vehicle','vehicle','maxspeed','surface','building','building:part','height','min_height','building:min_level','building:levels','ele'];
 export function osmSource(data,area){
   area=osmArea(area);
   if(!data||!Array.isArray(data.elements)||data.elements.length>60000||data.remark||data.error)fail(data?.remark||data?.error?'server vrátil neúplná data; zmenšete oblast nebo zkuste později.':'neplatná nebo příliš velká odpověď.');
+  const buildingMembers=new Set(data.elements.filter(r=>r?.type==='relation'&&(r.tags?.building&&r.tags.building!=='no'||r.tags?.type==='building')).flatMap(r=>Array.isArray(r.members)?r.members.filter(m=>m?.type==='way').map(m=>m.ref):[]));
   const nodes=new Map(),ways=[],seen=new Set();
   for(const row of data.elements){
     if(!row||!['node','way','relation'].includes(row.type)||!Number.isSafeInteger(row.id)||row.id<=0||seen.has(`${row.type}/${row.id}`))fail('neplatný nebo opakovaný OSM prvek.');seen.add(`${row.type}/${row.id}`);
@@ -40,7 +41,7 @@ export function osmSource(data,area){
   const project=node=>[(node.longitude-area.longitude)*rad*earth*Math.cos(area.latitude*rad),0,(node.latitude-area.latitude)*rad*earth];
   const list=ways.map(way=>{
     const t=way.tags,blocked=!motor.has(t.highway)?'Pěší cesta nebo jiný typ bez automobilové sítě.':t.bridge&&t.bridge!=='no'||t.tunnel&&t.tunnel!=='no'||t.layer&&t.layer!=='0'?'Most, tunel nebo jiná úroveň vyžaduje výškový podklad.':['access','vehicle','motor_vehicle'].some(key=>['no','private'].includes(t[key]))?'Omezený přístup pro vozidla.':t.oneway&&!['yes','1','true','no','0','false','-1'].includes(t.oneway)?'Podmíněný nebo neznámý jednosměrný provoz.':null;
-    return {...way,points:way.nodes.map(id=>project(nodes.get(id))),blocked,eligible:Boolean(t.highway&&!blocked)};
+    return {...way,...(way.tags.building&&buildingMembers.has(way.id)?{buildingRelation:true}:{}),points:way.nodes.map(id=>project(nodes.get(id))),blocked,eligible:Boolean(t.highway&&!blocked)};
   });
   return {format:'mafia-workbench-osm',version:1,plugin:osmPlugin,area,attribution:osmAttribution,nodes:[...nodes.values()],ways:list,timestamp:typeof data.osm3s?.timestamp_osm_base==='string'?data.osm3s.timestamp_osm_base.slice(0,80):null};
 }
