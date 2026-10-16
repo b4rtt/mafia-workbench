@@ -3,6 +3,7 @@ import {Vector3} from 'three';
 import {frameMatrix} from '../../shared/scene-world.js';
 import {osmBuildingFootprints} from './footprints.js';
 import {osmGreenModel,osmGreenReservation} from './green-areas.js';
+import {osmNavigationElevation} from './navigation-elevation.js';
 
 const fail=m=>{throw Error(`OpenStreetMap · osazení: ${m}`);};
 export const osmPropLabels=Object.freeze({tree:'Strom',bench:'Lavička',bin:'Odpadkový koš',lamp:'Lampa'});
@@ -26,9 +27,27 @@ const within=(p,b)=>b.length&&area(clipping.difference(p,b))<.0001;
 const metres=v=>{const m=/^(\d+(?:\.\d+)?)(?: (m|ft))?$/.exec(v??'');return m?Number(m[1])*(m[2]==='ft'?.3048:1):null;};
 const compass={N:0,NNE:22.5,NE:45,ENE:67.5,E:90,ESE:112.5,SE:135,SSE:157.5,S:180,SSW:202.5,SW:225,WSW:247.5,W:270,WNW:292.5,NW:315,NNW:337.5};
 function direction(value){if(Object.hasOwn(compass,value??''))return compass[value];return /^(?:\d+(?:\.\d+)?)$/.test(value??'')&&Number(value)<=360?Number(value)%360:null;}
+// Rigid furniture stays upright. Test the entire base against the same
+// triangular terrain, including interior peaks, rather than one anchor or
+// the highest vertex anywhere in the city. Small contact deviations are
+// symmetric; larger slopes require manual terracing instead of floating legs.
+function terrainSupport(terrain,polygon,level,kind){
+  const ring=polygon.map(p=>{const q=terrain.point([p[0],0,p[1]],level);return [q[0],q[2]];}),field=terrain.field,heights=[];
+  const height=p=>terrain.point([p[0],0,p[1]],level)[1];
+  for(let i=0;i<ring.length;i++)for(const c of field.splitEdge(ring[i],ring[(i+1)%ring.length]))heights.push(height(c.point));
+  const inside=p=>{let positive=false,negative=false;for(let i=0;i<ring.length;i++){const a=ring[i],b=ring[(i+1)%ring.length],cross=(b[0]-a[0])*(p[1]-a[1])-(b[1]-a[1])*(p[0]-a[0]);positive||=cross>1e-8;negative||=cross< -1e-8;}return !(positive&&negative);};
+  for(const z of field.z)for(const x of field.x)if(inside([x,z]))heights.push(height([x,z]));
+  const minimum=Math.min(...heights),maximum=Math.max(...heights),relief=maximum-minimum,limit=kind==='tree'?.2:.06;
+  if(relief>limit+1e-6)return {reason:`Rozdíl výšek pod základnou přesahuje ${limit*100} cm; objekt vyžaduje ruční usazení nebo terasování.`};
+  return {ground:Math.fround((minimum+maximum)/2),support:{minimum,maximum,relief,level}};
+}
 export function osmPropReservation(surface,buildings,catalog,green){return osmGreenReservation(surface,buildings,catalog)+(green?.placements??[]).reduce((s,item)=>{const model=osmGreenModel(item,green.elevation);return s+new Set(model.meshes.flatMap(m=>{const p=m.lods[0].positions;return Array.from({length:p.length/3},(_,i)=>p.slice(i*3,i*3+3).map(Math.fround).join('/'));})).size;},0);}
 export function osmPropPlan(source,surface,catalog,o,green=null,reservedVertices=0){
   validateOsmPropOptions(o);if(!surface||!Number.isFinite(source?.area?.size)||!Number.isSafeInteger(reservedVertices)||reservedVertices<0)fail('nejdřív vytvořte platné povrchy ulic.');
+  const terrain=osmNavigationElevation(surface);
+  if(terrain&&['latitude','longitude','size'].some(k=>source.area[k]!==terrain.field.area[k]))fail('výškový podklad patří jiné oblasti.');
+  if(green&&(terrain?green.elevation!==terrain.field||green.placements.some(p=>!p.elevated):green.elevation))fail('zeleň musí mít stejný výškový podklad jako ulice.');
+  if(terrain&&o.ground!==0)fail('pro usazení na terén nastavte základní rovinu osazení na 0 m.');
   if(catalog.some(m=>![m.min,m.max,m.footMin,m.footMax,m.anchor].every(v=>Array.isArray(v)&&v.length===3&&v.every(Number.isFinite))||!Number.isSafeInteger(m.vertices)||m.vertices<3||!osmPropLabels[m.kind]))fail('neplatné rozměry katalogu.');
   const models=catalog.filter(m=>o.models.some(c=>c.path.toLowerCase()===m.path.toLowerCase()&&c.sha256===m.sha256));if(models.length!==o.models.length)fail('katalog se změnil; načtěte jej znovu.');
   const buildings=osmBuildingFootprints(source).filter(b=>!b.reason&&!b.suppressed).flatMap(b=>b.polygons),road=surface.footprints.road,sidewalk=surface.footprints.sidewalk,walks=(green?.placements??[]).flatMap(p=>p.paths),occupied=[],placements=[],skipped=[],half=source.area.size/2,paths=source.ways.filter(w=>['footway','path','pedestrian'].includes(w.tags.highway)&&w.tags.area!=='yes'),streets=source.ways.filter(w=>w.eligible);let vertices=reservedVertices;
@@ -53,11 +72,14 @@ export function osmPropPlan(source,surface,catalog,o,green=null,reservedVertices
     if(overlap(full,buildings)){skip('Model by zasahoval do mapované budovy.');continue;}
     if(overlap(base,road)||f.kind==='tree'&&overlap(base,walks)){skip('Základna by zasahovala do vozovky nebo strom do pěší cesty.');continue;}
     if(overlap(base,occupied)){skip('Základna by se překrývala s jiným osazeným objektem.');continue;}
-    let ground=o.ground,groundSource='ruční základní rovina';
-    if(overlap(base,sidewalk)){if(!within(base,sidewalk)){skip('Objekt by stál přes hranu vyvýšeného chodníku.');continue;}ground=surface.model.meshes.flatMap(mesh=>mesh.lods[0].positions.filter((n,i)=>i%3===1)).reduce((a,b)=>Math.max(a,b),-.1);groundSource='generovaný chodník';}
+    let ground=o.ground,groundSource=terrain?'generovaný terén':'ruční základní rovina',support;
+    if(overlap(base,sidewalk)){if(!within(base,sidewalk)){skip('Objekt by stál přes hranu vyvýšeného chodníku.');continue;}ground=terrain?terrain.levels.sidewalk:surface.model.meshes.flatMap(mesh=>mesh.lods[0].positions.filter((n,i)=>i%3===1)).reduce((a,b)=>Math.max(a,b),-.1);groundSource='generovaný chodník';}
     else for(const lawn of green?.placements??[]){const region=[...lawn.grass,...lawn.paths];if(overlap(base,region)){if(!within(base,region)){skip('Objekt by stál přes hranu zeleně.');ground=null;break;}ground=lawn.height;groundSource='generovaná zeleň / pěší cesta';break;}}
-    if(ground===null)continue;if(placements.length>=256||vertices+m.vertices>60000){skip('Limit 256 objektů nebo sdílený rozpočet kolizních vrcholů.');continue;}
+    if(ground===null)continue;
+    if(terrain){const result=terrainSupport(terrain,base[0],ground,f.kind);if(result.reason){skip(result.reason);continue;}ground=result.ground;support=result.support;notes.push('Původní model zůstává svislý; základna je usazena podle celého místního povrchu.');}
+    if(placements.length>=256||vertices+m.vertices>60000){skip('Limit 256 objektů nebo sdílený rozpočet kolizních vrcholů.');continue;}
     position[1]=Math.fround(ground-anchor.y);const item={id,name:`OSM_PROP_${id}`,label:t.name??`${osmPropLabels[f.kind]} ${id}`,kind:f.kind,model:m.path,modelHash:m.sha256,position,rotation,scale:[scale,scale,scale].map(Math.fround),footprint:base[0],height:target,heightSource,direction:heading,directionSource,ground,groundSource,opaqueOnly:f.kind==='tree',notes};
+    if(support)item.support=support;
     if(f.kind==='lamp'&&o.lights)item.light={name:`OSM_LIGHT_${id}`,position:[f.point[0],ground+target-.25*scale,f.point[2]].map(Math.fround),parameters:{type:1,color:[1,.88,.65],power:.8,range:[.5,12],mode:99,sectors:['Primary sector']}};
     placements.push(item);occupied.push(base);vertices+=m.vertices;
   }
