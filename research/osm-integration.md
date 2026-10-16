@@ -2,6 +2,8 @@
 
 Priorita uživatele z 16. října 2026: začít OSM integraci již dnes. Navazuje na [zadání městského pluginu](city-generator-plugin.md), nenahrazuje požadavek na plnohodnotné město. TCK authoring zůstává odložený.
 
+Příprava skutečných výšek, měření dostupného podkladu a oddělený geometrický pokus jsou v [OSM výškovém podkladu](osm-elevation.md). Produkční import zatím zůstává rovinný.
+
 ## Použití
 
 1. Otevřít herní projekt, uložit rozepsané změny a v horní liště zvolit **OpenStreetMap…**.

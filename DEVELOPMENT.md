@@ -2,6 +2,12 @@
 
 Aktualizace: 16. října 2026. Vývoj pokračuje; komplexní editor není dokončený. Implementace, datové testy, ověření UI a ověření ve hře jsou různé úrovně dokončení; neoznačovat jednu za druhou. Podrobnosti existujících funkcí a jejich omezení jsou v README.md a research/formats.md. Původní hra se nemění, úpravy mají kontrolu verze, zálohu, export a undo. Herní data a soukromé reference nepatří do veřejného repozitáře.
 
+## Příprava výškového podkladu OSM (2026-10-16)
+
+- Průzkum dostupných DEM a vazeb produkčního generátoru, bez změny aplikace či projektů. Dlaždice Terrarium pro veřejnou Prahu skutečně stažená a dekódovaná; zdrojová metadata uvádějí EUDEM a rok 2017. Vzorkovaný výřez 200 m má převýšení 3,591 m; nejde o přesné zaměření ulice. Číselný pokus Get Samples ČÚZK vrátil 403, bez obcházení omezení.
+- Oddělený prototyp společného výškového povrchu, rozřezaných ulic/chodníků/obrubníků a celoplošného podkladu: 6 114 trojúhelníků, 3 341 kolizních vrcholů. Existující 4DS/KLZ writery a následné čtení potvrdily přesné trojúhelníky. Síť po 5 m snížila chybu aproximace stejné dlaždice; nezvýšila přesnost zdrojového DEM. Engine, domy, provoz a navigace tím ověřené nejsou.
+- [Podrobnosti, zdroje, evidence a závislosti implementace](research/osm-elevation.md). Veškerá data a experimentální kód pouze v ignorovaném local/osm-elevation-research; žádné herní soubory, soukromá poloha ani runtime v Gitu. Dokumentační změna, produkční import je dál rovinný. Goal plného editoru a městského pluginu zůstává aktivní.
+
 ## OSM stromy a pouliční vybavení (2026-10-16)
 
 - Nová volitelná sekce mapovaných stromů, laviček, košů a lamp: výběr bodů i šesti auditovaných původních modelů, dostupné výšky/směry/typ listí z OSM, označené náhrady, usazení základen na povrchy a důvody vynechání. Až 256 bodů ve společném kolizním rozpočtu. Žádné herní soubory ve veřejné distribuci.
