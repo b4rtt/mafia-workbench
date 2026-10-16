@@ -2,6 +2,14 @@
 
 Aktualizace: 16. října 2026. Vývoj pokračuje; komplexní editor není dokončený. Implementace, datové testy, ověření UI a ověření ve hře jsou různé úrovně dokončení; neoznačovat jednu za druhou. Podrobnosti existujících funkcí a jejich omezení jsou v README.md a research/formats.md. Původní hra se nemění, úpravy mají kontrolu verze, zálohu, export a undo. Herní data a soukromé reference nepatří do veřejného repozitáře.
 
+## Střechy OSM domů (2026-10-16)
+
+- Nové půdorysné domy mají volitelnou plochou, sedlovou či pultovou střechu. Dostupné roof značky, náhradní tvar/výška/orientace, explicitní zdroj a upozornění při náhradách či omezení výšky. OSM celková výška zahrnuje střechu; odhad pater zachová výšku fasády i při omezení střechy. Starší podklady samy tvarování nezapnou a nativní plochá 4DS je byteově shodná s předchozí verzí.
+- Rozdělení v hřebeni před triangulací zachová konkávní půdorysy a otvory nádvoří. Uzavřené štíty, vnější i vnitřní stěny, metrické UV po sklonu a stejné kolizní trojúhelníky. Jedna transakce všech domů/scény/KLZ/zdroje, export a undo. Nejde o rekonstrukci složitých střech: jeden směr na půdorys, bez vikýřů/přesahů a 3D částí.
+- Pět veřejných testů: směry/spád, roviny a UV, konkávní/nádvořní otvory, normály, nativní kolize, výšky/odhady/limity, tagy way/relací a kompatibilita. Finální celá sada 700/701; jediná dřívější chyba v mission-dialogue.test.js stále očekává slovo současně místo stávající pouze jednu šablonu. Check/build/diff check prošly. Žádná nesouvisející oprava.
+- Skryté skutečné Electron UI ověřilo přepnutí tří tvarů, 27 domů/2 nádvoří, export/reopen, byteově přesné opakování, kolizní posun/smazání/undo, změněné textury bez zápisu a legacy import s vypnutými střechami. WebGL bez chyb. Nativní GOG/Wine ověřil dvě sedlové střechy, dvě stěny a otevřené nádvoří, kontrolní běh bez kolizí; všech 27 nasazených modelů je byteově shodných s finálním writerem, chráněné soubory zachované. Podrobnosti v research/osm-integration.md.
+- Nasazená aplikace přes systémové dialogy vytvořila WB_OSM_ROOFS, historie 43 → 44, 27 domů včetně podporované pultové střechy, dvě nádvoří, 28 vlastněných kolizních skupin. Nový dům vybraný/zarámovaný ve 3D; předchozí mise zůstávají. Celý goal aktivní, dopravní populace, terén a další části skutečného města zůstávají otevřené.
+
 ## OSM domy podle celých půdorysů (2026-10-16)
 
 - Volitelný režim celých plášťů doplňuje přiřazování původních modelů: samostatné 4DS, přízemí/fasáda/římsa a plochá střecha, vnitřní stěny a volné nádvoří. Dva styly původních BMP s metrickými UV podle původních domů. Žádná změna původních modelů ani veřejné herní obrázky.
