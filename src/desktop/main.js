@@ -16,6 +16,8 @@ import { readEmptyMissionZip } from '../core/mission.js';
 import { downloadOsm } from '../plugins/osm/download.js';
 import { osmSource, osmRoadPlan } from '../plugins/osm/area.js';
 import { createOsmMission } from '../plugins/osm/mission.js';
+import {osmShellPlan} from '../plugins/osm/building-shells.js';
+import {loadOsmShellStyles} from '../plugins/osm/building-shell-assets.js';
 import { osmSurfaceModel } from '../plugins/osm/surface.js';
 import {loadOsmBuildingModels} from '../plugins/osm/building-assets.js';
 import {osmBuildingPlan} from '../plugins/osm/buildings.js';
@@ -269,15 +271,22 @@ app.whenReady().then(async () => {
     if(saved){
       const plan=osmRoadPlan(source,input.selected),surface=Object.hasOwn(input,'surface')&&input.surface!==null?osmSurfaceModel(plan,source.area,input.surface):null;
       if(Object.hasOwn(input,'buildings')&&input.buildings!==null){
-        if(!Array.isArray(input.buildings?.models))throw Error('OpenStreetMap · budovy: neplatný uložený katalog.');
-        const {models,warnings}=await loadOsmBuildingModels(active,input.buildings.models.map(m=>m?.path));
-        if(warnings.length||models.some(m=>input.buildings.models.find(w=>w?.path?.toLowerCase()===m.path.toLowerCase())?.sha256!==m.sha256))throw Error('OpenStreetMap · budovy: uložené modely se změnily nebo nejsou dostupné v tomto projektu.');
-        osmBuildingPlan(source,plan,surface,models,input.buildings);
+        if(input.buildings.mode==='footprint'){
+          if(!Array.isArray(input.buildings.styles))throw Error('OpenStreetMap · půdorysné domy: neplatné uložené styly.');
+          const {styles}=await loadOsmShellStyles(active,input.buildings.styles);osmShellPlan(source,plan,surface,{...input.buildings,styles});
+        }else{
+          if(input.buildings.mode!==undefined&&input.buildings.mode!=='original')throw Error('OpenStreetMap · budovy: neznámý způsob generování.');
+          if(!Array.isArray(input.buildings?.models))throw Error('OpenStreetMap · budovy: neplatný uložený katalog.');
+          const {models,warnings}=await loadOsmBuildingModels(active,input.buildings.models.map(m=>m?.path));
+          if(warnings.length||models.some(m=>input.buildings.models.find(w=>w?.path?.toLowerCase()===m.path.toLowerCase())?.sha256!==m.sha256))throw Error('OpenStreetMap · budovy: uložené modely se změnily nebo nejsou dostupné v tomto projektu.');
+          osmBuildingPlan(source,plan,surface,models,input.buildings);
+        }
       }
     }
     osmImport={project:active,token,data,area:source.area};return {token,source,cached:true,...(saved?{selected:input.selected,...(Object.hasOwn(input,'surface')?{surface:input.surface}:{}),...(Object.hasOwn(input,'buildings')?{buildings:input.buildings}:{})}:{})};
   }));
   handle('osm:building-models', () => operation(async () => {const {models,warnings}=await loadOsmBuildingModels(current());return {models,warnings};}));
+  handle('osm:building-styles', () => operation(() => loadOsmShellStyles(current())));
   handle('osm:cancel', token => {if(osmImport?.token===token)osmImport=null;});
   handle('osm:create', (token,selected,options) => operation(async () => {
     const active=current();if(!osmImport||osmImport.project!==active||osmImport.token!==token)throw Error('Nejdřív načtěte oblast pro tento projekt.');

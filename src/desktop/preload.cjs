@@ -31,6 +31,7 @@ contextBridge.exposeInMainWorld('workbench', {
   osmArea: (area,provider) => invoke('osm:area',area,provider),
   openOsm: area => invoke('osm:open',area),
   osmBuildingModels: () => invoke('osm:building-models'),
+  osmBuildingStyles: () => invoke('osm:building-styles'),
   cancelOsm: token => invoke('osm:cancel',token),
   createOsmMission: (token,selected,options) => invoke('osm:create',token,selected,options),
   saveTexts: (name, changes, expectedHash) => invoke('asset:texts', name, changes, expectedHash),

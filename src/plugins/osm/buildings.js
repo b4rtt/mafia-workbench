@@ -11,7 +11,7 @@ function inside(p,ring){let yes=false;for(let i=0,j=ring.length-1;i<ring.length;
 }return yes;}
 function crosses(a,b,c,d){return cross(a,b,c)*cross(a,b,d)<-1e-10&&cross(c,d,a)*cross(c,d,b)<-1e-10;}
 function contained(rect,ring){return rect.every(p=>inside(p,ring))&&!rect.some((a,i)=>ring.some((c,j)=>crosses(a,rect[(i+1)%4],c,ring[(j+1)%ring.length])));}
-function targetHeight(tags,fallback){
+export function osmBuildingHeight(tags,fallback){
   const h=/^(\d+(?:\.\d+)?)(?: (m|ft))?$/.exec(tags.height??'');
   if(h){const n=Number(h[1])*(h[2]==='ft'?.3048:1);if(n>=3&&n<=120)return {height:n,heightSource:'OSM height',estimated:false};}
   if(/^[1-9]\d?$/.test(tags['building:levels']??''))return {height:Number(tags['building:levels'])*3+3,heightSource:'odhad: OSM building:levels × 3 m + 3 m střecha',estimated:true};
@@ -37,7 +37,7 @@ export function osmBuildingPlan(source,roads,surface,catalog,options){
     if(size<16||ring.some((a,i)=>ring.some((c,j)=>i!==j&&(i+1)%ring.length!==j&&(j+1)%ring.length!==i&&crosses(a,ring[(i+1)%ring.length],c,ring[(j+1)%ring.length])))){skip('Půdorys je příliš malý nebo se protíná.');continue;}
     const angles=polygon.flatMap(ring=>ring.map((a,i)=>{const b=ring[(i+1)%ring.length];return {angle:Math.atan2(b[1]-a[1],b[0]-a[0]),length:Math.hypot(b[1]-a[1],b[0]-a[0])};})).sort((a,b)=>b.length-a.length),unique=[];
     for(const {angle,length}of angles){if(length<1)continue;const value=(angle%Math.PI+Math.PI)%Math.PI;if(!unique.some(a=>Math.abs(Math.sin(a-value))<.03))unique.push(value);if(unique.length===8)break;}
-    const target=targetHeight(way.tags,options.fallbackHeight),candidates=[];
+    const target=osmBuildingHeight(way.tags,options.fallbackHeight),candidates=[];
     for(const axis of unique)for(const turn of [0,Math.PI/2]){
       const angle=axis+turn,c=Math.cos(angle),s=Math.sin(angle),local=ring.map(([x,z])=>[c*x+s*z,-s*x+c*z]),lo=[0,1].map(i=>Math.min(...local.map(p=>p[i]))),hi=[0,1].map(i=>Math.max(...local.map(p=>p[i]))),center=lo.map((n,i)=>(n+hi[i])/2);
       for(const m of catalog){

@@ -2,6 +2,14 @@
 
 Aktualizace: 16. října 2026. Vývoj pokračuje; komplexní editor není dokončený. Implementace, datové testy, ověření UI a ověření ve hře jsou různé úrovně dokončení; neoznačovat jednu za druhou. Podrobnosti existujících funkcí a jejich omezení jsou v README.md a research/formats.md. Původní hra se nemění, úpravy mají kontrolu verze, zálohu, export a undo. Herní data a soukromé reference nepatří do veřejného repozitáře.
 
+## OSM domy podle celých půdorysů (2026-10-16)
+
+- Volitelný režim celých plášťů doplňuje přiřazování původních modelů: samostatné 4DS, přízemí/fasáda/římsa a plochá střecha, vnitřní stěny a volné nádvoří. Dva styly původních BMP s metrickými UV podle původních domů. Žádná změna původních modelů ani veřejné herní obrázky.
+- Host ověřuje raw půdorysy, hranice, ulice, sousedy, skutečné BMP a hashe. Nejvýše 64 domů/128 výběrů a sdílený rozpočet nativních kolizí. Mise/modely/KLZ vzniknou jedním create/undo; jednotlivé přesuny/smazání zachovávají vlastnictví kolizí. Uložený podklad obnoví režim/styly; starší importy zůstávají kompatibilní.
+- Sedm veřejných regresních testů. Skutečné oddělené Electron UI ověřilo 27 domů/2 nádvoří z pražského podkladu, export/reopen, opakování byteově shodné, změny kolizí a undo, stale hash bez zápisu. WebGL 28 objektů/9 BMP bez upozornění. GOG/Wine ověřil střechy, vnější a vnitřní stěnu i prázdný otvor, kontrolní běh bez kolizí a zachování chráněných dat. Podrobnosti a lokální evidence v research/osm-integration.md.
+- Finální cílená sada 78/78, check/build a diff check prošly. Celá sada před sedmým testem limitů 694/695 se známým nesouvisejícím textem chyby mission-dialogue; nový test limitů následně prošel. Nasazené skutečné UI vytvořilo WB_OSM_BLOCKS jednou transakcí (historie 42 → 43), 27 domů/2 nádvoří/28 kolizních skupin, nový dům vybraný a zarámovaný ve 3D mapě.
+- Goal zůstává aktivní. Toto je základ uliční zástavby s plochými střechami; přesné památky, interiéry/funkční dveře, 3D části, terén, vybavení, chodci a provoz zůstávají otevřené. TCK authoring nadále odložený podle uživatele.
+
 ## Import statických OBJ/MTL pro vlastní budovy (2026-10-16)
 
 - Importovat model… nově přijímá OBJ, výslovně vybrané MTL/BMP a převod osy Y/Z/měřítka. Části o/g, konkávní planární polygony, UV, autorské normály a vyhlazovací skupiny přes švy/části, RGB/krytí a samostatné alpha masky. Nový editovatelný 4DS v29, rozdělení nativních limitů, žádné přepsání původních modelů. Nepodporované geometrie/mapy se odmítají, nepřeváděné odlesky/PBR a zploštění bezpečných relativních cest mají upozornění. Detaily a skutečné limity v research/formats.md.
