@@ -2,7 +2,9 @@ import clipping from 'polygon-clipping';
 import {ShapeUtils,Vector2} from 'three';
 import {osmProfileDefaults,osmRoadProfile} from './profiles.js';
 
-export const osmSurfaceDefaults=Object.freeze({...osmProfileDefaults,width:6,sidewalkWidth:2,curbHeight:.15,tileSize:4,sidewalkTileSize:2,roadTexture:'maps/0OASF.BMP',sidewalkTexture:'maps/^chdnk01.bmp',curbTexture:'maps/^obrub01.bmp'});
+// CHDNK01 includes an edge strip. Repeating it across a planar network puts
+// false curbs through the pavement; CHDNK02 contains only repeatable slabs.
+export const osmSurfaceDefaults=Object.freeze({...osmProfileDefaults,width:6,sidewalkWidth:2,curbHeight:.15,tileSize:4,sidewalkTileSize:2,roadTexture:'maps/0OASF.BMP',sidewalkTexture:'maps/^chdnk02.bmp',curbTexture:'maps/^obrub01.bmp'});
 const fail=message=>{throw Error(`OpenStreetMap · povrchy: ${message}`);};
 const snap=n=>Math.round(n*1000)/1000;
 // A planar street footprint is a union, rather than overlapping per-link
