@@ -16,6 +16,7 @@ import { readEmptyMissionZip } from '../core/mission.js';
 import { downloadOsm } from '../plugins/osm/download.js';
 import { osmSource, osmRoadPlan } from '../plugins/osm/area.js';
 import { createOsmMission } from '../plugins/osm/mission.js';
+import { osmSurfaceModel } from '../plugins/osm/surface.js';
 import { replayMissions, loadCutsceneContext } from '../core/cutscene.js';
 const directory = path.dirname(fileURLToPath(import.meta.url));
 const uiRoot = path.resolve(directory, '../ui');
@@ -263,8 +264,8 @@ app.whenReady().then(async () => {
     const stat=await fs.stat(result.filePaths[0]);if(!stat.isFile()||stat.size>8*1024*1024)throw Error('Podklad přesahuje 8 MB.');
     const input=JSON.parse(await fs.readFile(result.filePaths[0],'utf8'));
     const saved=input?.format==='mafia-workbench-osm-source'&&input.version===1,data=saved?input.data:input,source=osmSource(data,saved?input.area:area),token=randomUUID();
-    if(saved)osmRoadPlan(source,input.selected);
-    osmImport={project:active,token,data,area:source.area};return {token,source,cached:true,...(saved?{selected:input.selected}:{})};
+    if(saved){const plan=osmRoadPlan(source,input.selected);if(Object.hasOwn(input,'surface')&&input.surface!==null)osmSurfaceModel(plan,source.area,input.surface);}
+    osmImport={project:active,token,data,area:source.area};return {token,source,cached:true,...(saved?{selected:input.selected,...(Object.hasOwn(input,'surface')?{surface:input.surface}:{})}:{})};
   }));
   handle('osm:cancel', token => {if(osmImport?.token===token)osmImport=null;});
   handle('osm:create', (token,selected,options) => operation(async () => {

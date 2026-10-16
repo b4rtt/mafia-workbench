@@ -1,5 +1,6 @@
 import {osmArea,osmMapLocation,osmRoadPlan,osmProviders} from './area.js';
 import {osmSurfaceDefaults,osmSurfaceModel} from './surface.js';
+import {osmRoadProfile} from './profiles.js';
 
 // The host supplies project access; this plugin never reads game files directly.
 export function osmDialog({api,element,assets,onCreated,setBusy=()=>{}}){
@@ -14,21 +15,25 @@ export function osmDialog({api,element,assets,onCreated,setBusy=()=>{}}){
   const config=element('div',undefined,'osm-location'),name=element('input'),model=element('select');name.value='OSM_CITY';name.required=true;name.maxLength=48;name.pattern='[a-zA-Z0-9][a-zA-Z0-9_-]{0,47}';field('Název nové mise',name,config);field('Model hráče (s kostrou)',model,config);
   for(const asset of assets.filter(a=>/^models\/[^/]+\.4ds$/i.test(a.path))){const option=element('option',asset.path.slice(7));option.value=asset.path;model.append(option);}const tommy=[...model.options].find(o=>o.value.toLowerCase()==='models/tommy.4ds');if(tommy)model.value=tommy.value;
   const surfaceConfig=element('details'),surfaceTitle=element('summary','Povrchy ulic a kolize'),generate=element('input'),surfaceFields=element('div',undefined,'osm-location');generate.type='checkbox';field('Vytvořit vozovky, chodníky a přesné kolize',generate,surfaceConfig);
-  const surfaceInputs={},defaults=osmSurfaceDefaults;for(const[key,label,min,max]of [['width','Šířka vozovky (m)',2,20],['sidewalkWidth','Chodník na každé straně (m)',.5,5],['curbHeight','Výška obrubníku (m)',.05,.4],['tileSize','Opakování asfaltu (m)',.25,20],['sidewalkTileSize','Opakování dlažby (m)',.25,10]])surfaceInputs[key]=numeric(label,defaults[key],min,max,surfaceFields);
+  const surfaceInputs={},defaults=osmSurfaceDefaults;
+  for(const[key,label,checked]of [['useOsmTags','Použít dostupné šířky a strany chodníků z OSM',true],['estimateLanes','Chybějící šířku odhadnout z počtu pruhů',false]]){const input=element('input');input.type='checkbox';input.checked=checked;surfaceInputs[key]=field(label,input,surfaceFields);}
+  for(const[key,label,min,max]of [['width','Náhradní šířka vozovky (m)',2,20],['sidewalkWidth','Náhradní šířka chodníku (m)',.5,5],['laneWidth','Šířka pruhu pro volitelný odhad (m)',2,4.5],['curbHeight','Výška obrubníku (m)',.05,.4],['tileSize','Opakování asfaltu (m)',.25,20],['sidewalkTileSize','Opakování dlažby (m)',.25,10]])surfaceInputs[key]=numeric(label,defaults[key],min,max,surfaceFields);
+  const sidewalks=element('select');for(const[value,label]of [['both','Na obou stranách'],['left','Pouze vlevo'],['right','Pouze vpravo'],['none','Bez chodníků']]){const option=element('option',label);option.value=value;sidewalks.append(option);}surfaceInputs.sidewalks=field('Náhradní profil chodníků ve směru OSM cesty',sidewalks,surfaceFields);
   const textures=element('datalist');textures.id='osm-surface-textures';for(const asset of assets.filter(a=>/^maps\/[^/]+\.bmp$/i.test(a.path))){const option=element('option');option.value=asset.path;textures.append(option);}
   for(const[key,label]of [['roadTexture','Asfalt · BMP'],['sidewalkTexture','Chodník · BMP'],['curbTexture','Obrubník · BMP']]){const input=element('input');input.setAttribute('list',textures.id);input.value=assets.find(a=>a.path.toLowerCase()===defaults[key].toLowerCase())?.path??defaults[key];surfaceInputs[key]=field(label,input,surfaceFields);}
-  generate.checked=['roadTexture','sidewalkTexture','curbTexture'].every(key=>assets.some(a=>a.path.toLowerCase()===surfaceInputs[key].value.toLowerCase()));surfaceConfig.prepend(surfaceTitle);surfaceConfig.append(element('p','Rozměry platí pro všechny vybrané ulice. Údaje OSM o šířkách a stranách chodníků se zatím pouze uchovávají. Povrch je rovinný; budovy, výšky, značení a provoz se negenerují.'),surfaceFields,textures);
-  const surfaceSettings=()=>Object.fromEntries(Object.entries(surfaceInputs).map(([key,input])=>[key,input.type==='number'?Number(input.value):input.value]));
+  generate.checked=['roadTexture','sidewalkTexture','curbTexture'].every(key=>assets.some(a=>a.path.toLowerCase()===surfaceInputs[key].value.toLowerCase()));surfaceConfig.prepend(surfaceTitle);surfaceConfig.append(element('p','Původ každého profilu a nejasné údaje jsou uvedené u ulic. L/P znamená strany ve směru OSM cesty, i u opačné jednosměrky. Samostatně mapované chodníky zatím používají výslovně označený náhradní profil. Povrch je rovinný; budovy, výšky, značení a provoz se negenerují.'),surfaceFields,textures);
+  const surfaceSettings=()=>Object.fromEntries(Object.entries(surfaceInputs).map(([key,input])=>[key,input.type==='checkbox'?input.checked:input.type==='number'?Number(input.value):input.value]));
   preview.setAttribute('aria-label','Mapa vybrané oblasti: sever nahoře, modré ulice k importu, šedé budovy');preview.width=800;preview.height=600;
   const map=element('div',undefined,'osm-map');map.append(preview,element('small','Sever ↑ · modrá: vybrané ulice · šedá: půdorysy budov · oranžová: vynechané komunikace'));
   const sidebar=element('div',undefined,'osm-selection');sidebar.append(element('h3','Ulice v oblasti'),buttons,list);buttons.append(all,none);body.append(map,sidebar);actions.append(cancel,create);
   const attribution=element('p',undefined,'osm-attribution'),credit=element('a','© OpenStreetMap contributors · ODbL 1.0');credit.href='https://www.openstreetmap.org/copyright';attribution.append(credit);
   form.append(location,element('div',undefined,'tools'),summary,body,config,surfaceConfig,template,message,actions);form.children[1].append(load,open);
   dialog.append(element('h2','OpenStreetMap · nová oblast'),element('p','Vyberte čtverec podle středu mapy. V nové misi vznikne upravitelná automobilová síť road.bin a volitelně povrch ulic s chodníky a kolizemi. Šedé budovy jsou zatím pouze půdorysy v náhledu.'),form,attribution);
-  let source=null,token=null,selected=new Set(),plan=null,surface=null,pending=false,closed=false,hasTemplate=false;
+  let source=null,token=null,selected=new Set(),plan=null,surface=null,pending=false,closed=false,hasTemplate=false;const profileLabels=new Map();
   const area=()=>osmArea({latitude:Number(latitude.value),longitude:Number(longitude.value),size:Number(size.value)});
   function invalidate(){source=null;selected.clear();plan=null;surface=null;list.replaceChildren();summary.textContent='Načtěte oblast nebo uložený podklad.';create.disabled=true;draw();if(token){void api.cancelOsm(token).catch(()=>{});token=null;}}
-  function busy(value){pending=value;setBusy(value);for(const control of controls)control.disabled=value;for(const input of Object.values(surfaceInputs))input.disabled=value||!generate.checked;for(const input of list.querySelectorAll('input'))input.disabled=value||!source?.ways.find(w=>w.id===Number(input.dataset.osmWay))?.eligible;create.disabled=value||!plan||!hasTemplate;}
+  function surfaceControls(){for(const[key,input]of Object.entries(surfaceInputs))input.disabled=pending||!generate.checked||key==='estimateLanes'&&!surfaceInputs.useOsmTags.checked||key==='laneWidth'&&(!surfaceInputs.useOsmTags.checked||!surfaceInputs.estimateLanes.checked);}
+  function busy(value){pending=value;setBusy(value);for(const control of controls)control.disabled=value;surfaceControls();for(const input of list.querySelectorAll('input'))input.disabled=value||!source?.ways.find(w=>w.id===Number(input.dataset.osmWay))?.eligible;create.disabled=value||!plan||!hasTemplate;}
   function draw(){
     const context=preview.getContext('2d'),w=preview.width,h=preview.height;context.clearRect(0,0,w,h);context.fillStyle='#edf0f2';context.fillRect(0,0,w,h);if(!source)return;
     const span=source.area.size,scale=(Math.min(w,h)-48)/span,point=p=>[w/2+p[0]*scale,h/2-p[2]*scale],box=span*scale;
@@ -39,17 +44,22 @@ export function osmDialog({api,element,assets,onCreated,setBusy=()=>{}}){
   }
   function update(){
     plan=null;surface=null;message.textContent='';try{if(source){plan=osmRoadPlan(source,[...selected]);if(generate.checked)surface=osmSurfaceModel(plan,source.area,surfaceSettings());}}catch(error){plan=null;message.textContent=error.message;}
-    summary.textContent=source?`${source.ways.filter(w=>w.tags.building).length} půdorysů · ${selected.size} vybraných ulic${plan?` · ${plan.crossings.length} uzlů a ${plan.roads.length} úseků`:''}${surface?` · ${surface.triangles} ploch s kolizemi`:''} · rovinný podklad`: 'Načtěte oblast nebo uložený podklad.';
+    const warned=surface?new Set(surface.profiles.filter(p=>p.notes.length).map(p=>p.way)).size:0;
+    summary.textContent=source?`${source.ways.filter(w=>w.tags.building).length} půdorysů · ${selected.size} vybraných ulic${plan?` · ${plan.crossings.length} uzlů a ${plan.roads.length} úseků`:''}${surface?` · ${surface.triangles} ploch s kolizemi`:''}${warned?` · ${warned} ulic s upozorněním v seznamu`:''} · rovinný podklad`: 'Načtěte oblast nebo uložený podklad.';
+    for(const way of source?.ways??[]){const label=profileLabels.get(way.id);if(!label)continue;label.hidden=!generate.checked;try{const p=osmRoadProfile(way.tags,surfaceSettings()),fmt=n=>Number(n.toFixed(2));label.textContent=`Vozovka ${fmt(p.width)} m · ${p.widthSource}${p.estimated?' (odhad)':''} · chodníky L ${fmt(p.left)} / P ${fmt(p.right)} m. ${p.leftSource}; ${p.rightSource}.${p.notes.length?' '+p.notes.join(' '):''}`;}catch{label.textContent='Zkontrolujte nastavení profilu.';}}
     create.textContent=generate.checked?'Vytvořit misi s ulicemi a kolizemi':'Vytvořit misi se sítí ulic';
-    for(const input of Object.values(surfaceInputs))input.disabled=pending||!generate.checked;
+    surfaceControls();
     create.disabled=pending||!plan||!hasTemplate;draw();
   }
   function accept(result){
     if(token)void api.cancelOsm(token).catch(()=>{});token=result.token;source=result.source;latitude.value=source.area.latitude;longitude.value=source.area.longitude;size.value=source.area.size;url.value='';
     selected=new Set(result.selected??source.ways.filter(w=>w.eligible).slice(0,256).map(w=>w.id));list.replaceChildren();
+    if(Object.hasOwn(result,'surface')){generate.checked=result.surface!==null;for(const[key,input]of Object.entries(surfaceInputs))if(result.surface){if(input.type==='checkbox')input.checked=result.surface[key]??defaults[key];else input.value=result.surface[key]??defaults[key];}}
+    profileLabels.clear();
     for(const way of source.ways.filter(w=>w.tags.highway)){
       const row=element('label',undefined,'osm-way'),checkbox=element('input'),text=element('span');checkbox.type='checkbox';checkbox.checked=selected.has(way.id);checkbox.disabled=!way.eligible;checkbox.dataset.osmWay=String(way.id);
       text.append(element('strong',way.tags.name||way.tags.ref||`Cesta ${way.id}`),element('small',[way.tags.highway,way.tags.oneway?`oneway=${way.tags.oneway}`:'',way.tags.width?`šířka ${way.tags.width}`:'',way.tags.lanes?`${way.tags.lanes} pruhy`:'',way.tags.sidewalk?`chodník: ${way.tags.sidewalk}`:'',way.blocked||''].filter(Boolean).join(' · ')));
+      if(way.eligible){const profile=element('small',undefined,'osm-way-profile');text.append(profile);profileLabels.set(way.id,profile);}
       checkbox.onchange=()=>{if(checkbox.checked)selected.add(way.id);else selected.delete(way.id);update();};row.append(checkbox,text);list.append(row);
     }
     update();message.textContent+=`${message.textContent?' ':''}${result.cached?'Použit uložený podklad.':'Oblast načtena ze serveru OSM.'}${!generate.checked?' Pro povrchy otevřete nastavení a vyberte tři BMP textury.':''}`;

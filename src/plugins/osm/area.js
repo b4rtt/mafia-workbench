@@ -18,7 +18,7 @@ export function osmMapLocation(text){
   const latitude=Number(match[1]),longitude=Number(match[2]);osmArea({latitude,longitude,size:200});return {latitude,longitude};
 }
 const motor=new Set(['motorway','motorway_link','trunk','trunk_link','primary','primary_link','secondary','secondary_link','tertiary','tertiary_link','unclassified','residential','living_street','service','road']);
-const knownTags=['highway','name','ref','oneway','junction','width','lanes','lanes:forward','lanes:backward','sidewalk','sidewalk:left','sidewalk:right','sidewalk:both','bridge','tunnel','layer','access','motor_vehicle','vehicle','maxspeed','surface','building','height','building:levels','ele'];
+const knownTags=['highway','name','ref','oneway','junction','width','width:carriageway','est_width','lanes','lanes:forward','lanes:backward','sidewalk','sidewalk:left','sidewalk:right','sidewalk:both','sidewalk:left:width','sidewalk:right:width','sidewalk:both:width','bridge','tunnel','layer','access','motor_vehicle','vehicle','maxspeed','surface','building','height','building:levels','ele'];
 export function osmSource(data,area){
   area=osmArea(area);
   if(!data||!Array.isArray(data.elements)||data.elements.length>60000||data.remark||data.error)fail(data?.remark||data?.error?'server vrátil neúplná data; zmenšete oblast nebo zkuste později.':'neplatná nebo příliš velká odpověď.');

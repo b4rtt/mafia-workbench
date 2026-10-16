@@ -8,7 +8,7 @@ Priorita uživatele z 16. října 2026: začít OSM integraci již dnes. Navazuj
 2. Výchozí funkční ukázka zůstává se souhlasem uživatele v Praze, 50.087, 14.420 o 200 m. Jiný uživatelem vybraný střed je místně zaznamenaný v `local/osm-location.json` pro rozšíření oblasti; v načteném čtverci 450 m zatím nejsou způsobilé veřejné automobilové cesty (viz ověření níže). Vložit lze HTTPS odkaz na openstreetmap.org, nebo zadat zeměpisný střed a čtverec 50–450 m. Odkaz určuje střed; rozměr se volí samostatně.
 3. **Načíst oblast** stáhne přes Overpass pouze cesty `highway`, budovy `building` a uzly těchto cest. Ručně lze vybrat FOSSGIS nebo Private.coffee. Přepínání ani opakování není automatické. Otevřený JSON lze načíst přes **Otevřít uložený podklad…**: Overpass/OSM API JSON s uzly a cestami použije aktuální oblast, vlastní `osm-source.json` převezme uloženou oblast.
 4. Náhled má sever nahoře, modré vybrané ulice, šedé uzavřené půdorysy a oranžové vynechané komunikace. Výběr je podle OSM cest, které mohou být jen částí ulice. Nejvýše 256 cest, 512 křižovatek a 4096 mezilehlých uzlů. Více než čtyři výjezdy v jednom uzlu blokují vytvoření; výběr lze zmenšit.
-5. Volba **Povrchy ulic a kolize** přidá asfalt, vyvýšené chodníky a obrubníky. Zvolit společnou šířku vozovky 2–20 m, chodník .5–5 m, obrubník .05–.4 m, metrické opakování a tři vlastní herní BMP. Pokud v projektu existují výchozí textury, je generování zapnuté; jinak zůstává dostupný import samotné sítě.
+5. Volba **Povrchy ulic a kolize** přidá asfalt, vyvýšené chodníky a obrubníky. Nový import výchozí volbou použije podporované rozměry a strany chodníků z OSM. Náhradní šířka vozovky 2–20 m, chodník .5–5 m a jeho strany jsou nastavitelné; původ a nejasnosti jsou vypsané u jednotlivých ulic. Odhad podle počtu pruhů je volitelný a výchozí vypnutý. Zvolit lze také obrubník .05–.4 m, metrické opakování a tři vlastní herní BMP. Pokud v projektu existují výchozí textury, je generování zapnuté; jinak zůstává dostupný import samotné sítě.
 6. Vybrat ověřený komunitní `Empty_Mission.zip`, jedinečný název nové mise a hráčský model s kostrou. **Vytvořit misi s ulicemi a kolizemi** vytvoří osm souborů šablony plus `osm-source.json`, `OSM-ATTRIBUTION.txt` a jediný model `models/WB_OSM_<mise>.4ds` jedním krokem undo. Bez povrchů vznikne pouze deset souborů mise. Existující mise ani původní herní soubory se nepřepisují.
 7. S povrchy se otevře běžný 3D editor `scene2.bin`, kde je statický model `OSM_STREETS`; bez nich editor `road.bin`. Uzly a propojení lze dále editovat. Změna silniční sítě zatím automaticky nepřegeneruje povrch. Kolize patří vloženému modelu a jeho přesun, smazání či undo se promítnou i do KLZ. Export nese i podklad a atribuci. `osm-source.json` umožní zopakovat import offline do jiné nové mise.
 
@@ -18,7 +18,7 @@ Priorita uživatele z 16. října 2026: začít OSM integraci již dnes. Navazuj
 
 Lokální metrická projekce: X na východ, Z na sever, Y = 0, střed oblasti v počátku. Pro velikost nejvýše 450 m používá equirektangulární projekci se zeměpisnou šířkou středu. Úseky se ořezávají na hranici čtverce. Skutečné společné OSM node ID vytváří křižovatku; pouhé křížení čar ji nevytváří. Kruhové uzavřené cesty se rozdělí na minimálně tři propojení, paralelní cesty se stejnými konci dostanou další mezilehlou křižovatku. Nativní writer seřadí mezilehlé uzly podle X a přepočítá reference, délky a směrové sloty.
 
-Explicitní `oneway=yes/1/true`, `-1`, `no/0/false`, implicitní kruhové objezdy a motorway se převádějí na povolené směry. Neznámé/podmíněné jednosměrky, mosty, tunely, jiné vrstvy, soukromé/zakázané komunikace a neautomobilové typy se nyní nepřevádějí. Značky šířek, pruhů, chodníků, povrchu, rychlosti a výšky se zachovají v podkladu, ale nejsou automaticky aplikované na herní profil.
+Explicitní `oneway=yes/1/true`, `-1`, `no/0/false`, implicitní kruhové objezdy a motorway se převádějí na povolené směry. Neznámé/podmíněné jednosměrky, mosty, tunely, jiné vrstvy, soukromé/zakázané komunikace a neautomobilové typy se nyní nepřevádějí. Značky šířek a chodníků se při zapnuté volbě převádějí na profil povrchu podle pravidel níže. Počet pruhů může sloužit jen jako výslovně zvolený odhad šířky; nemění počet nativních jízdních pruhů. Ostatní údaje o povrchu, rychlosti a výšce se uchovávají bez automatické aplikace.
 
 ## Přesné hranice tohoto bloku
 
@@ -26,11 +26,23 @@ Explicitní `oneway=yes/1/true`, `-1`, `no/0/false`, implicitní kruhové objezd
 - Jeden výchozí pruh v každém povoleném směru, rychlost 1.2 herních jednotek. Zákazy odbočení a OSM restrikční relace nejsou implementované. Provoz a chodci jsou vypnutí.
 - Budovy jsou pouze uzavřené way půdorysy v náhledu. Multipolygonové relace, otvory, 3D budovy a vazby na herní katalog se ještě nevyhodnocují.
 - Žádné skutečné výšky, DEM, modely terénu, pěší navigace, vybavení, zvuky ani automatické sektory. Existující ruční authoring zůstává dostupný.
-- Příští navazující blok: individuální profil komunikace podle dostupných značek šířky/pruhů/stran chodníků a zvoleného stylu původní hry. Potom půdorysy/budovy, terén a osazení. Nedostupné informace se musí dát nastavit; nelze vydávat domněnku o výšce či šířce za skutečnost z OSM.
+- Individuální profily jsou hotové pro podporované rozměry a strany chodníků. Zbývají samostatné pěší cesty, parkovací/cyklistické pásy a značení. Další větší bloky: půdorysy/budovy, terén a osazení. Nedostupné informace se musí dát nastavit; nelze vydávat domněnku o výšce či šířce za skutečnost z OSM.
 
 ## Geometrie povrchů
 
+### Individuální profily
+
+`profiles.js` bez přístupu k projektu vyhodnocuje každý původní OSM way. Dostupné `width`, pak `width:carriageway`, pak `est_width` mají přednost před náhradní šířkou. `est_width` je označený odhad. Podporované délky: desetinná tečka, metry, cm, km, ft, in a zápis stop/palců; nejasné seznamy, rozsahy, čárky nebo hodnoty mimo meze vedou na upozornění a náhradní profil, nikoli tiché oříznutí. Volitelný odhad `lanes × šířka pruhu` (2–4.5 m) je samostatně označený a nezahrnuje parkovací/cyklistické pásy. Dostupná použitelná šířka z OSM má před odhadem přednost.
+
+Strany se vyhodnocují v pořadí `sidewalk`, `sidewalk:both`, `sidewalk:left/right`. Levá/pravá odpovídá původnímu směru OSM way i při `oneway=-1`. `both/left/right`, boční `yes` a `no/none` jsou rozlišené; globální `yes` neurčuje stranu. `separate` znamená samostatně mapovanou pěší cestu, jejíž geometrii tento blok ještě nespojuje: použije proto jasně označený ruční náhradní profil. Šířky `sidewalk:left/right:width` mají přednost před `sidewalk:both:width`. Bez použitelného záznamu jde o ruční šířku, i když přítomnost chodníku určila mapa.
+
+Nové UI zapíná použití OSM značek, ale starší uložená nastavení bez této volby i přímé původní API zůstávají v ručním režimu. Import ukládá nastavení i vyhodnocené profily (`surfaceProfiles`) do podkladu; opakovaný import se znovu ověří a přepočítá z raw dat, nikoli z důvěry v odvozené profily. Načtení vlastního podkladu obnoví i vypnutí povrchů. V pražské ukázce chybí skutečné šířky vozovek a chodníky jsou často `separate`; výchozí rozměry jsou proto náhradní, nikoli změřená Praha.
+
+### Síťový povrch
+
 `surface.js` je oddělený čistý modul pluginu. Pro každou trasu vytváří metrické pásy s 24úhelníkovými zaoblenými spoji, které `polygon-clipping` (MIT, připnuté 0.15.7) sjednotí do vozovky. Rozdíl širšího půdorysu a vozovky vytvoří chodníky bez překryvů v křižovatkách. Výsledek se ořízne na čtverec oblasti. Vnitřní otvory zůstávají zachované; triangulace je přes existující Three.js ShapeUtils. Souřadnice půdorysu jsou kvantované na 1 mm; nulové plochy po float32 se nezapisují. Nejvýše 60 000 trojúhelníků, standardní 4DS s díly nejvýše 60 000 vrcholů, obvyklé limity KLZ zůstávají kontrolované.
+
+Každý úsek má vlastní šířku a levý/pravý pás; jednostranný chodník přidává jen odpovídající půlkruhové spoje a nevytváří chodník na protější straně. Nulový počet chodníků je platný profil.
 
 Vozovka leží 5 cm nad podlahou šablony (bez z-fightingu), chodníky podle zvolené výšky. Planární UV mají fyzické opakování v metrech bez protažení v ohybech. Výchozí asfalt `0OASF.BMP` je bez vodorovného značení; původní `^sl_6m02.bmp` obsahuje čáry a potřebuje orientované UV/profil, proto se nyní nevolí automaticky. Výchozí chodník `^chdnk01.bmp`, obrubník `^obrub01.bmp`; nic z toho se nepřibaluje do aplikace ani veřejného repozitáře.
 
@@ -46,6 +58,10 @@ Primární reference ověřené 16. 10. 2026:
 
 - [Overpass API: veřejné instance, účel, limity a identifikace aplikace](https://wiki.openstreetmap.org/wiki/Overpass_API).
 - [Overpass QL](https://wiki.openstreetmap.org/wiki/Overpass_API/Overpass_QL).
+- [OSM width: jednotky a šířka vozovky](https://wiki.openstreetmap.org/wiki/Key:width).
+- [OSM sidewalk: směry stran, hierarchie a separate](https://wiki.openstreetmap.org/wiki/Key:sidewalk).
+- [OSM šířka chodníku](https://wiki.openstreetmap.org/wiki/Key:sidewalk:both:width).
+- [OSM lanes: počet pruhů a výluky](https://wiki.openstreetmap.org/wiki/Key:lanes).
 - [OSM copyright a ODbL](https://www.openstreetmap.org/copyright).
 - [OSM API JSON a význam bbox](https://wiki.openstreetmap.org/wiki/API_v0.6).
 - [OSMF API usage policy](https://operations.osmfoundation.org/policies/api/): hlavní editing API není vhodný trvalý zdroj pro read-only projekt. Proto jej aplikace nepoužívá jako automatický fallback.
@@ -68,4 +84,12 @@ Soukromé skutečné Electron UI `local/osm-surface-ui-*`: pražský podklad vyt
 
 Nativní GOG/Wine test `local/osm-surface-game-ZKKzti`: generovaná OSM mise skutečně spuštěná bez ručního vstupu, tři `coll_testline` výsledky načtené z nového autosavu. Asfalt Y=0.05000019, chodník Y=0.19999981, boční obrubník trefen ve správném bodě (odchylky pod 2 cm). Kontrolní běh bez generovaných kolizí trefí podlahu Y=0 a boční paprsek mine. Přesné hashe nasazeného modelu a KLZ, po testu ukončené Wine a obnovená historie izolovaného projektu; původní projekt/hra beze změny. Toto ověřuje geometrii/kolize v enginu, nikoli automatickou jízdu provozu.
 
-Kontroly: check/build prošly, celá sada 668 testů má 667 úspěšných a jediný dříve existující nesoulad textu chyby v `mission-dialogue.test.js` (`/současně/` versus „vyberte pouze jednu šablonu“). Nesouvisející test se v tomto bloku nemění.
+### Ověření individuálních profilů
+
+Šest veřejných testů `test/osm-profiles.test.js`: délky a odhady, hierarchie stran/šířek, nejasné údaje, jednostranná geometrie i opačná jednosměrka, žádný chodník, různě široká křižovatka/zakřivení bez překrytí horních ploch, otvory a zachované tagy přes plánování.
+
+Soukromé skutečné UI `local/osm-profiles-ui-W33OWr`: pražský podklad s ručně zvoleným náhradním levým profilem vytvořil 611 trojúhelníků; přesný export/reopen/undo, opakovaný import s byteově shodným 4DS, obnovení starších původních nastavení (1327 trojúhelníků), explicitní vypnutí povrchů, zneplatnění změnou středu a dostupnost voleb odhadu podle nadřazených přepínačů. V nasazené desktopové aplikaci se navíc přes skutečný systémový výběr souboru ověřilo načtení uloženého profilu (7.25 m, levý chodník 1.25 m, odhad vypnutý); projekt se při této kontrole neměnil. `local/osm-profiles-view-YMpxwM` ověřuje nové různě široké/jednostranné kontrolní ulice ve skutečném WebGL včetně všech tří původních textur bez chyb. Kontrolní tagy v tomto druhém vzorku jsou syntetické, nikoli skutečně změřené pražské ulice.
+
+Nativní GOG/Wine test `local/osm-profiles-game-UQJyd3`: syntetická síť v pražském středu s šířkami 8/4/6 m, levým/pravým chodníkem a opačnou jednosměrkou. Čtyři paprsky v novém autosavu potvrzují vozovku Y=.05, levý chodník Y=.2, obrubník na Z=4 a žádný chodník na protější straně (pouze základní podlaha Y=0). Kontrola bez kolizí zasáhne na obou stranách pouze podlahu a boční paprsek mine; přesné hashe nasazeného modelu/KLZ. Po testu se zastavilo vlastní Wine a vrátila historie izolovaného projektu; původní soubory jsou byteově shodné.
+
+Kontroly: 84 relevantních testů prošlo; check/build prošly, celá sada 674 testů má 673 úspěšných a jediný dříve existující nesoulad textu chyby v `mission-dialogue.test.js` (`/současně/` versus „vyberte pouze jednu šablonu“). Nesouvisející test se v tomto bloku nemění.

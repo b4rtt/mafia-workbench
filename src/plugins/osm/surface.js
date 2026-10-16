@@ -1,7 +1,8 @@
 import clipping from 'polygon-clipping';
 import {ShapeUtils,Vector2} from 'three';
+import {osmProfileDefaults,osmRoadProfile} from './profiles.js';
 
-export const osmSurfaceDefaults=Object.freeze({width:6,sidewalkWidth:2,curbHeight:.15,tileSize:4,sidewalkTileSize:2,roadTexture:'maps/0OASF.BMP',sidewalkTexture:'maps/^chdnk01.bmp',curbTexture:'maps/^obrub01.bmp'});
+export const osmSurfaceDefaults=Object.freeze({...osmProfileDefaults,width:6,sidewalkWidth:2,curbHeight:.15,tileSize:4,sidewalkTileSize:2,roadTexture:'maps/0OASF.BMP',sidewalkTexture:'maps/^chdnk01.bmp',curbTexture:'maps/^obrub01.bmp'});
 const fail=message=>{throw Error(`OpenStreetMap · povrchy: ${message}`);};
 const snap=n=>Math.round(n*1000)/1000;
 // A planar street footprint is a union, rather than overlapping per-link
@@ -13,16 +14,30 @@ export function osmSurfaceModel(plan,area,options){
   if(!plan?.flat||!Array.isArray(plan.roads)||!plan.roads.length||plan.roads.length>1024||!Array.isArray(plan.crossings)||!Number.isFinite(area?.size)||area.size<50||area.size>450)fail('neplatná rovinná síť.');
   const chains=plan.roads.map(road=>[plan.crossings[road.from]?.position,...road.positions,plan.crossings[road.to]?.position]);
   if(chains.reduce((sum,c)=>sum+c.length,0)>8192||chains.some(c=>c.length<2||c.some(p=>!Array.isArray(p)||p.length!==3||p.some(n=>!Number.isFinite(n)||Math.abs(n)>32768)||p[1]!==0)))fail('neplatné souřadnice nebo příliš velká síť.');
+  const profiles=plan.roads.map((road,index)=>({way:road.way??null,road:index,...osmRoadProfile(road.tags,options)}));
   const half=area.size/2,box=[[[-half,-half],[half,-half],[half,half],[-half,half],[-half,-half]]];
-  function footprint(radius){
+  function footprint(outer){
     const polygons=[],centers=new Set();
-    for(const chain of chains){
+    for(const [index,chain]of chains.entries()){
+      const profile=profiles[index],radius=profile.width/2,left=outer?profile.left:0,right=outer?profile.right:0;
       for(let i=1;i<chain.length;i++){
         const a=chain[i-1],b=chain[i],dx=b[0]-a[0],dz=b[2]-a[2],length=Math.hypot(dx,dz);if(length<.01)fail('příliš krátký úsek.');
-        const x=dz/length*radius,z=-dx/length*radius;
+        const stripRadius=radius+(left===right?left:0),x=dz/length*stripRadius,z=-dx/length*stripRadius;
         polygons.push([[[a[0]+x,a[2]+z],[b[0]+x,b[2]+z],[b[0]-x,b[2]-z],[a[0]-x,a[2]-z]].map(p=>p.map(snap))]);
+        // Expand each directed segment independently on its OSM left/right.
+        // Semicircular joins round bends without inventing a sidewalk on the
+        // opposite side. Subtracting the whole road network trims junctions.
+        if(left!==right){
+          const angle=Math.atan2(dz,dx);
+          for(const[width,side]of [[left,0],[right,1]])if(width){
+            const sign=side===0?-1:1,nx=dz/length*sign,nz=-dx/length*sign,inner=radius,edge=radius+width;
+            polygons.push([[[a[0]+nx*inner,a[2]+nz*inner],[b[0]+nx*inner,b[2]+nz*inner],[b[0]+nx*edge,b[2]+nz*edge],[a[0]+nx*edge,a[2]+nz*edge]].map(p=>p.map(snap))]);
+            for(const p of [a,b]){const key=`${snap(p[0])}/${snap(p[2])}/${angle}/${side}/${edge}`;if(centers.has(key))continue;centers.add(key);polygons.push([[[p[0],p[2]],...Array.from({length:13},(_,j)=>[p[0]+Math.cos(angle+side*Math.PI+j*Math.PI/12)*edge,p[2]+Math.sin(angle+side*Math.PI+j*Math.PI/12)*edge])].map(p=>p.map(snap))]);}
+          }
+        }
       }
-      for(const p of chain){const key=`${snap(p[0])}/${snap(p[2])}`;if(centers.has(key))continue;centers.add(key);polygons.push([Array.from({length:24},(_,i)=>[snap(p[0]+Math.cos(i*Math.PI/12)*radius),snap(p[2]+Math.sin(i*Math.PI/12)*radius)])]);}
+      const cap=radius+(left===right?left:0);
+      for(const p of chain){const key=`${snap(p[0])}/${snap(p[2])}/disk/${cap}`;if(centers.has(key))continue;centers.add(key);polygons.push([Array.from({length:24},(_,i)=>[snap(p[0]+Math.cos(i*Math.PI/12)*cap),snap(p[2]+Math.sin(i*Math.PI/12)*cap)])]);}
     }
     const merged=clipping.intersection(clipping.union(polygons),box);
     // Quantize before triangulation: native float32 must retain identical
@@ -30,8 +45,8 @@ export function osmSurfaceModel(plan,area,options){
     return clipping.union(merged.map(poly=>poly.map(ring=>ring.map(p=>p.map(snap)))));
   }
   let road,outer,sidewalk;
-  try{road=footprint(options.width/2);outer=footprint(options.width/2+options.sidewalkWidth);sidewalk=clipping.difference(outer,road);}catch(error){if(error.message.startsWith('OpenStreetMap'))throw error;fail('půdorysy nelze spojit; zmenšete oblast nebo upravte výběr.');}
-  if(!road.length||!sidewalk.length)fail('ve výběru nevznikl úplný povrch ulice.');
+  try{road=footprint(false);outer=footprint(true);sidewalk=clipping.difference(outer,road);}catch(error){if(error.message.startsWith('OpenStreetMap'))throw error;fail('půdorysy nelze spojit; zmenšete oblast nebo upravte výběr.');}
+  if(!road.length)fail('ve výběru nevznikl úplný povrch ulice.');
   const meshes=[],base=.05,top=Math.fround(base+options.curbHeight),materials=[options.roadTexture,options.sidewalkTexture,options.curbTexture].map(path=>({flags:0x00840001,ambient:[1,1,1],diffuse:[1,1,1],emission:[0,0,0],opacity:1,texture:path.slice(5)}));
   let positions=[],normals=[],uv=[],faces=[1,2,3].map(material=>({material,indices:[]})),triangles=0;
   function flush(){if(!positions.length)return;meshes.push({id:meshes.length+1,name:`OSM_${meshes.length+1}`,type:1,visual:0,renderFlags:0,logicFlags:0x2a,culling:9,parent:0,position:[0,0,0],rotation:[1,0,0,0],scale:[1,1,1],properties:'',instance:0,lods:[{distance:0,vertices:positions.length/3,positions,normals,uv,faces}]});positions=[];normals=[];uv=[];faces=[1,2,3].map(material=>({material,indices:[]}));}
@@ -57,5 +72,5 @@ export function osmSurfaceModel(plan,area,options){
     const points=[[a[0],base,a[1]],[b[0],base,b[1]],[a[0],top,a[1]],[b[0],top,b[1]]],tex=[[distance,0],[distance+length,0],[distance,1],[distance+length,1]];
     for(const ids of [[0,2,1],[1,2,3]])triangle(ids.map(i=>points[i]),ids.map(i=>tex[i]),3);distance+=length;
   }}
-  flush();return {model:{version:29,materials,meshes,animated:0},footprints:{road,sidewalk},triangles};
+  flush();return {model:{version:29,materials,meshes,animated:0},footprints:{road,sidewalk},triangles,profiles};
 }
