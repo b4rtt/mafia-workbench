@@ -60,3 +60,25 @@ V běhu s předem inicializovanou výchozí plochou Wine vznikly čerstvé check
 **Načtení těchto nových stavů není tímto blokem ověřené.** První běžný produkční start selhal před oknem. Druhý pokus s rozšířeným logem vytvořil všechny čtyři checkpointy, ale samotný načítací proces opět skončil před oknem se stejnou chybou. V posledním pokusu po úspěšné nové misi nedokončil inicializaci nový přípravný Explorer; načítání hry se vůbec nevolalo. Žádný z těchto neúspěchů není důkaz chyby obnovy skriptů. Diagnostika a pracovní hypotéza pořadí inicializace jsou v [wine-startup.md](wine-startup.md). Produkční launcher, patch EXE i parser checkpointů se neměnily.
 
 Soukromá evidence posledního běhu je `local/spatial-checkpoint-F6eNLG/results.json`, čtyři `new-*.sav`, logy a `cleanup.json`. Všechny diagnostické úpravy projektu byly vrácené přes undo na historii 53 a původní hash scény. Chráněné soubory a uživatelský projekt zůstaly přesné; vlastní hry/přípravné procesy jsou ukončené. Prošlo 9/9 cílených testů spouštěče a checkpointů. Obnovení nových prostorových/automobilových podmínek zůstává otevřený test, nikoli hotová položka.
+
+## Řazené rozhovory po načtení, 16. října
+
+Samostatná kopie projektu použila šest produkčně generovaných rozhovorů s kamerou, zámkem ovládání, kontrolou života a společným detektorem `WB_DIALOGUE_QUEUE`. Diagnostický kontrolér současně aktivoval A/B, později usmrtil čekajícího účastníka D během C a nakonec vlastníka E při čekajícím F. Každý rozhovor měl čtyři dabované repliky. Nový běh vytvořil sedm úplných checkpointů 570–576 v časech 4 339 / 17 972 / 31 137 / 32 837 / 45 126 / 47 012 / 60 217 ms. První frontu v tomto běhu získal B; pořadí A/B není součástí slibu této funkce.
+
+Po produkčním ukončení a sběru byly všechny save kompatibilní. Následovaly tři skutečné procesy hry přes `Playtest.start` s vybraným slotem a hashem z `Playtest.checkpoints`:
+
+| Načtený stav | Herní čas save | Nově vytvořené následující save | Ověřený výsledek |
+| --- | --- | --- | --- |
+| 570: první rozhovor běží, druhý čeká | 4 339 ms | 571–576 | Oba postupně dokončené; pozdější smrt D/E vede pouze do jejich neúspěchu; F dokončený |
+| 573: C běží, čekající D už zemřel | 33 078 ms | 574–576 | C pokračuje, výsledky dokončených A/B/D zůstávají zachované; pozdější E/F správně navážou |
+| 575: po smrti vlastníka E už mluví F | 48 516 ms | 576 | F dokončí, E zůstává pouze v neúspěšné větvi, hráč i fronta uvolnění |
+
+Druhý vybraný save pochází z prvního obnoveného běhu a třetí z druhého; nejde o tři načtení pouze původní nové hry. Před každým načtením se v soukromé kopii odstranily pouze budoucí sloty. Jejich další vznik proto dokládá vykonání pokračování, nikoli čtení starších souborů. Evidence kompatibility vznikla produkčním sběrem, žádné ruční přidání indexu. Hash každého vybraného save se při načtení nezměnil.
+
+Nezávislé dekódování sedmi nových a deseti obnovených stavů ověřilo všech dvanáct success/failure signálů, signál fronty a uložený zámek hráče. Nové fáze mají lock/queue `[1,1,0,1,0,1,0]`; obnovené části mají odpovídající konce téže řady. Stav po smrti čekajícího má aktivní cizí zámek zachovaný a závěrečné stavy mají oba zámky nulové. Herní čas pokračoval z uložené hodnoty; konce obnovených běhů byly 60 575 / 61 579 / 62 099 ms. Nejde o přesné měření pozice v právě vyslovované replice ani souvislé sledování zámku mezi checkpointy. Zachované jedničkové výsledky samy neprokazují, že se stejný výstup nikdy znovu neodeslal.
+
+Tento audit dokládá pokračování skriptů, vazeb aktérů, fronty, větví a uvolnění ovládání. **Nedokládá obnovu stejného záběru kamery, přesné pozice dabingu, nativní nabídky odpovědí ani ruční pohyb hráče.** Programový save/load obnovuje čítač instrukce, registry a odkazy aktérů; `human_talk` má navíc stav kanálu v payloadu instrukce. Pokračování programu samo o sobě proto není důkaz věrné obnovy zvuku nebo kamery. Primární podklad: `program_save_game_save`, `program_save_game_load` a dispatcher 0x83 v PC dekompilaci výše.
+
+První dva nové starty a první dva pokusy načtení 570 selhaly před oknem se známou chybou Wine; třetí pokusy prošly. Načtení 573 a 575 prošla napoprvé. Přípravný Explorer někdy hlásil stopu připravenosti i před následným grafickým selháním hry; tato stopa tedy není dostatečná produkční podmínka startu. Launcher ani runtime se neměnily.
+
+Soukromá evidence `local/dialogue-queue-load-qZTiSy/results.json`, save, logy a `cleanup.json` zůstává mimo Git. Vlastní procesy ukončené, diagnostická změna vrácená přes undo na historii 53 a původní hash scény; čerstvě zachycené hashe chráněných souborů i uživatelského manifestu přesné. Prošlo 11/11 cílených testů checkpointů, spouštěče a fronty rozhovorů. Audit celé vlastní mise a výše vyjmenované meze zůstávají otevřené.

@@ -2,6 +2,13 @@
 
 Aktualizace: 16. října 2026. Vývoj pokračuje; komplexní editor není dokončený. Implementace, datové testy, ověření UI a ověření ve hře jsou různé úrovně dokončení; neoznačovat jednu za druhou. Podrobnosti existujících funkcí a jejich omezení jsou v README.md a research/formats.md. Původní hra se nemění, úpravy mají kontrolu verze, zálohu, export a undo. Herní data a soukromé reference nepatří do veřejného repozitáře.
 
+## Obnovení fronty rozhovorů bez účasti uživatele (2026-10-16)
+
+- Produkční nový start vytvořil sedm úplných checkpointů a sběr je zaevidoval jako kompatibilní. Následovala tři produkční načtení: současné A/B během první řeči, C po smrti čekajícího D a F po smrti vlastníka E. Druhý a třetí save pocházejí z předchozího obnoveného běhu, tedy také save/load/save/load. Budoucí soubory se před každým startem odstranily pouze ve vlastní kopii; jejich nový vznik dokládá pokračování.
+- Nezávislý rozbor 17 skutečných uložených stavů ověřil všech 12 výsledkových signálů, frontu a zámek hráče podle očekávaných fází. Výsledky dokončených větví zůstaly zachované, stav po smrti čekajícího měl cizí zámek aktivní a závěr měl frontu/ovládání uvolněné. Hash vybraných save zůstal přesný. Kamera, pozice rozehrané repliky, souvislý stav mezi save ani odpovědi hráče tímto datovým testem nejsou ověřené; přesné časy, primární podklady a hranice v research/checkpoint-load.md.
+- Soukromá evidence local/dialogue-queue-load-qZTiSy/results.json + cleanup.json; všechny vlastní procesy ukončené, změna scény vrácená jedním undo na historii 53 a baseline hash. Čerstvé chráněné hashe včetně uživatelského projektu stejné. Prošlo 11/11 cílených testů checkpointů/spouštěče/fronty; aplikační kód se neměnil. Nový start i první načtení prošly až třetím omezeným pokusem; stopa připravenosti Exploreru se objevila i před selháním hry, není hotovou opravou. Další dvě načtení prošla napoprvé.
+- Goal aktivní; audit celé vlastní mise a ostatní zaznamenané mezery před AI/OSM pluginem pokračují. Uživatel spí, tento blok nevyžadoval klávesnici, odemknutí ani oprávnění.
+
 ## Řazení rozhovorů a samostatné ověření (2026-10-16)
 
 - Nová volba serialize řadí spolupracující rozhovory přes jeden vlastněný detektor WB_DIALOGUE_QUEUE. Krátký commandblock atomicky čte/získá signál, retry zavře blok před čekáním. Kamera/ovládání/předání začínají až po získání; při dokončení/smrti se nejdřív uvolní vlastní kamera/zámek, potom fronta. Čekající mrtvý účastník neuvolňuje cizí stav; inventář se kontroluje znovu po čekání. Primární PC dispatcher 0x21 a 0x1a/0x1b, postup v research/scripting.md.
