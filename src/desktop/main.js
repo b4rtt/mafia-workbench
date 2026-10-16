@@ -157,24 +157,25 @@ app.whenReady().then(async () => {
   }
   handle('model-import:choose',()=>operation(async()=>{
     const active=current();modelImport=null;
-    const result=await dialog.showOpenDialog(window,{title:'Vyberte vlastní model 4DS',properties:['openFile'],filters:[{name:'Model Mafia 1',extensions:['4ds']}]});
+    const result=await dialog.showOpenDialog(window,{title:'Vyberte vlastní model 4DS nebo OBJ',properties:['openFile'],filters:[{name:'Model Mafia 1 / Wavefront',extensions:['4ds','obj']}]});
     if(result.canceled)return null;
     const file=await importFile(result.filePaths[0]);prepareModelImport([file]);
-    const token=randomUUID();modelImport={project:active,files:[file],token};return {token,name:file.name};
+    const token=randomUUID();modelImport={project:active,files:[file],token};return {token,name:file.name.replace(/\.obj$/i,'.4ds'),source:file.name,converted:/\.obj$/i.test(file.name)};
   }));
   handle('model-import:textures',token=>operation(async()=>{
     const pending=pendingModel(token);
-    const result=await dialog.showOpenDialog(window,{title:'Vyberte BMP textury modelu (všechny potřebné soubory)',properties:['openFile','multiSelections'],filters:[{name:'Textury Mafia 1',extensions:['bmp']}]});
+    const converted=/\.obj$/i.test(pending.files[0].name);
+    const result=await dialog.showOpenDialog(window,{title:converted?'Vyberte všechny MTL knihovny a BMP textury':'Vyberte BMP textury modelu (všechny potřebné soubory)',properties:['openFile','multiSelections'],filters:[{name:converted?'Materiály a textury':'Textury Mafia 1',extensions:converted?['mtl','bmp']:['bmp']}]});
     if(result.canceled)return false;
-    if(result.filePaths.length>63)throw new Error('Import: nejvýše 63 textur.');
+    if(result.filePaths.length>63)throw new Error('Import: nejvýše 63 doprovodných souborů.');
     const files=[pending.files[0]];let total=files[0].data.length;
     for(const filename of result.filePaths){const file=await importFile(filename);total+=file.data.length;if(total>64*1024*1024)throw new Error('Import: soubory přesahují 64 MiB.');files.push(file);}
     prepareModelImport(files);pending.files=files;return true;
   }));
-  handle('model-import:plan',(token,name)=>{const pending=pendingModel(token);return current().previewModelImport(pending.files,name);});
+  handle('model-import:plan',(token,name,options)=>{const pending=pendingModel(token);return current().previewModelImport(pending.files,name,options);});
   handle('model-import:cancel',token=>{if(modelImport?.token===token)modelImport=null;});
-  handle('model-import:save',(token,name,expected)=>operation(async()=>{
-    const pending=pendingModel(token),active=current();const imported=await active.importModel(pending.files,name,expected);modelImport=null;return {path:imported,project:await active.list()};
+  handle('model-import:save',(token,name,expected,options)=>operation(async()=>{
+    const pending=pendingModel(token),active=current();const imported=await active.importModel(pending.files,name,expected,options);modelImport=null;return {path:imported,project:await active.list()};
   }));
   handle('asset:scene', (name, changes, expectedHash) => operation(async () => { await current().saveScene(name, changes, expectedHash); return current().inspect(name); }));
   handle('asset:scene-object', (name, request, expectedHash) => operation(async () => { await current().changeSceneObject(name, request, expectedHash); return current().inspectMap(name); }));

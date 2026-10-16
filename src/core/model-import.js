@@ -1,6 +1,8 @@
 import { parseFourDs } from './fourds.js';
 import { parseBmp } from './bmp.js';
 import { hash } from './files.js';
+import { objModel } from './obj-import.js';
+import { writeSurfaceModel } from './surface-model.js';
 
 const key = name => name.toLowerCase();
 function filename(name, extension) {
@@ -8,21 +10,26 @@ function filename(name, extension) {
   return name;
 }
 
-// Native exporter output is copied exactly. No guessed conversion of geometry,
-// skeletons or opaque payloads, and no overwriting existing project assets.
-export function prepareModelImport(files, modelName) {
-  if (!Array.isArray(files) || !files.length || files.length > 64) throw new Error('Import: vyberte jeden 4DS a nejvýše 63 BMP textur.');
+// Existing 4DS is copied exactly; OBJ creates a new static standard visual.
+// Neither path follows referenced files or overwrites existing project assets.
+export function prepareModelImport(files, modelName, options) {
+  if (!Array.isArray(files) || !files.length || files.length > 64) throw new Error('Import: vyberte jeden 4DS/OBJ a nejvýše 63 souborů BMP/MTL.');
   const rows = [], seen = new Set(); let size = 0;
   for (const file of files) {
-    const extension = typeof file?.name === 'string' && /\.4ds$/i.test(file.name) ? '.4ds' : '.bmp';
+    const extension = typeof file?.name === 'string' ? /\.(4ds|obj|mtl|bmp)$/i.exec(file.name)?.[0].toLowerCase() : null;
+    if(!extension)throw new Error('Import: podporované soubory jsou 4DS, OBJ, MTL a BMP.');
     const name = filename(file?.name, extension), bytes = Buffer.from(file.data);
     if (!bytes.length || (size += bytes.length) > 64 * 1024 * 1024) throw new Error('Import: soubory jsou prázdné nebo přesahují 64 MiB.');
     if (seen.has(key(name))) throw new Error(`Import: opakovaný název souboru ${name}.`);
     seen.add(key(name)); rows.push({ name, extension, data: bytes });
   }
-  const models = rows.filter(row => row.extension === '.4ds');
-  if (models.length !== 1) throw new Error('Import: vyberte právě jeden model 4DS.');
-  const model = parseFourDs(models[0].data, 'all'), references = new Map();
+  const models = rows.filter(row => ['.4ds','.obj'].includes(row.extension));
+  if (models.length !== 1) throw new Error('Import: vyberte právě jeden model 4DS nebo OBJ.');
+  const source=models[0],converted=source.extension==='.obj'?objModel(source,rows.filter(row=>row!==source),options):null;
+  if(!converted&&rows.some(row=>row.extension==='.mtl'))throw new Error('Import: knihovna MTL patří jen k modelu OBJ.');
+  const modelBytes=converted?writeSurfaceModel(converted.model):source.data;
+  if(modelBytes.length>64*1024*1024)throw new Error('Import: výsledný model přesahuje 64 MiB.');
+  const model = parseFourDs(modelBytes, 'all'), references = new Map();
   for (const material of model.materials) {
     if (material.flags & 0x04000000) throw new Error('Import: sekvence animovaných textur zatím vyžaduje externí přípravu a není podporovaná tímto importem.');
     for (const field of ['texture', 'alphaTexture', 'environmentTexture']) if (material[field]) {
@@ -41,13 +48,13 @@ export function prepareModelImport(files, modelName) {
       if (!Number.isFinite(lod.distance) || lod.invalidNormals || lod.invalidUV || lod.faces.some(face => face.material > model.materials.length)) throw new Error('Import: neplatná geometrie, UV, normály nebo materiál.');
     }
   }
-  const target = `models/${filename(modelName ?? models[0].name, '.4ds')}`;
+  const target = `models/${filename(modelName ?? source.name.replace(/\.obj$/i,'.4ds'), '.4ds')}`;
   for (const row of rows.filter(row => row.extension === '.bmp')) parseBmp(row.data);
-  return { target, files: rows.map(row => ({ path: row.extension === '.4ds' ? target : `maps/${row.name}`, data: row.data })), references: [...references.values()], summary: { version: model.version, meshes: model.meshes.length, materials: model.materials.length, joints: model.meshes.filter(mesh => mesh.joint).length } };
+  return { target, files: [{path:target,data:modelBytes},...rows.filter(row=>row.extension==='.bmp').map(row=>({path:`maps/${row.name}`,data:row.data}))], references: [...references.values()], blocked:converted?.blocked??[], sourceHash:converted?hash(Buffer.from(JSON.stringify({files:rows.map(row=>[row.name,hash(row.data)]),up:converted.summary.up,scale:converted.summary.scale}))):undefined, summary: { version: model.version, meshes: model.meshes.length, materials: model.materials.length, joints: model.meshes.filter(mesh => mesh.joint).length,...converted?.summary,warnings:converted?.warnings??[] } };
 }
 
-export async function modelImportPlan(project, files, modelName) {
-  const prepared = prepareModelImport(files, modelName), selected = new Map(prepared.files.map(file => [key(file.path), file])), rows = [], expected = [], blocked = [];
+export async function modelImportPlan(project, files, modelName, options) {
+  const prepared = prepareModelImport(files, modelName, options), selected = new Map(prepared.files.map(file => [key(file.path), file])), rows = [], expected = [], blocked = [...prepared.blocked];
   const paths = new Map([...prepared.files.map(file => [key(file.path), file.path]), ...prepared.references.map(name => [key(name), name])]);
   for (const [canonical, name] of paths) {
     const asset = project.manifest.assets.find(asset => key(asset.path) === canonical), source = selected.get(canonical), bytes = asset ? await project.read(asset.path) : null;
@@ -60,14 +67,16 @@ export async function modelImportPlan(project, files, modelName) {
     if (status === 'conflict') blocked.push(`Název ${name} již existuje s ${canonical === key(prepared.target) ? 'modelem' : 'jinými daty'}. Zvolte nový název modelu nebo změňte názvy textur a jejich vazby v externím nástroji.`);
     rows.push({ path: asset?.path ?? name, size: source?.data.length ?? bytes?.length ?? 0, status });
   }
-  return { path: prepared.target, ...prepared.summary, files: rows, blocked, expected };
+  if(expected.filter(file=>file.sha256!==null).length>64)blocked.push('Import: nejvýše 64 převzatých projektových textur na jeden model. Rozdělte model nebo spojte textury.');
+  if(rows.filter(file=>file.status==='new').reduce((sum,file)=>sum+file.size,0)>64*1024*1024)blocked.push('Import: výsledný model a nové textury dohromady přesahují 64 MiB. Zmenšete model nebo textury.');
+  return { path: prepared.target, ...prepared.summary, files: rows, blocked, expected,sourceHash:prepared.sourceHash };
 }
 
-export async function importModel(project, files, modelName, expected) {
-  const plan = await modelImportPlan(project, files, modelName);
-  if (!expected || expected.path !== plan.path || JSON.stringify(expected.files) !== JSON.stringify(plan.expected)) throw new Error('Import: model nebo závislé textury se od náhledu změnily. Obnovte náhled.');
+export async function importModel(project, files, modelName, expected, options) {
+  const plan = await modelImportPlan(project, files, modelName, options);
+  if (!expected || expected.path !== plan.path || JSON.stringify(expected.files) !== JSON.stringify(plan.expected) || expected.sourceHash!==plan.sourceHash) throw new Error('Import: model nebo závislé textury se od náhledu změnily. Obnovte náhled.');
   if (plan.blocked.length) throw new Error(plan.blocked.join('\n'));
-  const prepared = prepareModelImport(files, modelName), paths = new Set(plan.files.filter(file => file.status === 'new').map(file => key(file.path)));
+  const prepared = prepareModelImport(files, modelName, options), paths = new Set(plan.files.filter(file => file.status === 'new').map(file => key(file.path)));
   await project.createFiles(prepared.files.filter(file => paths.has(key(file.path))), `Import modelu ${plan.path.slice(7)}`, plan.expected.filter(file => file.sha256 !== null).map(file => ({ path: file.path, expectedHash: file.sha256 })), 'Vlastní model');
   return plan.path;
 }

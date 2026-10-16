@@ -245,10 +245,10 @@ export class ModProject {
     await this.createFiles([...files].map(([file, data]) => ({ path: folder + file, data })), `Nová mise ${name}`);
     return folder + 'scene2.bin';
   }
-  async previewModelImport(files, name) { return modelImportPlan(this, files, name); }
+  async previewModelImport(files, name, options) { return modelImportPlan(this, files, name, options); }
   async createTerrain(options,textureHash){return createTerrain(this,options,textureHash);}
   async createRoadSurface(name,options,expectedHash,textureHashes){return createRoadSurface(this,name,options,expectedHash,textureHashes);}
-  async importModel(files, name, expected) { return importModel(this, files, name, expected); }
+  async importModel(files, name, expected, options) { return importModel(this, files, name, expected, options); }
   async importLoose(progress = () => {}) {
     if (this.busy) throw new Error('Probíhá jiné ukládání.');
     if (!this.manifest.gameRoot) throw new Error('Projekt nemá zadaný zdroj hry.');

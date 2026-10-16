@@ -1,37 +1,46 @@
 export async function modelImportDialog({api,element,run,onImported}) {
   const selected=await api.chooseModel();if(!selected)return;
-  const dialog=element('dialog',undefined,'new-text-dialog'),name=element('input'),rows=element('div'),summary=element('p'),message=element('p',undefined,'notice'),textures=element('button','Vybrat BMP textury…'),recheck=element('button','Znovu zkontrolovat'),sources=element('div',undefined,'tools'),cancel=element('button','Zrušit'),save=element('button','Importovat do projektu','primary'),actions=element('div',undefined,'tools');
+  const dialog=element('dialog',undefined,'new-text-dialog'),name=element('input'),rows=element('div'),summary=element('p'),warnings=element('p',undefined,'notice'),message=element('p',undefined,'notice'),textures=element('button',selected.converted?'Vybrat MTL a BMP…':'Vybrat BMP textury…'),recheck=element('button','Znovu zkontrolovat'),sources=element('div',undefined,'tools'),cancel=element('button','Zrušit'),save=element('button','Importovat do projektu','primary'),actions=element('div',undefined,'tools');
   name.value=selected.name;name.maxLength=120;name.setAttribute('aria-label','Název importovaného modelu');const label=element('label','Název modelu v projektu');label.append(name);
   let plan=null,revision=0,closed=false;
+  const settings=element('div',undefined,'tools'),up=element('select'),scale=element('input');
+  for(const [value,text]of [['y','Y nahoru'],['z','Z nahoru']]){const option=element('option',text);option.value=value;up.append(option);}
+  up.setAttribute('aria-label','Svislá osa zdrojového OBJ');scale.type='number';scale.value='1';scale.min='0.000001';scale.max='1000000';scale.step='any';scale.setAttribute('aria-label','Měřítko OBJ');
+  const upLabel=element('label','Zdrojová osa'),scaleLabel=element('label','Měřítko (1 = herní metr)');upLabel.append(up);scaleLabel.append(scale);settings.append(upLabel,scaleLabel);
+  const options=()=>selected.converted?{up:up.value,scale:Number(scale.value)}:undefined;
+  const controls=[cancel,recheck,textures,name,up,scale];
   actions.append(cancel,save);save.disabled=true;
   sources.append(textures,recheck);
-  dialog.append(element('h2','Import vlastního modelu'),element('p',`Zdroj: ${selected.name}`),label,summary,sources,rows,message,element('p','Vyberte všechny potřebné BMP současně; další výběr nahradí tuto sadu. Shodné textury se převezmou z projektu. Model a nové textury budou přidané společně s jedním undo. Po importu je můžete vložit do mise přes Přidat → Vložit model… a vygenerovat kolizi.'),actions);
+  dialog.append(element('h2','Import vlastního modelu'),element('p',`Zdroj: ${selected.source??selected.name}`),label,...(selected.converted?[settings]:[]),summary,sources,rows,warnings,message,element('p',`Vyberte všechny potřebné ${selected.converted?'MTL a BMP':'BMP'} současně; další výběr nahradí tuto sadu. Shodné textury se převezmou z projektu. Model a nové textury budou přidané společně s jedním undo. Po importu je můžete vložit do mise přes Přidat → Vložit model… a vygenerovat kolizi.`),actions);
+  if(selected.converted)settings.after(element('p','Statický OBJ: části o/g, UV, normály, vyhlazování a difuzní MTL s BMP. Model exportujte s aplikovanými modifikátory. Osa a měřítko se převedou do herních souřadnic; OBJ nemá vlastní jednotky. Animace ani kostra se nepřenášejí.'));
   async function update() {
-    const version=++revision;plan=null;save.disabled=true;message.textContent='Kontroluji model a textury…';
+    const version=++revision;plan=null;save.disabled=true;summary.textContent=warnings.textContent='';rows.replaceChildren();message.textContent='Kontroluji model a textury…';
     try {
-      const next=await api.previewModelImport(selected.token,name.value);
+      const next=await api.previewModelImport(selected.token,name.value,options());
       if(closed||version!==revision)return;
       plan=next;summary.textContent=`4DS v${next.version} · ${next.meshes} objektů · ${next.materials} materiálů · ${next.joints} kloubů`;
+      if(next.source==='obj'){const dimensions=next.bounds.max.map((n,i)=>(n-next.bounds.min[i]).toLocaleString('cs',{maximumFractionDigits:3}));summary.textContent+=` · ${next.vertices.toLocaleString('cs')} vrcholů · ${next.triangles.toLocaleString('cs')} trojúhelníků · rozměry XYZ ${dimensions.join(' × ')} m`;}
+      warnings.textContent=(next.warnings??[]).join('\n');
       const statuses={new:'Nový soubor',reuse:'Použije se z projektu',missing:'Chybí',conflict:'Konflikt názvu'};
       rows.replaceChildren(...next.files.map(file=>element('p',`${file.path} · ${statuses[file.status]}${file.size?` · ${file.size.toLocaleString('cs')} B`:''}`)));
       message.textContent=next.blocked.join('\n');save.disabled=Boolean(next.blocked.length);
     } catch(error) {if(!closed&&version===revision)message.textContent=error.message;}
   }
-  name.oninput=update;
+  name.oninput=scale.oninput=up.onchange=update;
   recheck.onclick=()=>run(update);
   textures.onclick=()=>run(async()=>{
-    recheck.disabled=textures.disabled=name.disabled=save.disabled=true;
+    for(const control of controls.slice(1))control.disabled=true;save.disabled=true;
     try {await api.chooseModelTextures(selected.token);await update();}
     catch(error){message.textContent=error.message;}
-    finally{recheck.disabled=textures.disabled=name.disabled=false;}
+    finally{for(const control of controls.slice(1))control.disabled=false;}
   });
   cancel.onclick=()=>dialog.close();
   save.onclick=()=>run(async()=>{
     if(!plan||plan.blocked.length)return;
-    cancel.disabled=recheck.disabled=textures.disabled=name.disabled=save.disabled=true;
-    try {const result=await api.importModel(selected.token,name.value,{path:plan.path,files:plan.expected});dialog.close();await onImported(result);}
+    for(const control of controls)control.disabled=true;save.disabled=true;
+    try {const result=await api.importModel(selected.token,name.value,{path:plan.path,files:plan.expected,sourceHash:plan.sourceHash},options());dialog.close();await onImported(result);}
     catch(error){message.textContent=error.message;plan=null;}
-    finally{cancel.disabled=recheck.disabled=textures.disabled=name.disabled=false;save.disabled=!plan||Boolean(plan.blocked.length);}
+    finally{for(const control of controls)control.disabled=false;save.disabled=!plan||Boolean(plan.blocked.length);}
   });
   dialog.addEventListener('cancel',event=>{if(cancel.disabled)event.preventDefault();});
   dialog.addEventListener('close',()=>{closed=true;revision++;api.cancelModelImport(selected.token).catch(()=>{});dialog.remove();},{once:true});
