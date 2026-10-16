@@ -238,6 +238,20 @@ export function editScene(source, id, value) {
   return result;
 }
 
+// A geometry frame already exists in scene.4ds. A name-only modification finds
+// that frame; declaring its type/model here would risk creating a second frame.
+export function appendSceneGeometryOverride(source, name) {
+  const scene=inspectScene(source),roots=tree(source),key=value=>value.normalize('NFC').toLowerCase(),containers=[];
+  if(typeof name!=='string'||!name.length||['primary sector','backdrop sector'].includes(key(name))||scene.objects.some(o=>key(o.name)===key(name)))throw new Error('Sektory: nejednoznačný název geometrie.');
+  const text=Buffer.concat([encode(name),Buffer.from([0])]);
+  const chunk=(type,payload)=>{const h=Buffer.alloc(6);h.writeUInt16LE(type);h.writeUInt32LE(payload.length+6,2);return Buffer.concat([h,payload]);};
+  function collect(nodes){for(const node of nodes){if(node.type===0x4000)containers.push(node);if(node.children)collect(node.children);}}collect(roots);
+  if(containers.length!==1)throw new Error('Sektory: scéna nemá jednoznačný seznam objektů.');
+  const added=chunk(0x4010,chunk(0x10,text));
+  function write(node){if(node===containers[0])return chunk(node.type,Buffer.concat([node.payload,added]));return node.children?chunk(node.type,Buffer.concat(node.children.map(write))):node.raw;}
+  const after=Buffer.concat(roots.map(write));inspectScene(after);return after;
+}
+
 // Structural sector edits stay within one object. Keep opaque sibling chunks,
 // numeric tails and retained sector strings; rebuilding membership can shift IDs.
 export function editSceneSectorBindings(source, id, {parent, transform, sectors} = {}) {

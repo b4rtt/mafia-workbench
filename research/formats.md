@@ -493,6 +493,10 @@ Vlastní writer upravuje jediný object chunk, zachovává retained string tails
 
 UI/data/native evidence a hranice jsou v DEVELOPMENT.md. Native kamera uvnitř nové identity/root B funguje; uvnitř transformované B s inverse-transformed objemem byl obraz černý, přestože model z A přes portál zůstává ve správném světovém umístění. Nebylo prokázáno, zda engine pro automatic sector lookup ignoruje část transformace nebo vyžaduje jiné baked bounds; nepřebírat tento odhad jako fakt. Dialog upozorňuje na transformované cíle; nově vytvořené výchozí sektory používají baked world body s identity frame.
 
+Geometry-only přiřazení (2026-10-16): selektor `geometry/<1-based frame ID>` se kontroluje proti aktuálnímu scene.4ds a jednoznačnému jménu v obou souborech. Pokud už override existuje, použije se jeho skutečné ID. Jinak až při změně rodiče vznikne na konci jediného 0x4000 nový 0x4010 s 0x10, lokálními 0x20/0x22/0x2d a linkem 0x4020/0x10. Bez CT_FRAME_TYPE, CT_FRAME_SUBTYPE a model filename: původní frame se vyhledá jménem, nevytváří se druhý. Podklad je mEdit `SceneEditor::LoadScene2` (CT_NAME → FindFrame) a `WriteFrame` (typ/model jen u created frames). Původní geometry, instance, render flags, materiály, world-position pole existujících záznamů a ostatní scene2 chunky se nemění. Geometry-only aktér se rozpozná i z actor listu bez dosavadního scene2 object chunku a změna rodiče se odmítne.
+
+Audit 79 misí / 316 frame: 310 zápisů, 6 přesných no-op, zachované světové matice i původní objekty a 158 hashů. Oddělený produkční renderer ověřil cestu výběr → dialog → transakce → návrat výběru/kamery, export a undo. Native fixture převádí původní standardní visual do identity sektoru B: z A bez portálu skrytý, přes nový portál viditelný, z B viditelný zblízka. Čerstvé checkpointy každého běhu potvrzují světovou polohu [-50,2,-5]. To dokládá načtení name-only override a tuto viditelnost; netvrdí podporu reparentingu aktérů, úplného cullingu města ani transformovaných camera sectors.
+
 
 ### Společná změna a odstranění dvojice portálů
 

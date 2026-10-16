@@ -398,7 +398,7 @@ export class ModProject {
     const before=await this.read(name),geometryPath=name.slice(0,name.lastIndexOf('/'))+'/scene.4ds',geometry=await this.read(geometryPath);
     if(hash(before)!==expectedHash||hash(geometry)!==geometryHash)throw new Error('Scéna nebo geometrie se od otevření změnila. Otevřete dialog znovu.');
     const after=assignSceneSectors(before,geometry,request);
-    const moved=inspectScene(before).objects.find(o=>o.id===request.id)?.parent!==inspectScene(after).objects.find(o=>o.id===request.id)?.parent;
+    const moved=inspectSceneSectors(before,geometry,request.id).parent!==inspectSceneSectors(after,geometry,request.id).parent;
     const collision=moved&&collisionOwnership(this.manifest,name).length?await prepareSceneCollision(this,name,before,after):null;
     const files=new Map([{path:name,data:after,expectedHash},{path:geometryPath,data:geometry,expectedHash:geometryHash},...(collision?.files??[])].map(file=>[key(file.path),file]));
     await this.changeBatch([...files.values()],'Přiřazení objektu do sektorů',collision?.ownership);

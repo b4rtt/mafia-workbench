@@ -4,6 +4,7 @@ export function sceneSectorsDialog(context,{element,run,status,save}){
   if(!context.available.includes(context.parent)){const option=element('option',`${context.parent??'Bez rodiče'} · zachovat`);option.value='';parent.append(option);}
   for(const name of context.available){const option=element('option',name);option.value=name;parent.append(option);}parent.value=context.available.includes(context.parent)?context.parent:'';parent.disabled=context.object.actorBound;
   const checks=[];form.append(element('label','Rodičovský sektor (světová poloha zůstane zachovaná)'),parent);
+  if(context.geometryOnly)form.append(element('p','Při změně vznikne přiřazení ve scene2.bin. Původní geometrie ve scene.4ds zůstane zachovaná.','notice'));
   if(context.object.actorBound)form.append(element('p','Rodiče animovaného nebo fyzikálního aktéra zatím nelze měnit.','notice'));
   if(context.sectors!==null){
     form.append(element('h3','Sektory ovlivněné světlem / zvukem'));

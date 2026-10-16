@@ -1271,7 +1271,7 @@ function renderMap(main, file, previous = null) {
   const view = new Viewport(viewport, frame => {
     const object = frame.sceneObject; selected.textContent = object?.contextOnly||file.cacheSource&&!object ? `${frame.name} · okolní scéna (pouze kontext)` : object ? object.name : `${frame.name} · geometrie ve scene.4ds`;
     selectedObject = object;
-    assignSector.disabled=!object||![1,2,4,6,9].includes(object.frameType??frame.type);
+    assignSector.disabled=Boolean(file.cacheSource||object?.contextOnly||frame.ownerId)||![1,2,4,6,9].includes(object?.frameType??frame.type);
     selectedFrame=frame;
     configureHuman.disabled = file.entries.filter(entry => entry.actorScript && entry.actorKind === 27 && entry.value.name.toLowerCase() === (object?.name ?? frame.name).toLowerCase()).length !== 1;
     configureCombat.disabled = !editableMissionCombat(file, object?.name ?? frame.name);
@@ -1389,7 +1389,7 @@ function renderMap(main, file, previous = null) {
   tools.append(focus, vehiclePhysics);
   if(!file.cacheSource){
     translateMany.onclick=()=>run(async()=>{if(state.texts.size)throw Error('Nejdřív uložte rozepsané vlastnosti.');await view.loadPromise;sceneTranslationDialog(file,view,selectedObject?.id,{element,run,status,save:async(request,expectedHash,geometryHash)=>{state.file=await api.translateSceneObjects(file.path,request,expectedHash,geometryHash);await refresh();renderDetail();}});});
-    assignSector.onclick=()=>run(async()=>{if(!selectedObject)return;if(state.texts.size)throw new Error('Nejdřív uložte rozepsané změny.');const context=await api.sceneSectorContext(file.path,selectedObject.id);sceneSectorsDialog(context,{element,run,status,save:async(request,expectedHash,geometryHash)=>{state.file=await api.assignSceneSectors(file.path,request,expectedHash,geometryHash);state.selectSceneName=selectedObject.name;await refresh();renderDetail();}});});
+    assignSector.onclick=()=>run(async()=>{if(!selectedFrame||assignSector.disabled)return;if(state.texts.size)throw new Error('Nejdřív uložte rozepsané změny.');const objectName=selectedObject?.name??selectedFrame.name,context=await api.sceneSectorContext(file.path,selectedObject?.id??`geometry/${selectedFrame.sourceId}`);sceneSectorsDialog(context,{element,run,status,save:async(request,expectedHash,geometryHash)=>{state.file=await api.assignSceneSectors(file.path,request,expectedHash,geometryHash);state.selectSceneName=objectName;await refresh();renderDetail();}});});
     soundExtent.onclick=()=>{soundExtentVisible=!soundExtentVisible;soundExtent.setAttribute('aria-pressed',String(soundExtentVisible));updateSoundExtent();};
     focusSound.onclick=()=>{if(view.soundOverlay?.visible){cameraMoved=true;view.fit(view.soundOverlay);}};
     displayActions.push(soundExtent,focusSound);

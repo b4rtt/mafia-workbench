@@ -11,6 +11,7 @@ import {sceneWorld} from '../src/core/model-collision.js';
 import {ModProject} from '../src/core/project.js';
 import {hash,writeSafe} from '../src/core/files.js';
 import {sectorFixture} from './sector-fixture.js';
+import {createTerrainBytes} from '../src/core/terrain.js';
 const chunk=(type,data)=>{const h=Buffer.alloc(6);h.writeUInt16LE(type);h.writeUInt32LE(data.length+6,2);return Buffer.concat([h,data]);};
 function geometry(){const h=Buffer.alloc(19);h.write('4DS\0');h.writeUInt16LE(29,4);h[18]=0x61;return appendSector(appendSector(h,{name:'A',center:[0,0,0],size:[10,10,10]}),{name:'B',center:[10,0,0],size:[10,10,10]});}
 function fixture(){let s=chunk(0x4c53,Buffer.concat([chunk(0x4000,Buffer.alloc(0)),chunk(0xf001,Buffer.from('opaque root'))]));
@@ -54,6 +55,38 @@ test('assignment preserves unknown parent and membership tails, parameter order 
 test('geometry overrides inherit missing transform fields and parent before reparenting',()=>{
  const geo=editFourDs(sectorFixture(),[{id:'meshes/1/parent',value:1}]),source=chunk(0x4c53,chunk(0x4000,Buffer.concat([chunk(0x4010,chunk(0x10,Buffer.from('after\0'))),chunk(0x4010,chunk(0x10,Buffer.from('room\0')))]))),object=inspectScene(source).objects[0],before=sceneWorld(inspectScene(source),parseFourDs(geo))('after').elements;
  const context=inspectSceneSectors(source,geo,object.id);assert.equal(context.parent,'room');assert.ok(context.available.includes('room'));const after=assignSceneSectors(source,geo,{id:object.id,parent:'Primary sector'});near(sceneWorld(inspectScene(after),parseFourDs(geo))('after').elements,before);assert.equal(inspectScene(after).objects[0].parent,'Primary sector');
+});
+test('geometry-only frames gain one minimal override, preserve world transforms and support repeat edits',()=>{
+ const source=fixture(),geo=appendSector(editFourDs(sectorFixture(),[{id:'meshes/1/parent',value:1}]),{name:'Target',center:[20,0,0],size:[10,10,10]}),parsed=parseFourDs(geo),before=inspectScene(source),world=sceneWorld(before,parsed)('after').elements;
+ const context=inspectSceneSectors(source,geo,'geometry/2');assert.equal(context.geometryOnly,true);assert.equal(context.object.name,'after');assert.equal(context.parent,'room');assert.equal(context.sectors,null);
+ assert.deepEqual(assignSceneSectors(source,geo,{id:'geometry/2',parent:'room'}),source);
+ const after=assignSceneSectors(source,geo,{id:'geometry/2',parent:'Target'}),scene=inspectScene(after),added=scene.objects.at(-1);
+ assert.deepEqual(scene.objects.slice(0,-1),before.objects);assert.equal(added.name,'after');assert.equal(added.parent,'Target');assert.equal(added.frameType,undefined);assert.equal(added.model,undefined);assert.deepEqual(Object.keys(added.fields).sort(),['name','position','rotation','scale']);assert.ok(after.includes(Buffer.from('opaque root')));
+ near(sceneWorld(scene,parsed)('after').elements,world);assert.equal(inspectSceneSectors(after,geo,'geometry/2').geometryOnly,false);assert.equal(inspectSceneSectors(after,geo,'geometry/2').object.id,added.id);
+ assert.deepEqual(assignSceneSectors(after,geo,{id:'geometry/2',parent:'Target'}),after);
+ const back=assignSceneSectors(after,geo,{id:'geometry/2',parent:'Primary sector'});assert.equal(inspectScene(back).objects.length,before.objects.length+1);near(sceneWorld(inspectScene(back),parsed)('after').elements,world);
+});
+test('geometry-only assignment rejects ambiguous names, unsupported frames, actors and invalid structure without writing',()=>{
+ const source=fixture(),geo=sectorFixture();
+ for(const id of ['geometry/0','geometry/02','geometry/2.5','geometry/99','geometry/1'])assert.throws(()=>assignSceneSectors(source,geo,{id,parent:'Primary sector'}));
+ assert.throws(()=>assignSceneSectors(source,geo,{id:'geometry/2',sectors:['Primary sector']}),/pouze světlu/);
+ const duplicates=editFourDs(geo,[{id:'meshes/1/name',value:'ROOM'}]);assert.throws(()=>inspectSceneSectors(source,duplicates,'geometry/2'),/nejednoznačný/);
+ const kind=Buffer.alloc(4);kind.writeUInt32LE(6);const actor=chunk(0x4c53,Buffer.concat([chunk(0x4000,Buffer.alloc(0)),chunk(0xae20,chunk(0xae21,Buffer.concat([chunk(0xae23,Buffer.from('AFTER\0')),chunk(0xae22,kind),chunk(0xae24,Buffer.from('opaque actor'))])))]));
+ assert.equal(inspectSceneSectors(actor,geo,'geometry/2').object.actorBound,true);assert.throws(()=>assignSceneSectors(actor,geo,{id:'geometry/2',parent:'room'}),/aktéra/);
+ const invalid=chunk(0x4c53,Buffer.concat([chunk(0x4000,Buffer.alloc(0)),chunk(0x4000,Buffer.alloc(0))]));assert.throws(()=>assignSceneSectors(invalid,geo,{id:'geometry/2',parent:'room'}),/seznam objektů/);
+ assert.deepEqual(source,fixture());
+});
+test('original standard visuals keep geometry and world placement under transformed sector parents',()=>{
+ const source=fixture(),bare=createTerrainBytes({name:'Terrain',texture:'maps/test.bmp',width:4,depth:4,columns:1,rows:1,heights:[0,0,0,0],tileSize:1});
+ const geo=editFourDs(appendSector(bare,{name:'Room',center:[0,0,0],size:[10,10,10]}),[{id:'meshes/0/position',value:[11,-3,8]},{id:'meshes/0/rotation',value:[Math.SQRT1_2,0,Math.SQRT1_2,0]},{id:'meshes/0/scale',value:[-2,3,4]},{id:'meshes/1/position',value:[4,7,-8]},{id:'meshes/1/rotation',value:[Math.SQRT1_2,0,Math.SQRT1_2,0]},{id:'meshes/1/scale',value:[2,2,2]}]),saved=Buffer.from(geo),geometry=parseFourDs(geo),world=sceneWorld(inspectScene(source),geometry)('Terrain').elements;
+ const after=assignSceneSectors(source,geo,{id:'geometry/1',parent:'Room'});near(sceneWorld(inspectScene(after),geometry)('Terrain').elements,world);assert.deepEqual(geo,saved);assert.equal(inspectScene(after).objects.at(-1).frameType,undefined);assert.deepEqual(assignSceneSectors(after,geo,{id:'geometry/1',parent:'Room'}),after);
+});
+test('project geometry-only assignment guards both sources, publishes one override, exports and undoes exactly',async t=>{
+ const root=await fs.mkdtemp(path.join(os.tmpdir(),'mafia-geometry-sectors-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));await writeSafe(root,'workbench.json',JSON.stringify({format:'mafia-workbench',version:2,name:'Geometry sectors',assets:[],history:[]}));const p=await ModProject.open(root),name='missions/Test/scene2.bin',geo='missions/Test/scene.4ds',source=fixture(),geometry=sectorFixture();await p.createFiles([{path:name,data:source},{path:geo,data:geometry},{path:'missions/Test/tree.klz',data:Buffer.from('protected')}]);const history=structuredClone(p.manifest.history),ctx=await p.sceneSectorContext(name,'geometry/2'),request={id:ctx.object.id,parent:'room'};
+ for(const [sceneHash,geometryHash]of [['stale',ctx.geometryHash],[ctx.sha256,'stale']])await assert.rejects(()=>p.assignSceneSectors(name,request,sceneHash,geometryHash),/změnila/);
+ const publish=p.saveManifest;p.saveManifest=async()=>{throw Error('Publication failed');};await assert.rejects(()=>p.assignSceneSectors(name,request,ctx.sha256,ctx.geometryHash),/Publication failed/);p.saveManifest=publish;assert.deepEqual(await p.read(name),source);assert.deepEqual(p.manifest.history,history);
+ await p.assignSceneSectors(name,request,ctx.sha256,ctx.geometryHash);assert.equal(p.manifest.history.length,history.length+1);assert.equal(p.manifest.history.at(-1).files.length,1);const after=await p.read(name),now=await p.sceneSectorContext(name,'geometry/2');assert.equal(now.geometryOnly,false);assert.equal(now.parent,'room');await p.assignSceneSectors(name,request,now.sha256,now.geometryHash);assert.equal(p.manifest.history.length,history.length+1);
+ const reopened=await ModProject.open(root);await reopened.export(root+'/export');assert.deepEqual(await fs.readFile(path.join(root,'export',name)),after);await reopened.undo();assert.deepEqual(await reopened.read(name),source);assert.deepEqual(await reopened.read(geo),geometry);assert.equal((await reopened.read('missions/Test/tree.klz')).toString(),'protected');assert.deepEqual(reopened.manifest.history,history);
 });
 test('project assignment guards both inputs, publishes one undo, exports exactly and rolls back failures',async t=>{
  const root=await fs.mkdtemp(path.join(os.tmpdir(),'mafia-scene-sectors-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));await writeSafe(root,'workbench.json',JSON.stringify({format:'mafia-workbench',version:2,name:'Sectors',assets:[],history:[]}));const p=await ModProject.open(root),name='missions/Test/scene2.bin',geo='missions/Test/scene.4ds';await p.createFiles([{path:name,data:fixture()},{path:geo,data:geometry()},{path:'missions/Test/tree.klz',data:Buffer.from('protected')}]);const before=await p.read(name),ctx=await p.sceneSectorContext(name,id(before,'Lamp')),history=structuredClone(p.manifest.history),request={id:ctx.object.id,parent:'B',sectors:['A','B']};
