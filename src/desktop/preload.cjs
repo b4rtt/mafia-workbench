@@ -41,6 +41,7 @@ contextBridge.exposeInMainWorld('workbench', {
   previewModelImport: (token,name,options) => invoke('model-import:plan',token,name,options),
   cancelModelImport: token => invoke('model-import:cancel',token),
   importModel: (token,name,expected,options) => invoke('model-import:save',token,name,expected,options),
+  createAnimation: (options,modelHash) => invoke('animation:create',options,modelHash),
   saveScene: (name, changes, expectedHash) => invoke('asset:scene', name, changes, expectedHash),
   changeSceneObject: (name, operation, expectedHash) => invoke('asset:scene-object', name, operation, expectedHash),
   sceneSectorContext: (name,id) => invoke('asset:scene-sector-context',name,id),

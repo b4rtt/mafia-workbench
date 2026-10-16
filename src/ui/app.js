@@ -63,6 +63,7 @@ import { renderCollisions } from './collision-editor.js';
 import { missionActivationFields } from './mission-activation.js';
 import { renderMissionLogic } from './mission-logic.js';
 import { newMissionLogicName } from '../shared/mission-logic-authoring.js';
+import { newAnimationDialog } from './new-animation.js';
 import { missionCheckDialog } from './mission-check.js';
 const api = window.workbench;
 const shell = initializeWorkspace();
@@ -84,6 +85,7 @@ function buttons() {
   $('new-mission').disabled = state.busy || !state.project;
   $('import-model').disabled = state.busy || !state.project || Boolean(state.texts.size);
   $('create-terrain').disabled = state.busy || !state.project || Boolean(state.texts.size);
+  for (const action of document.querySelectorAll('[data-create-animation]')) { action.disabled = state.busy || !state.project || Boolean(state.texts.size); action.title = state.texts.size ? 'Nejdřív uložte rozepsané změny.' : 'Vytvořit vlastní 5DS z lokální pózy modelu.'; }
   $('import-model').title = state.texts.size ? 'Nejdřív uložte rozepsané změny.' : 'Importovat vlastní 4DS a BMP textury do projektu.';
   $('stop-level').disabled = state.busy;
   for (const part of document.querySelectorAll('[data-mission-part]')) part.disabled = state.busy;
@@ -128,6 +130,7 @@ async function refresh(project) {
 function renderCategories() {
   $('import-model').hidden = state.category !== 'models';
   $('create-terrain').hidden = state.category !== 'models';
+  $('create-animation').hidden = state.category !== 'animations';
   const scroll = $('categories').scrollLeft;
   const counts = new Map(categories.map(([id]) => [id, 0]));
   for (const file of state.project.assets) { counts.set(file.category, (counts.get(file.category) ?? 0) + 1); if (file.modified) counts.set('changed', counts.get('changed') + 1); }
@@ -235,7 +238,8 @@ function renderDetail() {
   const navigationView = file.type === 'navigation' && previous?.navigationPath === file.path && previous.projectRoot === state.project.root
     ? {camera:previous.captureCamera(),geometry:previous.navigationGeometryWanted,selectedPoint:previous.selectedPoint} : remembered;
   const collisionView=file.type==='collision'&&previous?.collisionPath===file.path&&previous.projectRoot===state.project.root?{camera:previous.captureCamera(),selectedId:previous.selectedId,search:previous.collisionSearch,type:previous.collisionType,mode:previous.gizmo.mode,geometry:previous.collisionGeometryWanted}:remembered;
-  const animationView=file.type==='animation'&&previous?.animationPath===file.path&&previous.projectRoot===state.project.root?{camera:previous.captureCamera(),model:previous.animationModel,...previous.animationState()}:null;
+  const animationView=file.type==='animation'&&previous?.animationPath===file.path&&previous.projectRoot===state.project.root?{camera:previous.captureCamera(),model:previous.animationModel,...previous.animationState()}:file.type==='animation'&&state.nextAnimationModel?{model:state.nextAnimationModel}:null;
+  delete state.nextAnimationModel;
   const trackView=file.type==='track'&&previous?.trackPath===file.path&&previous.projectRoot===state.project.root?{camera:previous.captureCamera(),model:previous.trackModel,animation:previous.trackAnimation,time:previous.time,search:previous.trackSearch()}:null;
   state.viewport?.dispose(); state.viewport = null;
   for (const audio of $('detail').querySelectorAll('audio')) { audio.pause(); audio.removeAttribute('src'); audio.load(); }
@@ -1089,6 +1093,7 @@ function renderModel(main, file, previous = null) {
   for (const [mode, label] of [['translate', 'Posun'], ['rotate', 'Rotace'], ['scale', 'Měřítko']]) { const button = element('button', label); button.onclick = () => view.gizmo.setMode(mode); tools.append(button); }
   const fit = element('button', 'Zarámovat vše'); fit.onclick = () => view.fit();
   const materials=element('button','Materiály…');materials.disabled=!file.materials.length;materials.onclick=()=>run(()=>materialDialog(file,view));tools.append(materials);
+  if(/^models\/.+\.4ds$/i.test(file.path)){const animate=element('button','Nová animace…');animate.dataset.createAnimation='';animate.onclick=createNewAnimation;tools.append(animate);buttons();}
   const geometry=element('button','Vrcholy, plochy a UV…');geometry.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před editací geometrie uložte rozepsané vlastnosti.');const id=Number(objects.value);if(!id)throw new Error('Nejdřív vyberte část modelu.');const context=await api.modelGeometry(file.path,id);if(context.sha256!==file.sha256)throw new Error('Model se od otevření změnil. Otevřete jej znovu.');geometryDialog(file,context,{run,status,resolveTexture:view.resolveTexture,save:async(request,expectedHash)=>{state.file=await api.saveGeometry(file.path,request,expectedHash);await refresh();renderDetail();}});});tools.append(geometry);
   const wire = element('button', 'Drátěný pohled'); view.modelWireframe = Boolean(previous?.wireframe); wire.setAttribute('aria-pressed', String(view.modelWireframe)); wire.onclick = () => { view.modelWireframe = !view.modelWireframe; view.wireframe(view.modelWireframe); wire.setAttribute('aria-pressed', String(view.modelWireframe)); }; tools.append(fit, wire);
   const sectors=element('button','Všechny sektory a portály');view.sectorsVisible=Boolean(previous?.sectors);sectors.disabled=!file.meshes.some(mesh=>mesh.sector);sectors.setAttribute('aria-pressed',String(view.sectorsVisible));sectors.onclick=()=>{view.showSectors(!view.sectorsVisible,view.selectedId);sectors.setAttribute('aria-pressed',String(view.sectorsVisible));};tools.append(sectors);
@@ -1824,6 +1829,11 @@ $('create-terrain').onclick=()=>{
   if(state.busy||state.texts.size||!state.project)return;
   terrainDialog({api,assets:state.project.assets,element,run,onCreated:async result=>{state.category='models';$('filter').value=result.path.slice(7);await refresh(result.project);await openFile(result.path);status('Vlastní terén vytvořen. Do mise jej vložte jako model s přesnou kolizí.');}});
 };
+function createNewAnimation(){
+  if(state.busy||state.texts.size||!state.project)return;
+  newAnimationDialog({api,assets:state.project.assets,initialModel:state.file?.type==='model'?state.file.path:null,element,run,onCreated:async result=>{state.category='animations';$('filter').value=result.path.slice(6);state.nextAnimationModel=result.model;await refresh(result.project);await openFile(result.path);status('Vlastní animace vytvořená s jedním undo. Přidávejte klíče na časové ose a uložte je do modu.');}});
+}
+$('create-animation').onclick=createNewAnimation;
 api.onProgress(p => status(p.phase === 'playtest' ? `Synchronizuji test: ${p.current}/${p.total} · ${p.files} změněných souborů` : `Rozbaluji ${p.archive}: ${p.current}/${p.total} · ${p.files} souborů v projektu`));
 api.onPlaytest(test => { $('stop-level').hidden = !test.running; if (test.error || test.code) status(`Test skončil chybou. ${test.error ?? `Kód ${test.code}; viz playtest/game.log.`}`, true); else if (!test.running) status('Test levelu ukončen.'); });
 $('stop-level').onclick = () => run(async () => { await api.stopLevel(); $('stop-level').hidden = true; status('Test levelu ukončen; původní hra zůstala zachovaná.'); });

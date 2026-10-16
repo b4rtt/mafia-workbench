@@ -565,3 +565,37 @@ Audit 3 223 původních 4DS porovnal parser s předchozí verzí: 3 220 podporov
 ### Statický 3D výběr části emitoru
 
 Dialog **Model a části…** vykresluje původní model s texturami a úplnou hierarchií transformací v LOD 0. Nabízí samostatnou část, celý model s oranžovým obrysem vybrané části a přiblížení jejích vlastních povrchů bez zahrnutí potomků. Kliknutí na povrch přiřadí jeho jednoznačný název aktuálně zvolenému emitoru; manipulátor ani změna geometrie zde nejsou. Zdrojové skryté visualy se pro tento náhled zapínají stejně jako zdroj klonovaný částicovým systémem, pomocné objemy se nevykreslují. Jde o statický náhled zdroje, nikoli simulaci emise, pohybu, billboardů či fází. Zrušení nic neukládá; uložení dál používá společnou transakci modelových vazeb.
+
+## Vytvoření vlastní 5DS animace
+
+`Nová animace…` v modelu nebo v kategorii Animace 5DS vytvoří samostatný soubor v `anims/`. Uživatel zvolí projektový model, název a poslední snímek (0–65535, herní čas 40 ms na snímek). Každý jednoznačně pojmenovaný frame 4DS převezme svou **absolutní lokální** rotaci WXYZ, pozici a měřítko jako klíč ve snímku 0. Transformace se neskládají do světového prostoru, takže rodičovská hierarchie zůstane na modelu. Nepojmenované uzly se s viditelným počtem vynechají; duplicitní názvy bez ohledu na velikost písmen se odmítnou. Název nového souboru je omezen na 56 ASCII znaků bez cesty a rezervovaných názvů Windows. Názvy uzlů musí jít přesně zapsat do Windows-1250.
+
+Nový serializer zapisuje pouze známý v20 formát: 18bajtovou hlavičku, nulový FILETIME, počet uzlů a poslední snímek, tabulku offsetů relativních k datové části, bloky příznaků 0x0e se třemi kanály a zakončené názvy. Původní 4DS ani žádná existující 5DS se nepřepisují. Další klíče se ukládají stávajícím writerem časové osy, který zachovává neznámé bajty původního souboru. Zdrojový model je před publikací opakovaně hlídaný SHA-256; nové soubory vznikají přes společný journal a jedno undo. Nový soubor se odmítne i při existenci stejného názvu s jinou velikostí písmen.
+
+Primární podklady: uložený [Richard01CZ 5DS importer/exporter](https://github.com/Richard01CZ/Mafia4Blender_5ds/blob/main/5ds.py) na revizi uvedené v `repositories.json`, [RoadTrain 5ds.bt](https://github.com/RoadTrain/mafia-formats/blob/master/5ds.bt) a už dříve ověřený parser/writer v projektu. Pythonový exporter potvrzuje pořadí WXYZ, relativní offsety a vyrovnání sudého počtu klíčů; template má již známý nesprávný bit poznámek a sám neurčuje bezpečný zápis nového souboru. Vygenerovaný soubor s nulovým FILETIME byl navíc načten přímo GOG 1.2 enginem.
+
+Po vytvoření se otevře časová osa se zdrojovým modelem. Pro vlastní pohyb vyberte uzel, kanál, další snímek a `Klíč v aktuálním snímku`, upravte hodnoty a uložte animaci. Jde o transformace uzlů; nástroj nevytváří nové kostní váhy, morfovací cíle, zvukové události ani pohybovou TCK dráhu. Vazba na zvolený model pomáhá bezprostřednímu náhledu, není novým údajem v herním 5DS; při pozdějším otevření lze model zvolit standardně.
+
+Pro použití ve hře skript pojmenovává soubor příponou **I3D**, ačkoli na disku je **5DS**. Ve skriptu postavy jménem `Paulie` lze použít například tuto sekvenci (název animace přizpůsobte):
+
+```text
+dim_act 1
+dim_flt 1
+wait 2000
+findactor 0, "Paulie"
+person_playanim 0, "WB_wave.I3D", 0, SIMPLE
+wait flt[0]
+person_stopanim 0
+label 1
+wait 1000
+goto 1
+```
+
+Přehrávání běží asynchronně a délka se vrací do `flt[0]`. Program postavy udržujte aktivní; v místním testu postava s programem zakončeným `end` po externím spuštění animace neaktualizovala kostru, zatímco běžící program s čekáním animoval. Sekvenci je nutné začlenit do existujícího chování postavy, které by ji jinak mohlo přerušit pohybem. Pro obyčejný model slouží `model_playanim 0, "WB_wave.I3D"` po registraci jeho framu přes `findframe`; tento příkaz opakuje animaci do `model_stopanim 0`. Zdroj: uložená MSDR a `PERSON_PLAYANIM` / `MODEL_PLAYANIM` v [primárním exportu enginu](https://github.com/st0rm94/mafia-reverse-engineering-export/blob/main/ghidra/Game-ghidra.exe.annotated.c).
+
+Ověření 2026-10-16:
+
+- Čtyři nové testy kontrolují binární offsety, lokální pózu a hierarchii, Windows-1250, krajní snímky, nejednoznačné názvy a odmítnuté vstupy. Transakční test zahrnuje stale model, kolizi názvu, vytvoření, úpravu časové osy, reopen/export a dvě přesná undo bez změny modelu.
+- Produkční renderer v odděleném skrytém Electron okně vytvořil animaci dvoučástového modelu a kostry Tommyho. Skutečnými ovládacími prvky vložil klíče pozice/rotace/měřítka a zvednutí pravé paže, uložil obě časové osy, přehrál náhled, přesně exportoval a provedl čtyři UI undo. Ověřeno předvyplnění modelu, neplatný název a samostatná akce v kategorii animací. Bez systémových dialogů a přítomnosti uživatele.
+- Izolovaná nativní GOG 1.2/Wine kopie načetla **stejné bajty obou UI exportů**, nepoužila náhradní původní klip. Čtyři nové checkpointy porovnaly měnící se světovou polohu podřízeného modelu a ruky s produkčním náhledem: největší odchylka složky pod 0,038 m pro model a 0,029 m pro ruku; finální model pod 10⁻⁶ m. Vzorkování jednotlivých framů není atomické. Délka nové animace postavy přesně 8000 ms, odpovídající poslednímu snímku 200. Dokládá TRS a kosterní přehrávání těchto příkladů, nikoli kompatibilitu všech libovolných modelů a animací.
+- Testovací hry i Audit okno ukončené, vlastní klon vrácen na historii 38 a výchozí hashe scény/KLZ. Původní hra i chráněné uživatelské projekty se nezměnily. Soukromé podklady `local/new-animation-ui-current.json` a `local/new-animation-game-current.json`; v ignorovaném local zůstávají exporty, modely, screenshoty i checkpointy.

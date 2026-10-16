@@ -8,6 +8,7 @@ import { inspectScene, editScene, changeSceneObject } from './scene.js';
 import { parseFourDs, editFourDs } from './fourds.js';
 import { parseFiveDs, editFiveDs } from './fiveds.js';
 import { editAnimationTimeline } from './animation-timeline.js';
+import { createAnimation } from './new-animation.js';
 import { inspectCache, editCache } from './cache.js';
 import { cacheMap } from '../shared/cache-map.js';
 import { parseItems, editItems } from './items.js';
@@ -249,6 +250,7 @@ export class ModProject {
   async createTerrain(options,textureHash){return createTerrain(this,options,textureHash);}
   async createRoadSurface(name,options,expectedHash,textureHashes){return createRoadSurface(this,name,options,expectedHash,textureHashes);}
   async importModel(files, name, expected, options) { return importModel(this, files, name, expected, options); }
+  async createAnimation(options, modelHash) { return createAnimation(this, options, modelHash); }
   async importLoose(progress = () => {}) {
     if (this.busy) throw new Error('Probíhá jiné ukládání.');
     if (!this.manifest.gameRoot) throw new Error('Projekt nemá zadaný zdroj hry.');
