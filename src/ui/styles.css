@@ -268,3 +268,10 @@ body.spatial-open .workspace>aside { position: absolute; inset: 0 auto 0 0; z-in
 @media(max-width:760px){.effect-model-workspace{grid-template-columns:minmax(0,1fr)}.effect-model-workspace .mission-fields{max-height:200px}.effect-model-workspace .viewport{height:280px}}
 
 .particle-dialog{width:min(1100px,calc(100vw - 48px));max-width:1100px}.particle-dialog .viewport{height:min(55vh,520px);min-height:240px}.particle-dialog .tools{flex-wrap:wrap}.particle-dialog .tools label{display:flex;align-items:center;gap:6px}.particle-timeline{display:flex;align-items:center;gap:12px;margin:12px 0}.particle-timeline input{flex:1;min-width:80px}.particle-timeline output{font-variant-numeric:tabular-nums;white-space:nowrap}
+
+.segment-inspector .inspector-content { display: flex; flex-direction: column; gap: 10px; }
+.segment-inspector select, .segment-inspector textarea { width: 100%; min-width: 0; }
+.segment-inspector label { display: block; }
+.segment-inspector textarea { min-height: 65px; }
+.segment-inspector .mission-fields { grid-template-columns: minmax(0, 1fr); }
+.segment-inspector fieldset { min-width: 0; }

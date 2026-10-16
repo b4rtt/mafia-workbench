@@ -209,6 +209,7 @@ app.whenReady().then(async () => {
   handle('asset:roads', (name, changes, expectedHash) => operation(async () => { const roadMapping=await current().saveRoads(name, changes, expectedHash); return {...await current().inspect(name),roadMapping}; }));
   handle('asset:road-point', (name, request, expectedHash) => operation(async () => { const selection=await current().changeRoadPoint(name,request,expectedHash);return {file:await current().inspect(name),...selection}; }));
   handle('asset:road-topology',(name,request,expectedHash)=>operation(async()=>{const selection=await current().changeRoadTopology(name,request,expectedHash);return {file:await current().inspect(name),...selection};}));
+  handle('asset:segments',(name,request,expectedHash,navigationHash)=>operation(async()=>{const index=await current().changeSegments(name,request,expectedHash,navigationHash);return {file:await current().inspect(name),index};}));
   handle('asset:track', (name, changes, expectedHash) => operation(async () => { await current().saveTrack(name, changes, expectedHash); return current().inspect(name); }));
   handle('asset:difference', (name, changes, expectedHash) => operation(async () => { await current().saveDifference(name, changes, expectedHash); return current().inspect(name); }));
   handle('asset:replay', (name, changes, expectedHash) => operation(async () => { await current().saveReplay(name, changes, expectedHash); return current().inspect(name); }));

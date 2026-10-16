@@ -52,3 +52,11 @@ test('collision view keeps its filtered selection, camera and geometry scoped to
   assert.deepEqual(value,{selectedId:'aabbs/0',search:'crate',type:'aabbs',mode:'scale',geometry:true,camera});
   assert.equal(saved.get('/other',{path:'missions/tutorial/tree.klz',type:'collision'}),null);
 });
+
+test('segment editor is a mission part and retains its selection and camera across editors',()=>{
+  const path='MISSIONS/TUTORIAL/CLUSTERS.SEG',camera={position:[1,2,3],target:[0,0,0]},saved=new MissionViews();
+  assert.equal(missionParts([...assets,{path}],'missions/tutorial/check.bin').find(p=>p.type==='segments').path,path);
+  saved.remember({projectRoot:'/project',segmentsPath:path,segmentIndex:0,captureCamera:()=>camera});
+  assert.deepEqual(saved.get('/project',{path:path.toLowerCase(),type:'segments'}),{index:0,special:undefined,selectedPoint:undefined,geometry:undefined,camera});
+  assert.equal(saved.get('/another',{path,type:'segments'}),null);
+});

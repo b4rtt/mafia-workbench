@@ -52,6 +52,7 @@ import { particleDialog } from './particle-dialog.js';
 import { AnimationPreview } from './animation.js';
 import { renderAnimationTimeline } from './animation-timeline.js';
 import { toLs3dRotation } from './transforms.js';
+import { renderSegments } from './segments.js';
 import { NavigationViewport } from './navigation.js';
 import { TrackViewport, companionAnimation } from './track.js';
 import { CutsceneViewport, CutsceneAudio, activeCutsceneAudio } from './cutscene.js';
@@ -237,6 +238,7 @@ function renderDetail() {
     ? {camera:previous.captureCamera(),geometry:previous.roadGeometryWanted,selectedPoint:previous.selectedPoint,lanes:previous.roadLanesVisible} : remembered;
   const navigationView = file.type === 'navigation' && previous?.navigationPath === file.path && previous.projectRoot === state.project.root
     ? {camera:previous.captureCamera(),geometry:previous.navigationGeometryWanted,selectedPoint:previous.selectedPoint} : remembered;
+  const segmentView=file.type==='segments'&&previous?.segmentsPath===file.path&&previous.projectRoot===state.project.root?{camera:previous.captureCamera(),index:previous.segmentIndex,special:previous.segmentSpecial,selectedPoint:previous.selectedPoint,geometry:previous.segmentGeometryWanted}:remembered;
   const collisionView=file.type==='collision'&&previous?.collisionPath===file.path&&previous.projectRoot===state.project.root?{camera:previous.captureCamera(),selectedId:previous.selectedId,search:previous.collisionSearch,type:previous.collisionType,mode:previous.gizmo.mode,geometry:previous.collisionGeometryWanted}:remembered;
   const animationView=file.type==='animation'&&previous?.animationPath===file.path&&previous.projectRoot===state.project.root?{camera:previous.captureCamera(),model:previous.animationModel,...previous.animationState()}:file.type==='animation'&&state.nextAnimationModel?{model:state.nextAnimationModel}:null;
   delete state.nextAnimationModel;
@@ -249,6 +251,7 @@ function renderDetail() {
   badges.vehicles = 'AUTA · FYZIKA A PŘEVODY';
   badges.effects = 'EFEKTY · UMÍSTĚNÍ ČÁSTIC';
   badges['effect-types'] = 'EFEKTY · EMITORY A FÁZE';
+  badges.segments = 'SEG · KRYTY AI';
   badges.collision = 'KLZ · 3D KOLIZE';
   badges.lip = 'LIP DAT · POHYB ÚST';
   badges.logic = 'LOGIKA MISE';
@@ -315,6 +318,7 @@ function renderDetail() {
   else if (file.type === 'effects') renderEffects(main, file, effectsView);
   else if (file.type === 'effect-types') renderEffectDefinitions(main,file,{element,state,api,run,refresh,renderDetail,status});
   else if (file.type === 'collision') renderCollisions(main,file,collisionView,{element,state,api,run,refresh,renderDetail,status});
+  else if(file.type==='segments')renderSegments(main,file,segmentView,{element,state,api,run,refresh,renderDetail,status,buttons});
   else if (file.type === 'navigation') renderNavigation(main, file, navigationView);
   else if (file.type === 'roads') renderRoads(main, file, roadView);
   else if (file.type === 'track') renderTrack(main, file, trackView);
@@ -611,6 +615,7 @@ function renderNavigation(main, file, previous) {
   const tools = element('div', undefined, 'tools'), number = element('input'), jump = element('button', 'Vybrat bod'), fit = element('button', 'Zarámovat síť'), focus = element('button', 'Přiblížit bod'), background = element('button', 'Zobrazit geometrii mise'), viewport = element('div', undefined, 'viewport');
   number.type = 'number'; number.min = '0'; number.max = String(Math.max(0,file.points.length-1)); number.step = '1'; number.value = '0'; number.setAttribute('aria-label','Číslo navigačního bodu'); focus.disabled = !file.points.length;
   tools.append(number,jump,fit,focus,background); center.append(tools,viewport);
+  const segments=element('button','Kryty AI…');tools.append(segments);segments.onclick=()=>run(async()=>{if(!await discard())return;const name=file.path.replace(/check\.bin$/i,'clusters.seg'),existing=state.project.assets.find(asset=>asset.path.toLowerCase()===name.toLowerCase());if(existing)state.file=await api.inspect(existing.path);else{const result=await api.changeSegments(name,{action:'create'},null,file.sha256);state.file=result.file;await refresh();}state.texts.clear();renderDetail();});
   const addPoint=element('button','Přidat bod…'),deletePoint=element('button','Odstranit bod');deletePoint.disabled=!file.points.length;tools.append(addPoint,deletePoint);
   async function changePoint(request){
     if(state.texts.size)throw new Error('Před změnou bodů uložte nebo zahoďte rozepsané vlastnosti.');

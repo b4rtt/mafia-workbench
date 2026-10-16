@@ -30,7 +30,7 @@ import { prepareHumanBehavior } from './human-behavior.js';
 import { dialogueSoundPath, prepareDialogueWav } from './dialogue-audio.js';
 import { dialogueLipPath, parseLip, editLip, createLip, lipFromVoice } from './lip.js';
 import { parseNavigation, prepareNavigationEdits, changeNavigationConnection, changeNavigationPoint } from './navigation.js';
-import { remapSegments } from './segments.js';
+import { remapSegments, inspectSegments, emptySegments, changeSegments } from './segments.js';
 import { parseRoads, prepareRoadEdits, changeRoadPoint } from './roads.js';
 import { changeRoadTopology } from './road-topology.js';
 import { parseTrack, editTrack } from './track.js';
@@ -746,6 +746,10 @@ export class ModProject {
       try { return { type: 'replay', ...common, ...inspectReplay(bytes) }; }
       catch (error) { warning = error.message; }
     }
+    if (/^missions\/[^/]+\/clusters\.seg$/i.test(name)) {
+      try { const navigation=await this.read(name.replace(/clusters\.seg$/i,'check.bin')),points=parseNavigation(navigation).points;return {type:'segments',...common,...inspectSegments(bytes,points.length),points,navigationHash:hash(navigation)}; }
+      catch(error){warning=error.message;}
+    }
     if (/^missions\/[^/]+\/check\.bin$/i.test(name)) {
       try { return { type: 'navigation', ...common, ...parseNavigation(bytes) }; }
       catch (error) { warning = error.message; }
@@ -953,6 +957,19 @@ export class ModProject {
     if(segment){const source=await this.read(segment.path);files.push({path:segment.path,data:remapSegments(source,changed.mapping,changed.pointCount),expectedHash:hash(source)});}
     await this.changeBatch(files,request?.action==='add'?'Přidání navigačního bodu':'Odstranění navigačního bodu');
     return changed.index;
+  }
+  async changeSegments(name,request,expectedHash,navigationHash){
+    if(!/^missions\/[^/]+\/clusters\.seg$/i.test(name))throw new Error('Soubor není clusters.seg mise.');
+    const navigationPath=this.asset(name.replace(/clusters\.seg$/i,'check.bin')).path,navigation=await this.read(navigationPath),points=parseNavigation(navigation).points;
+    if(hash(navigation)!==navigationHash)throw new Error('Navigační body se od otevření změnily. Otevřete segmenty znovu.');
+    const dependencies=[{path:navigationPath,expectedHash:navigationHash}];
+    if(request?.action==='create'){
+      if(expectedHash!==null||Object.keys(request).length!==1)throw new Error('Segments: neplatné vytvoření.');
+      await this.createFiles([{path:name,data:emptySegments()}],'Vytvoření navigačních segmentů',dependencies);return -1;
+    }
+    const before=await this.read(name);if(hash(before)!==expectedHash)throw new Error('Soubor se od otevření změnil. Otevřete jej znovu.');
+    const changed=changeSegments(before,points.length,request);
+    await this.changeBatch([{path:name,data:changed.data,expectedHash}],'Úprava navigačních segmentů a krycích rohů',undefined,dependencies);return changed.index;
   }
   async saveTrack(name, changes, expectedHash) {
     if (!/\.tck$/i.test(name)) throw new Error('Soubor není TCK stopa.');

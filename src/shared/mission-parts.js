@@ -5,6 +5,7 @@ const definitions = [
   ['scene2.bin', 'scene', 'Vlastnosti scény'],
   ['scene.4ds', 'model', 'Geometrie'],
   ['check.bin', 'navigation', 'Navigace'],
+  ['clusters.seg', 'segments', 'Kryty AI'],
   ['road.bin', 'roads', 'Silnice'],
   ['effects.bin', 'effects', 'Efekty'],
   ['cache.bin', 'cache', 'Statické modely'],
