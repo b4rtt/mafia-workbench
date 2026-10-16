@@ -19,6 +19,7 @@ export async function createRoadSurface(project,name,options,expectedHash,textur
     parseBmp(texture);dependencies.push({path:asset.path,expectedHash});
   }
   const target=`models/${options.name}.4ds`;
-  await project.createFiles([{path:target,data}],`Nová ulice ${options.name}`,dependencies,'Vlastní ulice');
+  const junction=options.mode==='junction';
+  await project.createFiles([{path:target,data}],`${junction?'Nová křižovatka':'Nová ulice'} ${options.name}`,dependencies,junction?'Vlastní křižovatka':'Vlastní ulice');
   return target;
 }

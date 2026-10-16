@@ -552,7 +552,7 @@ function renderRoads(main, file, previous=null) {
   surface.onclick=()=>run(async()=>{
     if(state.texts.size)throw new Error('Před vytvořením ulice uložte rozepsané vlastnosti.');
     const point=graph.points[view.selectedPoint];if(point?.section!=='crossings')return;
-    roadSurfaceDialog(file,point.recordIndex,{api,assets:state.project.assets,element,run,onCreated:async result=>{state.category='models';$('filter').value=result.path.slice(7);await refresh(result.project);await openFile(result.path);status('Ulice vytvořena. Vložte ji do stejné mise na pozici 0, 0, 0 s přesnou kolizí.');}});
+    roadSurfaceDialog(file,point.recordIndex,{api,assets:state.project.assets,element,run,onCreated:async result=>{state.category='models';$('filter').value=result.path.slice(7);await refresh(result.project);await openFile(result.path);status('Povrch vytvořen. Vložte jej do stejné mise na pozici 0, 0, 0 s přesnou kolizí.');}});
   });
   fit.onclick=()=>view.fitRoadNetwork();focus.onclick=()=>{if(view.selectedPoint!==null)view.fit(view.proxy);};
   let geometry,geometryLoading;
