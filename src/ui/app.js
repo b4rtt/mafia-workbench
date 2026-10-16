@@ -509,11 +509,11 @@ function renderRoads(main, file, previous=null) {
   number.type='number';number.min='0';number.step='1';number.value='0';number.setAttribute('aria-label','Pořadí silničního bodu');
   const range=()=>{number.max=String(Math.max(0,file[section.value].length-1));};section.onchange=range;range();
   const insert=element('button','Vložit bod do úseku…'),remove=element('button','Odstranit mezilehlý bod…');insert.disabled=remove.disabled=true;
-  const createCross=element('button','Nová křižovatka…'),splitCross=element('button','Vytvořit křižovatku z bodu…'),dissolveCross=element('button','Spojit silnice přes křižovatku…'),connect=element('button','Propojit křižovatky…'),disconnect=element('button','Odstranit propojení…'),deleteCross=element('button','Odstranit křižovatku…');
+  const createCross=element('button','Nová křižovatka…'),splitCross=element('button','Vytvořit křižovatku z bodu…'),dissolveCross=element('button','Spojit silnice přes křižovatku…'),mergeCross=element('button','Sloučit dvě křižovatky…'),connect=element('button','Propojit křižovatky…'),disconnect=element('button','Odstranit propojení…'),deleteCross=element('button','Odstranit křižovatku…');
   const settings=element('button','Pruhy a směry…'),surface=element('button','Vytvořit vozovku a chodníky…');settings.disabled=surface.disabled=true;
   const lanes=element('button','Pruhy ve 3D'),laneLegend=element('p','','view-status');laneLegend.setAttribute('aria-label','Náhled silničních pruhů');
-  dissolveCross.disabled=splitCross.disabled=connect.disabled=disconnect.disabled=deleteCross.disabled=true;
-  tools.append(section,number,jump,fit,focus,background,lanes,insert,remove,actionMenu('Silniční síť',[surface,settings,createCross,splitCross,dissolveCross,connect,disconnect,deleteCross]));center.append(tools,viewport,laneLegend);
+  mergeCross.disabled=dissolveCross.disabled=splitCross.disabled=connect.disabled=disconnect.disabled=deleteCross.disabled=true;
+  tools.append(section,number,jump,fit,focus,background,lanes,insert,remove,actionMenu('Silniční síť',[surface,settings,createCross,splitCross,dissolveCross,mergeCross,connect,disconnect,deleteCross]));center.append(tools,viewport,laneLegend);
   let properties;
   const view=new RoadViewport(viewport,frame=>{
     const point=graph.points[frame.navigationIndex],record=file[point.section][point.recordIndex];section.value=point.section;number.value=String(point.recordIndex);range();state.roadIndex=point.index;
@@ -524,6 +524,7 @@ function renderRoads(main, file, previous=null) {
     dissolveCross.disabled=!isCross||record.links.filter(ref=>ref!==65535).length!==2;
     connect.disabled=!isCross||file.crossings.length<2||!record.links.some((ref,i)=>ref===65535&&record.directions[i].target===65535);
     disconnect.disabled=!isCross||!roadConnections(file,point.recordIndex).length;
+    mergeCross.disabled=disconnect.disabled;
     settings.disabled=surface.disabled=disconnect.disabled;
     deleteCross.disabled=!isCross||record.links.some(ref=>ref!==65535)||record.directions.some(direction=>direction.target!==65535);
     const pane=inspector.querySelector(':scope>.inspector-content')??inspector;
@@ -542,7 +543,7 @@ function renderRoads(main, file, previous=null) {
   view.setRoadLanes(file,previous?.lanes??true);lanes.onclick=()=>view.setRoadLanes(file,!view.roadLanesVisible);
   jump.onclick=()=>{const index=Number(number.value);if(number.value===''||!Number.isInteger(index)||index<0||index>=file[section.value].length)return status('Číslo bodu je mimo rozsah.',true);view.select(String(index+(section.value==='nodes'?file.crossings.length:0)));};
   for(const [button,action] of [[insert,'insert'],[remove,'delete']])button.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před změnou bodů uložte rozepsané vlastnosti.');if(view.selectedPoint!==null)roadPointDialog(file,graph,view.selectedPoint,action);});
-  for(const [button,action] of [[createCross,'create-crossing'],[splitCross,'split-crossing'],[dissolveCross,'dissolve-crossing'],[connect,'connect'],[disconnect,'disconnect'],[deleteCross,'delete-crossing']])button.onclick=()=>run(async()=>{
+  for(const [button,action] of [[createCross,'create-crossing'],[splitCross,'split-crossing'],[dissolveCross,'dissolve-crossing'],[mergeCross,'merge-crossings'],[connect,'connect'],[disconnect,'disconnect'],[deleteCross,'delete-crossing']])button.onclick=()=>run(async()=>{
     if(state.texts.size)throw new Error('Před změnou sítě uložte rozepsané vlastnosti.');
     const point=graph.points[view.selectedPoint];
     roadTopologyDialog(file,action,point,{element,state,api,run,refresh,renderDetail,status});

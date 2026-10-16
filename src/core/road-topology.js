@@ -1,5 +1,5 @@
 import {parseRoads,compileRoadTopology} from './roads.js';
-import {roadDissolvePlan} from '../shared/roads.js';
+import {roadDissolvePlan,roadMergePlan} from '../shared/roads.js';
 
 const CROSS=236,NODE=24,SLOT=52,NONE=65535;
 const fail=message=>{throw new Error('Road: '+message);};
@@ -130,6 +130,23 @@ export function changeRoadTopology(source,request){
     const data=serialize(rows.crossings,rows.nodes);rewriteRefs(data,parseRoadsForRemap(data),remap);
     const compiled=compileRoadTopology(data,[remap(from),remap(to)],joined.map(value=>value&32767));validateRoutes(parseRoads(compiled.data));
     return {data:compiled.data,index:compiled.mapping[total-1+count],mapping:identity.map(i=>i<total?i===index?compiled.mapping[total-1+count]:remap(i):compiled.mapping[i-1])};
+  }
+  if(action==='merge-crossings'){
+    const from=crossIndex(file,request.from),to=crossIndex(file,request.to);validateRoutes(file);
+    const {connector,moved}=roadMergePlan(file,from,to),target=rows.crossings[to];
+    // Keep the destination's entire header. Reuse only empty exit slots and
+    // the discarded connector; moved exits retain their complete raw records.
+    target.writeUInt16LE(NONE,20+connector.backSlot*2);target.writeUInt16LE(NONE,28+connector.backSlot*SLOT);
+    const free=[0,1,2,3].filter(slot=>target.readUInt16LE(20+slot*2)===NONE&&target.readUInt16LE(28+slot*SLOT)===NONE);
+    moved.forEach((leg,i)=>{target.writeUInt16LE(file.crossings[from].links[leg.slot],20+free[i]*2);rows.crossings[from].copy(target,28+free[i]*SLOT,28+leg.slot*SLOT,28+(leg.slot+1)*SLOT);});
+    const removed=new Set(connector.nodes.map(ref=>ref&32767)),nodeMap=[];let next=0;
+    rows.nodes=rows.nodes.filter((_,i)=>{nodeMap[i]=removed.has(i)?null:next++;return !removed.has(i);});rows.crossings.splice(from,1);
+    const cross=ref=>{if(ref===from)ref=to;return ref>from?ref-1:ref;};
+    const remap=ref=>{if(ref===NONE)return ref;if(!(ref&32768))return cross(ref);const index=nodeMap[ref&32767];if(index===null)fail('neodpojený odkaz na odstraněný bod.');return 32768|index;};
+    const data=serialize(rows.crossings,rows.nodes);rewriteRefs(data,parseRoadsForRemap(data),remap);
+    const affected=moved.flatMap(leg=>leg.nodes.map(ref=>nodeMap[ref&32767]));
+    const compiled=compileRoadTopology(data,[...new Set([to,...moved.map(leg=>leg.target)].map(cross))],affected);validateRoutes(parseRoads(compiled.data));
+    return {data:compiled.data,index:cross(to),mapping:identity.map(i=>i<total?cross(i):nodeMap[i-total]===null?null:compiled.mapping[total-1+nodeMap[i-total]])};
   }
   if(action==='split-crossing'){
     if(total>=32768)fail('síť už má maximální počet křižovatek.');
