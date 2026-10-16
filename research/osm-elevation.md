@@ -71,6 +71,32 @@ Nativní GOG 1.2/Wine: oddělená mise `WB_GREEN_PROBE` se syntetickým svahem a
 
 Modely ulic/zeleně a KLZ byly porovnané s připravenými soubory; snímky obou variant zkontrolované. Testovací transakce vrácené, vlastní prefix ukončený a chráněné projekty i `Game.exe` nezměněné. Místní evidence `local/osm-elevation-green-G6V90t/` a `local/probe-osm-elevation-green.mjs`; veřejně žádná herní data/runtime. Výšky stále nejsou ve formuláři. Usazení domů/mobiliáře/světel/zvuků, zdrojový kontrakt, optimalizace husté navigace, společná publikace/export/undo a širší jízda/chůze zůstávají otevřené.
 
+
+## Redukce husté pěší sítě (17. 10. 2026)
+
+Výšková větev nejprve sloučí sousední trojúhelníky průchozího insetu do konvexních buněk (`pedestrian-cells.js`). Žádný obrysový vrchol neposouvá, nevyplňuje otvory a nevyhlazuje skutečné konkávní rohy; buňka má nejvýše 128 vrcholů. Delší společné diagonály dostávají přednost. Koridor propojí své dva portály, křižovatka portály se středem. Samostatná buňka alespoň 1 m² dostane vlastní páteř; menší odpojené triangulační zbytky nevytvářejí nové trasy. Buňky s portály se takto nevyřazují. Dlouhé konce se doplní, i když má buňka více portálů blízko sebe. První prototyp bez těchto konců omezil dosah na části dlouhého chodníku; nový test jej zachytil a finální generátor konce zachovává.
+
+Volitelné kompaktní dělení pěších spojů v `navigation-elevation.js` odstraní nadbytečné řezy jen při stejné relativní úrovni a nejvýše 1 µm svislé odchylce na všech původních terénních řezech. Teprve potom se uplatní skutečná 3D délka do 4 m. Hřbety, sedla a změny úrovně se nevyrovnávají; silniční větev tuto volbu nepoužívá.
+
+`pedestrian-compact.js` navíc kontrahuje pouze uzly stupně dva, pokud nové spojení má do 4 m, na celé délce odstup od skutečných hran přes 0,4 m, neprotíná hranici úrovně a sedí na terénních rovinách. Neodstraňuje větvení, koncové uzly, nástupy přechodů ani poslední trojúhelníkový cyklus. Uchovává všechny dříve odstraněné body jako svědky: odchylka celé původní půdorysné dráhy od nového úseku je do 5 cm, nikoli jen odchylka posledního bodu. Prostorové koše omezují počet kontrol hran. Výpočet před redukcí má vlastní mez 65 536 bodů; **finální nativní síť stále nejvýše 8 192 bodů**, 255 sousedů a 4 m na spoj. Nejde o zvýšení limitu publikované sítě nebo tiché vynechávání částí. Rovinná větev zůstává byteově shodná.
+
+Šest nových veřejných testů v `test/osm-pedestrian-cells.test.js` ověřuje přesnou plošnou bilanci konkávního rozkladu a otvorů, determinismus a neměnnost vstupu, hustou síť 64 × 64 buněk s mobiliářem, odstup **celých spojů** od překážek a hran, samostatné ostrovy, konce dlouhých cest, skutečnou 2cm mezeru, hřbety, výškové přechody, celé svědky křivky, zachované nástupy a odmítnutí nadlimitního výsledku. Předchozí generátor c7232b1 stejný hustý syntetický vstup odmítl; nový má méně než 4 000 bodů. Golden hash rovinné sítě pochází z archivovaného c7232b1. Celá sada 773/774: jediný známý nesouvisející nesoulad mission-dialogue.test.js (`/současně/` oproti „vyberte pouze jednu šablonu“) zůstává beze změny. Check/build prošly.
+
+Skutečné veřejné pražské půdorysy se stejným **syntetickým** svahem jako předchozí blok, nikoli nový DEM:
+
+| Výřez | Finální body | Spoje | Komponenty | Parkové body | Nejdelší spoj |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 300 m | 7 380 | 7 394 | 17 | 3 814 | 3,99930 m |
+| 200 m | 3 252 | 3 264 | 7 | 1 647 | 3,99362 m |
+
+Oba výřezy dříve překročily limit a byly odmítnuté. Diagnostické odblokování pouze místního počítadla starého kódu ukázalo 18 647 živých bodů většího výřezu; taková síť se nezapisovala do hry. Nový nativní parser nemá upozornění. U všech 7 394 spojů většího výřezu nezávislá kontrola proti skutečným generovaným trojúhelníkům a hranám potvrdila souvislý podklad, odstup těla nejméně **0,4001619 m** a numerickou shodu s terénními rovinami do **1,78 µm**; sedm spojů mění relativní úroveň přes povolený schod. Numerická shoda není přesnost zdrojové mapy nebo zaměření terénu.
+
+Srovnání komponent s původním diagnostickým grafem: 15 oblastí má shodné kotvy v právě jedné nové komponentě. U zbývající malé oblasti je nejbližší kotva vzdálená 1,403 mm a celé spojení má odstup od hran 0,41239 m. Přibyla jedna samostatná trasa; počet komponent 16 → 17. Toto ověřuje kotvy oblastí, nikoli totožnost každé původní dráhy.
+
+Nativní GOG 1.2/Wine: stejný syntetický svah a park, nová síť **106 bodů / 112 spojů / jedna komponenta** místo předchozích 218/223. Čerstvý checkpoint zachytil průchod kolem `[0,007; 10,261; 15,233]`, dosažení vzdálené části `[0,002; 11,464; 30,268]` a první návrat `[−0,001; 10,245; 4,350]`. Výšky v toleranci fyziky postavy 5,5 cm, tři kolizní paprsky na trávu/cestu/chodník. Připravený check.bin, modely a KLZ porovnané s generátorem; snímek zkontrolovaný. Tento blok nemění kolizní geometrii a neopakuje její předchozí negativní kontrolu. Neprokazuje přesný průchod všech tras celého města ani úplnou integraci výšek do editoru. Testovací Wine ukončené, vlastní transakce vrácené, chráněné projekty a Game.exe hashově nezměněné.
+
+Soukromá evidence: `local/osm-elevation-research/compact.json`, `compact-200.json`, `compact-whole-links.json`, `compact-final-walk.json`, `compact-connectivity-final.json`, diagnostické skripty/sítě a `local/osm-nav-compact-UsJ9uw/` s nativním checkpointem a snímkem; `local/probe-osm-nav-compact.mjs`. Veřejně jen kód, syntetické testy a tento popis. Produkční import/UI stále používá rovinu; rigidní domy, mobiliář, světla a zvuky, zdrojový kontrakt/provenance, společná publikace/export/undo a širší herní test zůstávají nutnou návazností.
+
 ## Závislosti implementace
 
 1. **Neměnný verzovaný podklad:** oblast/projekce, vzorky, datum, poskytovatel, známé rozlišení, výškový systém, normalizace, hashe a atribuce. Omezený přenos, timeout, validace chyb/NoData, sousední dlaždice, cache a přesné offline opakování. Žádná tichá náhrada rovinou nebo jiným poskytovatelem.

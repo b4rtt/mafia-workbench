@@ -4,11 +4,14 @@ import {osmBuildingFootprints} from './footprints.js';
 import {osmGreenPathFootprints} from './green-areas.js';
 import {osmCrossingPlan} from './crossings.js';
 import {osmNavigationElevation} from './navigation-elevation.js';
+import {convexPedestrianCells} from './pedestrian-cells.js';
+import {compactPedestrianLinks} from './pedestrian-compact.js';
 
 const fail=m=>{throw Error('OpenStreetMap · chodci: '+m);};
 export function validateOsmPedestrians(o){
   if(!o||o.version!==1||['parkPaths','crossings'].some(k=>o[k]!==undefined&&typeof o[k]!=='boolean')||!Number.isInteger(o.density)||o.density<1||o.density>100||!Number.isInteger(o.capacity)||o.capacity<1||o.capacity>20||!Array.isArray(o.models)||!o.models.length||o.models.length>16||new Set(o.models.map(m=>m?.path?.toLowerCase())).size!==o.models.length||o.models.some(m=>!/^models\/civil\d+\.4ds$/i.test(m?.path??'')||!/^civil\d+\.i3d$/i.test(m?.model??'')||m.path.slice(7,-4).toLowerCase()!==m.model.slice(0,-4).toLowerCase()||m.model.length>16||!/^[a-f0-9]{64}$/.test(m?.sha256??'')))fail('načtěte 1–16 civilních modelů; hustota je 1–100 a kapacita každého modelu 1–20.');
 }
+const distanceXZ=(a,b)=>Math.hypot(a[0]-b[0],a[2]-b[2]);
 const snap=n=>Math.round(n*1000)/1000;
 function capsule(a,b,r){
   const angle=Math.atan2(b[1]-a[1],b[0]-a[0]);
@@ -67,12 +70,34 @@ export function osmPedestrianPlan(source,roads,surface,props=null,green=null,opt
     const inset=edges.length?(mixed?parkInset(edges):clipping.union(edges)):[];
     safe=edges.length?clipping.difference(walkable,inset):[];
   }catch{fail('průchozí plochy nelze bezpečně spojit; zmenšete oblast nebo upravte osazení.');}
-  const points=[],links=[],regions=[],used=new Map();
-  const add=(p,y)=>{let v=[Math.fround(p[0]),y,Math.fround(p[1])];if(mixed||terrain)v[1]=levelAt([v[0],v[2]]);if(terrain)v=terrain.point(v,v[1]);const key=v.join('/');if(!used.has(key)){if(points.length>=8192)fail('síť přesahuje 8192 bodů; zmenšete oblast.');used.set(key,points.length);points.push(v);}return used.get(key);};
-  const connect=(a,b)=>{if(a===b)return;const p=points[a],q=points[b];let prev=a;if(terrain){const chain=terrain.split(p,q,levelAt,4);for(let i=1;i<chain.length;i++){const next=i===chain.length-1?b:add([chain[i][0],chain[i][2]],y);if(prev!==next)links.push([prev,next]);prev=next;}return;}const steps=Math.ceil(Math.hypot(p[0]-q[0],p[2]-q[2])/(mixed?Math.sqrt(16-.25**2):4));for(let n=1;n<=steps;n++){const next=n===steps?b:add([p[0]+(q[0]-p[0])*n/steps,p[2]+(q[2]-p[2])*n/steps],p[1]);if(prev!==next)links.push([prev,next]);prev=next;}};
+  const points=[],regions=[],used=new Map(),pinned=new Set();let links=[];
+  const add=(p,y)=>{let v=[Math.fround(p[0]),y,Math.fround(p[1])];if(mixed||terrain)v[1]=levelAt([v[0],v[2]]);if(terrain)v=terrain.point(v,v[1]);const key=v.join('/');if(!used.has(key)){if(points.length>=(terrain?65536:8192))fail(terrain?'výpočet sítě přesahuje 65 536 bodů; zmenšete oblast.':'síť přesahuje 8192 bodů; zmenšete oblast.');used.set(key,points.length);points.push(v);}return used.get(key);};
+  const connect=(a,b)=>{if(a===b)return;const p=points[a],q=points[b];let prev=a;if(terrain){const chain=terrain.split(p,q,levelAt,4,true);for(let i=1;i<chain.length;i++){const next=i===chain.length-1?b:add([chain[i][0],chain[i][2]],y);if(prev!==next)links.push([prev,next]);prev=next;}return;}const steps=Math.ceil(Math.hypot(p[0]-q[0],p[2]-q[2])/(mixed?Math.sqrt(16-.25**2):4));for(let n=1;n<=steps;n++){const next=n===steps?b:add([p[0]+(q[0]-p[0])*n/steps,p[2]+(q[2]-p[2])*n/steps],p[1]);if(prev!==next)links.push([prev,next]);prev=next;}};
   for(const polygon of safe){
     if(area(polygon[0])-polygon.slice(1).reduce((s,r)=>s+area(r),0)<1)continue;
     const rings=polygon.map(r=>r.slice(0,-1).map(p=>new Vector2(...p))),vertices=rings.flat(),triangles=ShapeUtils.triangulateShape(rings[0],rings.slice(1)),portals=new Map(),centers=[];
+    if(terrain){
+      const cells=convexPedestrianCells(vertices,triangles),doors=cells.map(()=>[]),before=links.length;
+      for(const[i,ids]of cells.entries())for(let n=0;n<ids.length;n++){
+        const a=ids[n],b=ids[(n+1)%ids.length],key=[a,b].sort((a,b)=>a-b).join('/');
+        if(portals.has(key)){const mid=add([(vertices[a].x+vertices[b].x)/2,(vertices[a].y+vertices[b].y)/2],y);doors[i].push(mid);doors[portals.get(key)].push(mid);}else portals.set(key,i);
+      }
+      for(const[i,ids]of cells.entries()){
+        const ports=doors[i],p=ids.map(i=>vertices[i]),center=[p.reduce((s,v)=>s+v.x,0)/p.length,p.reduce((s,v)=>s+v.y,0)/p.length],segments=[];
+        const join=(a,b)=>{connect(a,b);segments.push([a,b]);},end=v=>{const t=Math.min(.1,.1/Math.hypot(v.x-center[0],v.y-center[1]));return add([v.x*(1-t)+center[0]*t,v.y*(1-t)+center[1]*t],y);};
+        // Disconnected triangulation slivers are not standalone walk areas.
+        if(!ports.length&&area(p.map(v=>[v.x,v.y]))<1)continue;
+        // Corridors need portals, junctions a hub, and isolated cells a spine.
+        // Long cell ends must remain reachable even if its doors cluster.
+        if(ports.length===2)join(...ports);
+        else if(ports.length===1){const door=points[ports[0]],far=p.reduce((a,b)=>(a.x-door[0])**2+(a.y-door[2])**2>(b.x-door[0])**2+(b.y-door[2])**2?a:b);join(ports[0],end(far));}
+        else if(ports.length){const hub=add(center,y);for(const port of ports)join(hub,port);}
+        else{let pair=[p[0],p[1]],length=0;for(const a of p)for(const b of p){const d=(a.x-b.x)**2+(a.y-b.y)**2;if(d>length){length=d;pair=[a,b];}}join(...pair.map(end));}
+        const separation=v=>Math.min(...segments.map(([a,b])=>{const p=points[a],q=points[b],dx=q[0]-p[0],dz=q[2]-p[2],t=Math.max(0,Math.min(1,((v.x-p[0])*dx+(v.y-p[2])*dz)/(dx*dx+dz*dz)||0));return Math.hypot(v.x-p[0]-t*dx,v.y-p[2]-t*dz);}));
+        for(const v of [...p].sort((a,b)=>separation(b)-separation(a)))if(separation(v)>4){const target=end(v),q=points[target],nearest=segments.flat().reduce((a,b)=>distanceXZ(points[a],q)<distanceXZ(points[b],q)?a:b);join(nearest,target);}
+      }
+      if(links.length>before)regions.push(polygon);continue;
+    }
     for(const ids of triangles){const p=ids.map(i=>vertices[i]);if(Math.abs((p[1].x-p[0].x)*(p[2].y-p[0].y)-(p[1].y-p[0].y)*(p[2].x-p[0].x))<1e-8){centers.push(null);continue;}centers.push(add([p.reduce((s,v)=>s+v.x,0)/3,p.reduce((s,v)=>s+v.y,0)/3],y));}
     const before=links.length;
     for(const [i,ids]of triangles.entries())if(centers[i]!==null)for(let n=0;n<3;n++){
@@ -88,6 +113,7 @@ export function osmPedestrianPlan(source,roads,surface,props=null,green=null,opt
     const existing=new Set(links.flat()),clear=(a,b)=>clipping.difference([capsule(a,b,.4)],walkable).reduce((s,p)=>s+p.reduce((n,r,i)=>n+(i?-1:1)*area(r),0),0)<1e-6;
     for(const crossing of crossings.placements){
       const [a,b]=crossing.landings,steps=Math.ceil(Math.hypot(b[0]-a[0],b[1]-a[1])/2),spine=Array.from({length:steps+1},(_,i)=>add(a.map((n,k)=>n+(b[k]-n)*i/steps),y));
+      if(terrain)for(const i of spine)pinned.add(i);
       for(let i=1;i<spine.length;i++){
         const p=points[spine[i-1]],q=points[spine[i]];
         if(!clear([p[0],p[2]],[q[0],q[2]]))fail('přechod nelze bezpečně napojit na skutečný povrch.');
@@ -100,13 +126,16 @@ export function osmPedestrianPlan(source,roads,surface,props=null,green=null,opt
       }
     }
   }
+  if(terrain)links=compactPedestrianLinks(points,links,{walkable,levels:[...surface.footprints.sidewalk,...paths.flatMap(p=>p.polygons),...(crossings?.placements??[]).flatMap(p=>p.polygons)],terrain,levelAt,pinned});
   const live=new Set(links.flat()),remap=new Map(),positions=[];for(const [i,p]of points.entries())if(live.has(i)){remap.set(i,positions.length);positions.push(p);}
+  if(positions.length>8192)fail('síť přesahuje 8192 bodů; zmenšete oblast.');
   const unique=[...new Map(links.map(([a,b])=>[a<b?`${a}/${b}`:`${b}/${a}`,[remap.get(a),remap.get(b)]])).values()];
   if(!unique.length)fail('po odečtení hran a překážek nezbyla pěší trasa alespoň 1 m². Rozšiřte chodník nebo změňte osazení.');
   // Count actual graph components; degenerate triangulation slivers may split
   // one polygon into more than one navigable island.
   const neighbors=positions.map(()=>[]),visited=new Set();let components=0;
   for(const [a,b]of unique){neighbors[a].push(b);neighbors[b].push(a);}
+  if(neighbors.some(n=>n.length>255))fail('bod překračuje 255 nativních spojů; zmenšete oblast.');
   for(let i=0;i<positions.length;i++)if(!visited.has(i)){components++;const queue=[i];visited.add(i);while(queue.length)for(const n of neighbors[queue.pop()])if(!visited.has(n)){visited.add(n);queue.push(n);}}
   return {positions,links:unique,components,clearance:.4,radius:.1,regions,...(green?{parkPoints:positions.filter(p=>terrain?levelAt([p[0],p[2]])!==y&&paths.some(r=>contains(r.polygons,[p[0],p[2]])):p[1]!==y&&(!crossings||paths.some(r=>contains(r.polygons,[p[0],p[2]])))).length}: {}),...(crossings?{crossings}:{})};
 }

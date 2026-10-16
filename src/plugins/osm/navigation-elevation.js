@@ -22,7 +22,7 @@ export function osmNavigationElevation(surface){
     if(typeof level!=='number'||!Number.isFinite(level))fail('neplatná úroveň povrchu.');
     const [x,z]=xz(p);return [x,Math.fround(field.heightAt(x,z)+level),z];
   }
-  function split(a,b,levelAt,maxLength){
+  function split(a,b,levelAt,maxLength,compact=false){
     if(typeof levelAt!=='function'||!Number.isFinite(maxLength)||maxLength<.25||maxLength>4)fail('neplatné dělení spojení.');
     const project=p=>point([p[0],0,p[1]],levelAt(p)),cuts=field.splitEdge(xz(a),xz(b)).map(c=>project(c.point)),result=[cuts[0]];
     function append(p,q,depth=0){
@@ -32,7 +32,16 @@ export function osmNavigationElevation(surface){
       if([p,q].some(v=>v[0]===mid[0]&&v[2]===mid[2]))fail('výškový skok nelze reprezentovat pěší nebo jízdní trasou.');
       append(p,mid,depth+1);append(mid,q,depth+1);
     }
-    for(let i=1;i<cuts.length;i++)append(cuts[i-1],cuts[i]);return result;
+    // In pedestrian corridors, discard redundant cuts only within one level
+    // and at <=1 micrometre vertical error over every original terrain span.
+    // Ridges remain explicit; the native length bound is applied afterwards.
+    function simplify(first,last){
+      let worst=1e-6,at=-1;const a=cuts[first],b=cuts[last],dx=b[0]-a[0],dz=b[2]-a[2],length=dx*dx+dz*dz;
+      for(let i=first+1;i<last;i++){const p=cuts[i],t=((p[0]-a[0])*dx+(p[2]-a[2])*dz)/length,error=Math.abs(p[1]-a[1]-(b[1]-a[1])*t);if(error>worst){worst=error;at=i;}}
+      if(at===-1)append(a,b);else{simplify(first,at);simplify(at,last);}
+    }
+    if(compact&&cuts.every(p=>levelAt([p[0],p[2]])===levelAt([cuts[0][0],cuts[0][2]])))simplify(0,cuts.length-1);
+    else for(let i=1;i<cuts.length;i++)append(cuts[i-1],cuts[i]);return result;
   }
   return {field,levels,point,split};
 }
