@@ -13,6 +13,8 @@ npm start
 
 V aplikaci zvolte **Rozbalit hru**, složku s DTA archivy a umístění projektu. Vznikne nový adresář; existující projekt ani původní hra se nepřepisují. Projekt lze později znovu otevřít.
 
+Pro volitelné snímání mimiky jednou spusťte `npm run setup:face`, potom `npm start`. Příprava stáhne ověřený model detektoru od Googlu; další snímání používá místní soubory. Bez této přípravy ostatní editory fungují dál.
+
 Extrakce bez UI:
 
 ```sh
@@ -20,6 +22,8 @@ npm run extract -- /cesta/ke/hre /existujici/rodic/novy-projekt
 ```
 
 ## Aktuální funkce
+
+- **Mimika z webkamery…** v náhledu modelu a v editoru **Pohyb úst**: živý obličejový náhled podporovaných modelů HIGH, kalibrace neutrálního výrazu, síla a vyhlazení, záznam až 10 minut, uložení/otevření `.wbface.json`, přehrání a výběr časového úseku. Kamera se spouští tlačítkem, bez mikrofonu; při zavření okna nebo skrytí aplikace se vypne. Ukládají se číselné výrazy, nikoli video. V editoru dabingu lze úsek přenést do rozepsaného LIP a poté uložit běžným save s undo/exportem. Přibližný převod ovládá ústa, společná víčka a obočí; nejde o kopii všech svalů obličeje, samostatný pohyb očí či hlavy. Záznam neobsahuje zvuk a nesynchronizuje se automaticky s WAV. [Podrobnosti a ověření](research/facial-capture-module.md).
 
 - **Společný posun objektů** ve **3D scéně → Objekt → Společný posun…**: vyberte více objektů, zadejte světový posun XYZ a zkontrolujte živý náhled. Výběr lze filtrovat a společně zarámovat. Děti se s rodičem přesunou pouze jednou; generované kolize se přepočítají ve stejném kroku undo. Původní kolize, navigace, silniční síť, efekty a samostatná geometrie se tímto nástrojem neposouvají. Nejvýše 256 objektů s upravitelnou pozicí; rozepsané vlastnosti nejdřív uložte.
 

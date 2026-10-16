@@ -8,6 +8,9 @@ import { parseTextDb } from '../core/textdb.js';
 import { prepareDialogueWav } from '../core/dialogue-audio.js';
 import { prepareModelImport } from '../core/model-import.js';
 import { randomUUID } from 'node:crypto';
+import { validateFaceCapture } from '../shared/face-capture.js';
+import { facePermissionGate } from './face-permissions.js';
+import { writeSafe } from '../core/files.js';
 import { Playtest } from '../core/playtest.js';
 import { readEmptyMissionZip } from '../core/mission.js';
 import { replayMissions, loadCutsceneContext } from '../core/cutscene.js';
@@ -23,6 +26,7 @@ let window, project, missionTemplate, voiceImport, modelImport, busy = false;
 const runtimeRoot = path.resolve(directory, '../../../.runtime');
 const playtest = new Playtest({ wine: path.join(runtimeRoot, 'wine-cx/wswine.bundle/bin/wine'), server: path.join(runtimeRoot, 'wine-cx/wswine.bundle/bin/wineserver'), dependencies: path.join(runtimeRoot, 'wine-cx/dependencies'), prefixTemplate: path.join(runtimeRoot, 'prefix-cx') });
 const mediaToken = randomUUID();
+const faceGate=facePermissionGate();
 const mediaTypes = new Map([['.bmp', 'image/bmp'], ['.png', 'image/png'], ['.jpg', 'image/jpeg'], ['.jpeg', 'image/jpeg'], ['.wav', 'audio/wav'], ['.ogg', 'audio/ogg'], ['.mp3', 'audio/mpeg']]);
 async function operation(task) {
   if (busy) throw new Error('Probíhá jiná operace.');
@@ -78,25 +82,41 @@ app.whenReady().then(async () => {
         return new Response(bytes, { headers: { ...headers, 'Content-Length': String(bytes.length) } });
       } catch { return new Response('Asset unavailable', { status: 404 }); }
     }
-    const allowed = new Set(['index.html', 'styles.css', 'app.js']);
+    const faceAssets=new Set(['face-worker.js','face-runtime/face_landmarker.task','face-runtime/vision_wasm_internal.js','face-runtime/vision_wasm_internal.wasm','face-runtime/vision_wasm_nosimd_internal.js','face-runtime/vision_wasm_nosimd_internal.wasm']);
+    const allowed = new Set(['index.html', 'styles.css', 'app.js',...faceAssets]);
     const name = url.pathname.slice(1);
     if (!allowed.has(name)) return new Response('Not found', { status: 404 });
-    return net.fetch(pathToFileURL(name === 'app.js' ? path.resolve(directory, '../../out/app.js') : path.join(uiRoot, name)).href);
+    try{return await net.fetch(pathToFileURL(name === 'app.js'||faceAssets.has(name) ? path.resolve(directory, '../../out',name) : path.join(uiRoot, name)).href);}catch{return new Response('Asset unavailable',{status:404});}
   });
-  session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
-  session.defaultSession.setPermissionCheckHandler(() => false);
+  session.defaultSession.setPermissionRequestHandler((contents,permission,callback,details)=>callback(contents===window?.webContents&&faceGate.request(permission,details)));
+  session.defaultSession.setPermissionCheckHandler((contents,permission,origin,details)=>contents===window?.webContents&&faceGate.check(permission,origin,details));
   window = new BrowserWindow({ width: 1320, height: 850, minWidth: 1000, minHeight: 650, backgroundColor: '#121716', title: 'Mafia Workbench', webPreferences: { preload: path.join(directory, 'preload.cjs'), sandbox: true, contextIsolation: true, nodeIntegration: false } });
   window.webContents.on('will-prevent-unload', event => {
     const choice = dialog.showMessageBoxSync(window, { type: 'question', buttons: ['Zůstat', 'Zahodit a zavřít'], defaultId: 0, cancelId: 0, message: 'Máte neuložené změny nebo probíhá operace.', detail: 'Zavřením můžete přijít o rozepsané změny.' });
     if (choice === 1 && !busy) event.preventDefault();
   });
   window.webContents.on('did-fail-load', (_event, code, description) => console.error('Renderer load failed:', code, description));
+  window.webContents.on('did-start-navigation',()=>faceGate.clear());
+  window.on('closed',()=>faceGate.clear());
   window.webContents.on('render-process-gone', (_event, details) => console.error('Renderer exited:', details.reason));
   window.webContents.on('console-message', (_event, details) => { if (details.level === 'error') console.error('Renderer:', details.message); });
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('will-navigate', event => event.preventDefault());
   Menu.setApplicationMenu(Menu.buildFromTemplate([{ role: 'appMenu' }, { role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' }]));
   handle('project:get', async () => project ? project.list() : null);
+  handle('face:camera',enabled=>{if(enabled===true)faceGate.arm();else faceGate.clear();return true;});
+  handle('face:save',capture=>operation(async()=>{
+    const value=validateFaceCapture(capture),result=await dialog.showSaveDialog(window,{title:'Uložit záznam mimiky (bez videa a zvuku)',defaultPath:'Mimika.wbface.json',filters:[{name:'Záznam mimiky',extensions:['wbface.json']}]});
+    if(result.canceled)return null;
+    if(!result.filePath.toLowerCase().endsWith('.wbface.json'))throw Error('Záznam musí mít příponu .wbface.json.');
+    const bytes=JSON.stringify(value);if(Buffer.byteLength(bytes)>64*1024*1024)throw Error('Záznam je příliš velký (maximum 64 MB).');
+    await writeSafe(path.dirname(result.filePath),path.basename(result.filePath),bytes);return result.filePath;
+  }));
+  handle('face:open',()=>operation(async()=>{
+    const result=await dialog.showOpenDialog(window,{title:'Otevřít záznam mimiky',properties:['openFile'],filters:[{name:'Záznam mimiky',extensions:['wbface.json']}]});if(result.canceled)return null;
+    const filename=result.filePaths[0];if((await fs.stat(filename)).size>64*1024*1024)throw Error('Záznam je příliš velký (maximum 64 MB).');
+    return validateFaceCapture(JSON.parse(await fs.readFile(filename,'utf8')));
+  }));
   handle('project:open', () => operation(async () => {
     const root = await chooseFolder('Otevřít projekt Mafia Workbench');
     if (!root) return null;

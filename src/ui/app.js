@@ -46,6 +46,7 @@ import { sceneSectorsDialog } from './scene-sectors.js';
 import { sceneTranslationDialog } from './scene-translation.js';
 import { populationControl } from './population.js';
 import { renderLip } from './lip.js';
+import { faceCaptureDialog } from './face-capture.js';
 import { EffectsViewport } from './effects.js';
 import { renderEffectDefinitions } from './effect-types.js';
 import { particleDialog } from './particle-dialog.js';
@@ -1099,6 +1100,7 @@ function renderModel(main, file, previous = null) {
   const fit = element('button', 'Zarámovat vše'); fit.onclick = () => view.fit();
   const materials=element('button','Materiály…');materials.disabled=!file.materials.length;materials.onclick=()=>run(()=>materialDialog(file,view));tools.append(materials);
   if(/^models\/.+\.4ds$/i.test(file.path)){const animate=element('button','Nová animace…');animate.dataset.createAnimation='';animate.onclick=createNewAnimation;tools.append(animate);buttons();}
+  if(/^models\/.+\.4ds$/i.test(file.path)){const capture=element('button','Mimika z webkamery…');capture.onclick=()=>faceCaptureDialog({element,api,assets:state.project.assets,initialModel:file.path});tools.append(capture);}
   const geometry=element('button','Vrcholy, plochy a UV…');geometry.onclick=()=>run(async()=>{if(state.texts.size)throw new Error('Před editací geometrie uložte rozepsané vlastnosti.');const id=Number(objects.value);if(!id)throw new Error('Nejdřív vyberte část modelu.');const context=await api.modelGeometry(file.path,id);if(context.sha256!==file.sha256)throw new Error('Model se od otevření změnil. Otevřete jej znovu.');geometryDialog(file,context,{run,status,resolveTexture:view.resolveTexture,save:async(request,expectedHash)=>{state.file=await api.saveGeometry(file.path,request,expectedHash);await refresh();renderDetail();}});});tools.append(geometry);
   const wire = element('button', 'Drátěný pohled'); view.modelWireframe = Boolean(previous?.wireframe); wire.setAttribute('aria-pressed', String(view.modelWireframe)); wire.onclick = () => { view.modelWireframe = !view.modelWireframe; view.wireframe(view.modelWireframe); wire.setAttribute('aria-pressed', String(view.modelWireframe)); }; tools.append(fit, wire);
   const sectors=element('button','Všechny sektory a portály');view.sectorsVisible=Boolean(previous?.sectors);sectors.disabled=!file.meshes.some(mesh=>mesh.sector);sectors.setAttribute('aria-pressed',String(view.sectorsVisible));sectors.onclick=()=>{view.showSectors(!view.sectorsVisible,view.selectedId);sectors.setAttribute('aria-pressed',String(view.sectorsVisible));};tools.append(sectors);

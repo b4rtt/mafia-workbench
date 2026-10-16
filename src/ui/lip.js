@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Viewport } from './viewport.js';
 import { applyLip } from './morph.js';
+import { faceCaptureDialog } from './face-capture.js';
 
 export function renderLip(main,file,{element,state,api,run,status,onSaved}) {
   let frames=structuredClone(state.texts.get('lip')??file.frames),selected=0,view;
@@ -10,6 +11,7 @@ export function renderLip(main,file,{element,state,api,run,status,onSaved}) {
   const modelTools=element('div',undefined,'tools'),search=element('input'),models=element('select'),load=element('button','Načíst obličej'),focus=element('button','Přiblížit obličej'),preview=element('div',undefined,'lip-preview'),caption=element('p','Vyberte model postavy pro 3D náhled. Změny parametrů se zobrazí bez ukládání. Náhled neprovádí herní přechody nástupu a ukončení řeči.','notice');
   search.type='search';search.placeholder='Hledat model postavy…';search.value='TommyHIGH';search.setAttribute('aria-label','Hledat model pro pohyb úst');models.setAttribute('aria-label','Model pro pohyb úst');focus.disabled=true;modelTools.append(search,models,load,focus);main.append(modelTools,caption,preview,fields);
   function fillModels(){const previous=models.value,matches=state.project.assets.filter(a=>/^models\/.+\.4ds$/i.test(a.path)&&a.path.toLowerCase().includes(search.value.toLowerCase()));models.replaceChildren(...matches.slice(0,200).map(a=>{const option=element('option',a.path);option.value=a.path;return option;}));if([...models.options].some(o=>o.value===previous))models.value=previous;load.disabled=!matches.length;}
+  const capture=element('button','Mimika z webkamery…');modelTools.append(capture);capture.onclick=()=>faceCaptureDialog({element,api,assets:state.project.assets,initialModel:models.value,onApply:next=>{frames=next;show(0);dirty();status('Mimika je rozepsaná. Uložte pohyb úst pro použití v dabingu; zápis podporuje undo.');}});
   search.oninput=fillModels;fillModels();
   function focusFace(){if(!view)return;const base=[...view.frames.values()].find(o=>o.name.toLowerCase()==='base'&&o.userData.morph?.regions.length===3);if(!base)return;const mesh=base.children.find(o=>o.isMesh),indices=[...new Set(base.userData.morph.regions.flatMap(r=>r.indices))],positions=mesh.geometry.getAttribute('position'),geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.Float32BufferAttribute(indices.flatMap(i=>[positions.getX(i),positions.getY(i),positions.getZ(i)]),3));const bounds=new THREE.Points(geometry);base.add(bounds);try{view.fit(bounds);}finally{bounds.removeFromParent();geometry.dispose();bounds.material.dispose();}}
   focus.onclick=focusFace;
