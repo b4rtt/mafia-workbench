@@ -21,6 +21,7 @@ import {loadOsmShellStyles} from '../plugins/osm/building-shell-assets.js';
 import { osmSurfaceModel } from '../plugins/osm/surface.js';
 import {loadOsmBuildingModels} from '../plugins/osm/building-assets.js';
 import {osmBuildingPlan} from '../plugins/osm/buildings.js';
+import {loadOsmGreenTextures} from '../plugins/osm/green-assets.js';
 import { replayMissions, loadCutsceneContext } from '../core/cutscene.js';
 const directory = path.dirname(fileURLToPath(import.meta.url));
 const uiRoot = path.resolve(directory, '../ui');
@@ -269,6 +270,7 @@ app.whenReady().then(async () => {
     const input=JSON.parse(await fs.readFile(result.filePaths[0],'utf8'));
     const saved=input?.format==='mafia-workbench-osm-source'&&input.version===1,data=saved?input.data:input,source=osmSource(data,saved?input.area:area),token=randomUUID();
     if(saved){
+      if(input.green!==undefined&&input.green!==null){await loadOsmGreenTextures(active,input.green);if(!input.surface)throw Error('OpenStreetMap · zeleň: chybí povrchy ulic.');}
       const plan=osmRoadPlan(source,input.selected),surface=Object.hasOwn(input,'surface')&&input.surface!==null?osmSurfaceModel(plan,source.area,input.surface):null;
       if(Object.hasOwn(input,'buildings')&&input.buildings!==null){
         if(input.buildings.mode==='footprint'){
@@ -283,7 +285,7 @@ app.whenReady().then(async () => {
         }
       }
     }
-    osmImport={project:active,token,data,area:source.area};return {token,source,cached:true,...(saved?{selected:input.selected,...(Object.hasOwn(input,'surface')?{surface:input.surface}:{}),...(Object.hasOwn(input,'buildings')?{buildings:input.buildings}:{})}:{})};
+    osmImport={project:active,token,data,area:source.area};return {token,source,cached:true,...(saved?{green:input.green??null,selected:input.selected,...(Object.hasOwn(input,'surface')?{surface:input.surface}:{}),...(Object.hasOwn(input,'buildings')?{buildings:input.buildings}:{})}:{})};
   }));
   handle('osm:building-models', () => operation(async () => {const {models,warnings}=await loadOsmBuildingModels(current());return {models,warnings};}));
   handle('osm:building-styles', () => operation(() => loadOsmShellStyles(current())));

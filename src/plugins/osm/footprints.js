@@ -23,6 +23,25 @@ function join(members,ways,nodes,project){
   while(pending.length){const ids=pending.shift();while(ids[0]!==ids.at(-1)){const at=pending.findIndex(p=>p[0]===ids.at(-1)||p.at(-1)===ids.at(-1));if(at<0)invalid('Členské cesty netvoří uzavřený obrys.');const next=pending.splice(at,1)[0];if(next[0]!==ids.at(-1))next.reverse();ids.push(...next.slice(1));if(ids.length>257)invalid('Složený obrys přesahuje 256 hran.');}result.push(ring(ids,nodes,project));}
   return result.sort((a,b)=>a.key.localeCompare(b.key,'en'));
 }
+// Shared topology checks for buildings and ground cover; no tag reinterpretation.
+export function osmRing(ids,nodes,project){return ring(ids,nodes,project).points;}
+export function osmMultipolygon(relation,rawWays,nodes,project){
+  if(!Array.isArray(relation.members)||!relation.members.length||relation.members.length>128)invalid('Relace vyžaduje 1–128 členských cest.');
+  const members=relation.members;
+  if(relation.tags?.type!=='multipolygon')invalid('Vyžaduje relaci multipolygon s obrysy outer/inner.');
+  if(members.some(m=>m?.type!=='way'||!Number.isSafeInteger(m.ref)||m.ref<=0||!['outer','inner'].includes(m.role))||new Set(members.map(m=>m.ref)).size!==members.length)invalid('Nepodporovaný, opakovaný nebo neoznačený člen relace (outer/inner).');
+  const outer=join(members.filter(m=>m.role==='outer'),rawWays,nodes,project),inner=join(members.filter(m=>m.role==='inner'),rawWays,nodes,project);
+  if(!outer.length||outer.length+inner.length>32)invalid('Relace vyžaduje vnější obrys a nejvýše 32 prstenců.');
+  const polygons=outer.map(r=>[r.points]);
+  for(const hole of inner){
+    const owners=outer.map((o,i)=>!ringsTouch(o.points,hole.points)&&polyArea(clipping.difference([hole.points],[o.points]))<1e-6?i:-1).filter(i=>i!==-1);
+    if(owners.length!==1)invalid('Otvor není jednoznačně uvnitř vnějšího obrysu nebo se ho dotýká.');
+    const polygon=polygons[owners[0]];
+    if(polygon.slice(1).some(h=>ringsTouch(h,hole.points)||polyArea(clipping.intersection([h],[hole.points]))>1e-6))invalid('Otvory se dotýkají, překrývají nebo jsou vnořené.');polygon.push(hole.points);
+  }
+  for(let i=0;i<polygons.length;i++)for(let j=0;j<i;j++)if(ringsTouch(polygons[i][0],polygons[j][0])||polyArea(clipping.intersection(polygons[i],polygons[j]))>1e-6)invalid('Vnější části se dotýkají nebo překrývají.');
+  return polygons;
+}
 // A missing/unsupported relation is kept as a visible reason, never filled by
 // its tagged outer way. Input data and raw relation membership are preserved.
 export function readOsmBuildings(data,nodes,project,ways,tagNames){
@@ -40,19 +59,8 @@ export function readOsmBuildings(data,nodes,project,ways,tagNames){
       for(const key of tagNames)if(Object.hasOwn(relation.tags,key)){const value=relation.tags[key];if(typeof value!=='string'||value.length>1024)invalid('Neplatná značka relace.');feature.tags[key]=value;}
       if(!Array.isArray(relation.members)||!relation.members.length||relation.members.length>128)invalid('Relace vyžaduje 1–128 členských cest.');
       if(!feature.tags.building||feature.tags.building==='no')invalid('Značka building je pouze na členské cestě nebo je relace vyloučená; starší či rozporné značení vyžaduje ruční model.');
-      const members=relation.members;
       if(relation.tags.type!=='multipolygon')invalid('Relace building s 3D částmi vyžaduje ruční model.');
-      if(members.some(m=>m?.type!=='way'||!Number.isSafeInteger(m.ref)||m.ref<=0||!['outer','inner'].includes(m.role))||new Set(members.map(m=>m.ref)).size!==members.length)invalid('Nepodporovaný, opakovaný nebo neoznačený člen relace (outer/inner).');
-      const outer=join(members.filter(m=>m.role==='outer'),rawWays,nodes,project),inner=join(members.filter(m=>m.role==='inner'),rawWays,nodes,project);
-      if(!outer.length||outer.length+inner.length>32)invalid('Relace vyžaduje vnější obrys a nejvýše 32 prstenců.');
-      const polygons=outer.map(r=>[r.points]);
-      for(const hole of inner){
-        const owners=outer.map((o,i)=>!ringsTouch(o.points,hole.points)&&polyArea(clipping.difference([hole.points],[o.points]))<1e-6?i:-1).filter(i=>i!==-1);
-        if(owners.length!==1)invalid('Otvor není jednoznačně uvnitř vnějšího obrysu nebo se ho dotýká.');
-        const polygon=polygons[owners[0]];
-        if(polygon.slice(1).some(h=>ringsTouch(h,hole.points)||polyArea(clipping.intersection([h],[hole.points]))>1e-6))invalid('Otvory se dotýkají, překrývají nebo jsou vnořené.');polygon.push(hole.points);
-      }
-      for(let i=0;i<polygons.length;i++)for(let j=0;j<i;j++)if(ringsTouch(polygons[i][0],polygons[j][0])||polyArea(clipping.intersection(polygons[i],polygons[j]))>1e-6)invalid('Vnější části se dotýkají nebo překrývají.');
+      const polygons=osmMultipolygon(relation,rawWays,nodes,project);
       polygons.forEach((polygon,i)=>buildings.push({...feature,id:`relation/${relation.id}/${i+1}`,polygons:[polygon],component:i+1,components:polygons.length}));
     }catch(error){feature.reason=error.message;buildings.push(feature);}
   }

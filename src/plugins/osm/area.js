@@ -1,4 +1,5 @@
 import {readOsmBuildings} from './footprints.js';
+import {readOsmGreenAreas,osmGreenKind} from './green-areas.js';
 // Versioned city source plan. This module has no Electron or project access.
 export const osmPlugin = Object.freeze({id:'openstreetmap-city',version:1,api:1});
 export const osmProviders=Object.freeze({fossgis:{name:'Overpass · FOSSGIS',url:'https://overpass-api.de/api/interpreter'},coffee:{name:'Overpass · Private.coffee',url:'https://overpass.private.coffee/api/interpreter'}});
@@ -19,7 +20,7 @@ export function osmMapLocation(text){
   const latitude=Number(match[1]),longitude=Number(match[2]);osmArea({latitude,longitude,size:200});return {latitude,longitude};
 }
 const motor=new Set(['motorway','motorway_link','trunk','trunk_link','primary','primary_link','secondary','secondary_link','tertiary','tertiary_link','unclassified','residential','living_street','service','road']);
-const knownTags=['highway','name','ref','oneway','junction','width','width:carriageway','est_width','lanes','lanes:forward','lanes:backward','sidewalk','sidewalk:left','sidewalk:right','sidewalk:both','sidewalk:left:width','sidewalk:right:width','sidewalk:both:width','bridge','tunnel','layer','access','motor_vehicle','vehicle','maxspeed','surface','building','building:part','height','min_height','building:min_level','building:levels','roof:shape','roof:height','roof:levels','roof:angle','roof:orientation','roof:direction','ele'];
+const knownTags=['highway','name','ref','oneway','junction','width','width:carriageway','est_width','lanes','lanes:forward','lanes:backward','sidewalk','sidewalk:left','sidewalk:right','sidewalk:both','sidewalk:left:width','sidewalk:right:width','sidewalk:both:width','bridge','tunnel','layer','access','motor_vehicle','vehicle','maxspeed','surface','building','building:part','height','min_height','building:min_level','building:levels','roof:shape','roof:height','roof:levels','roof:angle','roof:orientation','roof:direction','ele','area','leisure','landuse','landcover','natural'];
 export function osmSource(data,area){
   area=osmArea(area);
   if(!data||!Array.isArray(data.elements)||data.elements.length>60000||data.remark||data.error)fail(data?.remark||data?.error?'server vrátil neúplná data; zmenšete oblast nebo zkuste později.':'neplatná nebo příliš velká odpověď.');
@@ -30,7 +31,7 @@ export function osmSource(data,area){
       if(!Number.isFinite(row.lat)||!Number.isFinite(row.lon)||Math.abs(row.lat)>90||Math.abs(row.lon)>180)fail('neplatné souřadnice uzlu.');
       nodes.set(row.id,{id:row.id,latitude:row.lat,longitude:row.lon});
     }else if(row.type==='way'){
-      if(!row.tags?.highway&&!row.tags?.building)continue;
+      if(!row.tags?.highway&&!row.tags?.building&&!osmGreenKind(row.tags))continue;
       if(!Array.isArray(row.nodes)||row.nodes.length<2||row.nodes.length>10000||row.nodes.some(id=>!Number.isSafeInteger(id)||id<=0)||!row.tags||typeof row.tags!=='object'||Array.isArray(row.tags))fail('neplatná cesta nebo její značky.');
       const tags={};for(const key of knownTags)if(Object.hasOwn(row.tags,key)){if(typeof row.tags[key]!=='string'||row.tags[key].length>1024)fail('neplatná značka cesty.');tags[key]=row.tags[key];}
       ways.push({id:row.id,nodes:[...row.nodes],tags});
@@ -44,7 +45,7 @@ export function osmSource(data,area){
     return {...way,points:way.nodes.map(id=>project(nodes.get(id))),blocked,eligible:Boolean(t.highway&&!blocked)};
   });
   const buildings=readOsmBuildings(data,nodes,project,ways,knownTags),members=new Set(buildings.filter(b=>b.suppressed).map(b=>b.id));for(const way of list)if(members.has(way.id))way.buildingRelation=true;
-  return {format:'mafia-workbench-osm',version:1,plugin:osmPlugin,area,attribution:osmAttribution,nodes:[...nodes.values()],ways:list,buildings,timestamp:typeof data.osm3s?.timestamp_osm_base==='string'?data.osm3s.timestamp_osm_base.slice(0,80):null};
+  return {format:'mafia-workbench-osm',version:1,plugin:osmPlugin,area,attribution:osmAttribution,nodes:[...nodes.values()],ways:list,buildings,greenAreas:readOsmGreenAreas(data,nodes,project),timestamp:typeof data.osm3s?.timestamp_osm_base==='string'?data.osm3s.timestamp_osm_base.slice(0,80):null};
 }
 // Liang–Barsky clipping: boundary vertices retain shared identity, intersections
 // between unconnected ways never invent a junction (bridges in particular).

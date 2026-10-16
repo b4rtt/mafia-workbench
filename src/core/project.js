@@ -53,6 +53,9 @@ import { planSceneTranslation } from '../shared/scene-translation.js';
 import { inspectProjectCollision, saveProjectCollision } from './collision-project.js';
 import { modelImportPlan, importModel } from './model-import.js';
 
+// A city transaction may include 64 houses + 64 green models + mission
+// files; later scene edits also verify all owned collision models atomically.
+const maxTransactionFiles=160;
 const MANIFEST = 'workbench.json';
 const key = p => relativeAssetPath(p).normalize('NFC').toLowerCase();
 export async function createProject(gameRoot, destination, progress = () => {}) {
@@ -167,7 +170,7 @@ export class ModProject {
   async saveManifest() { await writeSafe(this.root, MANIFEST, JSON.stringify(this.manifest, null, 2)); }
   async changeBatch(files, label, collisionSnapshot, readDependencies = []) {
     if(this.busy)throw new Error('Probíhá jiné ukládání.');
-    if(!Array.isArray(files)||!files.length||files.length>64)throw new Error('Neplatná skupina úprav.');
+    if(!Array.isArray(files)||!files.length||files.length>maxTransactionFiles)throw new Error('Neplatná skupina úprav.');
     if(!Array.isArray(readDependencies)||readDependencies.length>10000)throw new Error('Neplatné závislosti skupiny úprav.');
     this.busy=true;
     try{
@@ -202,7 +205,7 @@ export class ModProject {
   }
   async createFiles(files, label = 'Přidání souborů', dependencies = [], archive = 'Nová mise', ownership = null) {
     if (this.busy) throw new Error('Probíhá jiné ukládání.');
-    if (!Array.isArray(files) || !files.length || files.length > 64) throw new Error('Neplatné nové soubory.');
+    if (!Array.isArray(files) || !files.length || files.length > maxTransactionFiles) throw new Error('Neplatné nové soubory.');
     if (!Array.isArray(dependencies) || dependencies.length > 64) throw new Error('Neplatné závislosti nových souborů.');
     this.busy = true;
     const previous = this.manifest.assets;
@@ -1099,7 +1102,7 @@ export class ModProject {
   async undoBatch(entry) {
     if(this.busy)throw new Error('Probíhá jiné ukládání.');
     const files=entry.kind==='batch'?entry.files:[entry];
-    if(!Array.isArray(files)||!files.length||files.length>64)throw new Error('Neplatná skupinová historie.');
+    if(!Array.isArray(files)||!files.length||files.length>maxTransactionFiles)throw new Error('Neplatná skupinová historie.');
     this.busy=true;
     try{
       const rows=[],seen=new Set(),id=randomUUID();
@@ -1118,7 +1121,7 @@ export class ModProject {
   }
   async undoCreation(entry) {
     if (this.busy) throw new Error('Probíhá jiné ukládání.');
-    if (!Array.isArray(entry.files) || !entry.files.length || entry.files.length > 64) throw new Error('Neplatná historie nových souborů.');
+    if (!Array.isArray(entry.files) || !entry.files.length || entry.files.length > maxTransactionFiles) throw new Error('Neplatná historie nových souborů.');
     this.busy = true;
     const previous = this.manifest.assets, overlays = [];
     try {

@@ -2,6 +2,15 @@
 
 Aktualizace: 16. října 2026. Vývoj pokračuje; komplexní editor není dokončený. Implementace, datové testy, ověření UI a ověření ve hře jsou různé úrovně dokončení; neoznačovat jednu za druhou. Podrobnosti existujících funkcí a jejich omezení jsou v README.md a research/formats.md. Původní hra se nemění, úpravy mají kontrolu verze, zálohu, export a undo. Herní data a soukromé reference nepatří do veřejného repozitáře.
 
+## OSM zeleň a pěší cesty (2026-10-16)
+
+- Volitelné rovinné travnaté plochy a multipolygony s otvory, až 64 výběrů; park/zahrada se vyplní trávou pouze po výslovném povolení odhadu. Ořez hranicí, ulicemi, budovami a předchozími plochami. Mapované footway/path/pedestrian uvnitř zeleně mají samostatnou dlažbu, OSM width v metrech/stopách nebo označenou ruční náhradu. Mosty, tunely a jiné úrovně se vynechají. Bez výšek, stromů, vody, schodů či pěší navigace; jeden materiál cest je zjednodušení.
+- Samostatné editovatelné 4DS, metrické UV, přesné KLZ, společný rozpočet kolizí s ulicemi a domy. Uložený raw podklad, volby a hashe BMP; starší podklady zeleň samy nezapnou. Jedna transakce/export/undo. Limit skupiny souborů je nyní 160, protože 64 domů + 64 ploch + soubory mise přesahují dosavadních 64; stejný limit platí pro pozdější kolizní editaci a oba druhy undo.
+- Osm nových veřejných testů včetně husté sítě cest, neúplných relací, plošné bilance, nativních UV/normál/kolizí, hash konfliktů, 139 souborů, rollback a přesného undo. Cílená OSM sada 53/53, check/build prošly. Celá sada 708/709; jediný již známý nesoulad textu chyby v mission-dialogue.test.js zůstává mimo tuto změnu.
+- Skutečné oddělené Electron UI: 27 domů, 44 ploch (10 s cestami), 82 souborů a 72 kolizních skupin v jedné historii. Export/reopen, byteově shodné opakování, posun/smazání/undo, stale textury bez zápisu a legacy import prošly. WebGL 72 objektů / 10 BMP bez upozornění. Nativní GOG/Wine: tráva i cesta Y=0.03, kontrola bez jejich kolizí Y=0; původní projekty zachované. Podrobnosti v research/osm-integration.md.
+- Nasazená hlavní aplikace vytvořila WB_OSM_GREEN (historie 45 → 46), 82 souborů / 72 kolizních skupin, park vybraný a zarámovaný ve 3D. Všech 44 modelů zeleňového nativního testu odpovídá finálnímu writeru byteově.
+- Chodník: původní CHDNK01 obsahoval okrajový pás, novější výchozí CHDNK02 je průběžná dlažba. Detailní nativní kontrola potvrdila souvislé UV a zásahy vozovky/chodníku/obrubníku; lokální podklad WB_OSM_PRAHA sjednocený s již opraveným modelem, se zálohou a undo. Celý goal zůstává aktivní.
+
 ## Střechy OSM domů (2026-10-16)
 
 - Nové půdorysné domy mají volitelnou plochou, sedlovou či pultovou střechu. Dostupné roof značky, náhradní tvar/výška/orientace, explicitní zdroj a upozornění při náhradách či omezení výšky. OSM celková výška zahrnuje střechu; odhad pater zachová výšku fasády i při omezení střechy. Starší podklady samy tvarování nezapnou a nativní plochá 4DS je byteově shodná s předchozí verzí.
