@@ -2,6 +2,15 @@
 
 Aktualizace: 16. října 2026. Vývoj pokračuje; komplexní editor není dokončený. Implementace, datové testy, ověření UI a ověření ve hře jsou různé úrovně dokončení; neoznačovat jednu za druhou. Podrobnosti existujících funkcí a jejich omezení jsou v README.md a research/formats.md. Původní hra se nemění, úpravy mají kontrolu verze, zálohu, export a undo. Herní data a soukromé reference nepatří do veřejného repozitáře.
 
+## OSM stromy a pouliční vybavení (2026-10-16)
+
+- Nová volitelná sekce mapovaných stromů, laviček, košů a lamp: výběr bodů i šesti auditovaných původních modelů, dostupné výšky/směry/typ listí z OSM, označené náhrady, usazení základen na povrchy a důvody vynechání. Až 256 bodů ve společném kolizním rozpočtu. Žádné herní soubory ve veřejné distribuci.
+- Native scene2 + KLZ; stromy mají explicitní opaqueOnly kolize, aby plochy listí netvořily neviditelné stěny. Volba přežije přesuny, duplikaci a export/undo. Volitelná světla mají rodiče lampy a při přesunu ji následují. Podklad ukládá props/propPlan a hashe modelů i BMP; starší import osazení sám nezapne, změna závislostí odmítne zápis.
+- UI integrace na skutečných datech: 162 objektů = 56 stromů + 78 laviček + 14 košů + 14 lamp, společně s 27 domy a 44 zelenými plochami. Jedna transakce 82 souborů / 234 kolizních skupin. Export/reopen, byteově stejné opakování, strom move/duplicate/undo, pohyb světla s lampou, konflikt modelu/BMP bez zápisu a legacy import prošly. WebGL 248 objektů / 20 textur bez upozornění.
+- Dva nativní běhy Mafie: coll_testline potvrdil kmen/lavičku/koš/lampu, po odebrání jejich kolizí stejné paprsky nezachytily nic. Plocha listí zůstala průchozí v obou bězích. Původní projekty/Game.exe nezměněné; vlastní testovací Wine ukončené.
+- Nasazená hlavní aplikace vytvořila WB_OSM_PROPS z uloženého pražského podkladu přes skutečné UI: historie 46 → 47, 82 souborů / 234 kolizních skupin, 14 světel pod lampami. Park je otevřený a zarámovaný ve 3D bez neuložených změn. Samostatná vizuální kontrola katalogu potvrdila i jehličnatý model a průhlednost větví.
+- Osm nových testů. Celkem 716/717; dřívější mission-dialogue.test.js čeká regex /současně/, implementace vrací „vyberte pouze jednu šablonu“. Bez nesouvisející opravy. Check a build prošly. Zbývá výškový terén, souvislý podklad města, lesy/stromořadí z ploch, přesné druhy a automatický provoz/chodci/zvuky; goal zůstává aktivní.
+
 ## OSM zeleň a pěší cesty (2026-10-16)
 
 - Volitelné rovinné travnaté plochy a multipolygony s otvory, až 64 výběrů; park/zahrada se vyplní trávou pouze po výslovném povolení odhadu. Ořez hranicí, ulicemi, budovami a předchozími plochami. Mapované footway/path/pedestrian uvnitř zeleně mají samostatnou dlažbu, OSM width v metrech/stopách nebo označenou ruční náhradu. Mosty, tunely a jiné úrovně se vynechají. Bez výšek, stromů, vody, schodů či pěší navigace; jeden materiál cest je zjednodušení.

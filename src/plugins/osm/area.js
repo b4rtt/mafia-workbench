@@ -1,3 +1,4 @@
+import {readOsmProps} from './props.js';
 import {readOsmBuildings} from './footprints.js';
 import {readOsmGreenAreas,osmGreenKind} from './green-areas.js';
 // Versioned city source plan. This module has no Electron or project access.
@@ -45,7 +46,7 @@ export function osmSource(data,area){
     return {...way,points:way.nodes.map(id=>project(nodes.get(id))),blocked,eligible:Boolean(t.highway&&!blocked)};
   });
   const buildings=readOsmBuildings(data,nodes,project,ways,knownTags),members=new Set(buildings.filter(b=>b.suppressed).map(b=>b.id));for(const way of list)if(members.has(way.id))way.buildingRelation=true;
-  return {format:'mafia-workbench-osm',version:1,plugin:osmPlugin,area,attribution:osmAttribution,nodes:[...nodes.values()],ways:list,buildings,greenAreas:readOsmGreenAreas(data,nodes,project),timestamp:typeof data.osm3s?.timestamp_osm_base==='string'?data.osm3s.timestamp_osm_base.slice(0,80):null};
+  return {format:'mafia-workbench-osm',version:1,plugin:osmPlugin,area,attribution:osmAttribution,nodes:[...nodes.values()],ways:list,buildings,greenAreas:readOsmGreenAreas(data,nodes,project),props:readOsmProps(data,nodes,project),timestamp:typeof data.osm3s?.timestamp_osm_base==='string'?data.osm3s.timestamp_osm_base.slice(0,80):null};
 }
 // Liang–Barsky clipping: boundary vertices retain shared identity, intersections
 // between unconnected ways never invent a junction (bridges in particular).

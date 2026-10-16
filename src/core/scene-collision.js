@@ -11,6 +11,7 @@ export function collisionOwnership(manifest, scenePath) {
   if(!snapshot)return [];
   const objects=snapshot.collisionOwnership.objects;
   if(!Array.isArray(objects)||objects.length>65536||objects.some(o=>!o||typeof o.name!=='string'||!o.name||!['aabb','mesh'].includes(o.kind)||o.kind==='mesh'&&(![o.triangleStart,o.triangleCount,o.vertexStart,o.vertexCount].every(Number.isInteger)||o.triangleStart<0||o.vertexStart<0||o.triangleCount<=0||o.vertexCount<=0||typeof o.doubleSided!=='boolean')||!/^[0-9a-f]{64}$/.test(o.signature))||new Set(objects.map(o=>key(o.name))).size!==objects.length)throw new Error('Kolize: neplatná evidence generovaných kolizí.');
+  if(objects.some(o=>o.opaqueOnly!==undefined&&(o.kind!=='mesh'||typeof o.opaqueOnly!=='boolean')))throw new Error('Kolize: neplatný výběr neprůhledných ploch.');
   if(objects.some(object=>object.boxIndex!==undefined&&(!Number.isInteger(object.boxIndex)||object.boxIndex<0||object.kind!=='aabb')))throw new Error('Kolize: neplatný index generovaného boxu.');
   return objects.map(object=>({...object}));
 }
@@ -70,7 +71,7 @@ export async function prepareSceneCollision(project, scenePath, before, after, o
     if(!request||typeof request.name!=='string'||!['aabb','mesh','none'].includes(request.kind)||request.kind!=='none'&&(!Number.isInteger(request.material)||request.material<0||request.material>255))throw new Error('Kolize: neplatný způsob generování nebo materiál.');
     const previous=desired.get(key(request.name));
     if(request.kind==='none')desired.delete(key(request.name));
-    else {if(request.doubleSided!==undefined&&typeof request.doubleSided!=='boolean')throw new Error('Kolize: neplatná oboustrannost.');desired.set(key(request.name),{...previous,name:request.name,kind:request.kind,material:request.material,doubleSided:request.doubleSided??previous?.previous?.doubleSided??true});}
+    else {if(request.opaqueOnly!==undefined&&(request.kind!=='mesh'||typeof request.opaqueOnly!=='boolean'))throw new Error('Kolize: neplatný výběr neprůhledných ploch.');if(request.doubleSided!==undefined&&typeof request.doubleSided!=='boolean')throw new Error('Kolize: neplatná oboustrannost.');desired.set(key(request.name),{...previous,name:request.name,kind:request.kind,material:request.material,opaqueOnly:request.opaqueOnly??previous?.previous?.opaqueOnly,doubleSided:request.doubleSided??previous?.previous?.doubleSided??true});}
   }
   const geometryPath=`${folder}/scene.4ds`,geometryBytes=await project.read(geometryPath),geometry=parseFourDs(geometryBytes,true),dependencies=new Map([[geometryPath,geometryBytes]]),removed=new Set(owned.filter(record=>record.kind!=='mesh').map(record=>record.index)),boxes=[],surfaces=[],next=[];
   const removedVertexIndices=ownership.filter(o=>o.kind==='mesh').flatMap(owner=>Array.from({length:owner.vertexCount},(_,i)=>owner.vertexStart+i));
@@ -81,7 +82,7 @@ export async function prepareSceneCollision(project, scenePath, before, after, o
     if(typeof object.model!=='string'||!/^[^/\\]+\.(?:i3d|4ds)$/i.test(object.model))throw new Error('Kolize: vyberte model z hlavní složky models.');
     const modelPath=project.asset(`models/${object.model.replace(/\.(?:i3d|4ds)$/i,'.4ds')}`).path;
     if(!dependencies.has(modelPath))dependencies.set(modelPath,await project.read(modelPath));
-    if(definition.kind==='mesh'){surfaces.push({...modelCollisionSurface(parseFourDs(dependencies.get(modelPath),true),object,scene,geometry),material:definition.material??definition.record?.material??0,doubleSided:definition.doubleSided??definition.previous?.doubleSided??true});continue;}
+    if(definition.kind==='mesh'){const opaqueOnly=definition.opaqueOnly??definition.previous?.opaqueOnly;surfaces.push({...modelCollisionSurface(parseFourDs(dependencies.get(modelPath),true),object,scene,geometry,{opaqueOnly}),...(opaqueOnly?{opaqueOnly:true}:{}),material:definition.material??definition.record?.material??0,doubleSided:definition.doubleSided??definition.previous?.doubleSided??true});continue;}
     const box={...modelCollisionBox(parseFourDs(dependencies.get(modelPath),true),object,scene,geometry),sort:definition.record?.sort??0,flags:definition.record?.flags??0,material:definition.material??definition.record?.material??0},record=definition.record?.kind==='mesh'?null:definition.record;
     if(record&&key(parsed.links[record.link].name)===key(box.name)&&box.material===record.material&&box.min.every((n,i)=>Math.fround(n)===record.min[i])&&box.max.every((n,i)=>Math.fround(n)===record.max[i])){
       removed.delete(record.index);next.push({...definition.previous,name:object.name,boxIndex:record.index});
@@ -90,6 +91,6 @@ export async function prepareSceneCollision(project, scenePath, before, after, o
   const boxed=appendCollisionBoxes(bytes,boxes,[...removed]),replacement=replaceCollisionSurfaces(boxed,surfaces,{removedIndices:owned.filter(r=>r.kind==='mesh').flatMap(r=>r.records.map(t=>t.index)),removedVertexIndices,resolveFrame:geometryCollisionResolver(scene,surfaces.length?await collisionGeometry(project,scene,geometry,parsed,dependencies):geometry)}),result=replacement.bytes,checked=parseCollision(result),first=parsed.primitives.aabbs.count-removed.size;
   for(const owner of next)if(owner.kind==='aabb')owner.boxIndex-=[...removed].filter(index=>index<owner.boxIndex).length;
   boxes.forEach((box,i)=>next.push({name:box.name,kind:'aabb',boxIndex:first+i,signature:hash(checked.primitives.aabbs.records[first+i].raw)}));
-  replacement.groups.forEach(group=>next.push({...group,kind:'mesh',signature:surfaceSignature(checked,group)}));
+  replacement.groups.forEach(group=>next.push({...group,kind:'mesh',...(surfaces.find(s=>s.name===group.name)?.opaqueOnly?{opaqueOnly:true}:{}),signature:surfaceSignature(checked,group)}));
   return {files:[{path:klzPath,data:result,expectedHash},...[...dependencies].map(([path,data])=>({path,data,expectedHash:hash(data)}))],ownership:{path:project.asset(scenePath).path,objects:next}};
 }

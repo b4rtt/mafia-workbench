@@ -21,6 +21,8 @@ import {loadOsmShellStyles} from '../plugins/osm/building-shell-assets.js';
 import { osmSurfaceModel } from '../plugins/osm/surface.js';
 import {loadOsmBuildingModels} from '../plugins/osm/building-assets.js';
 import {osmBuildingPlan} from '../plugins/osm/buildings.js';
+import {loadOsmPropModels} from '../plugins/osm/prop-assets.js';
+import {validateOsmPropOptions} from '../plugins/osm/props.js';
 import {loadOsmGreenTextures} from '../plugins/osm/green-assets.js';
 import { replayMissions, loadCutsceneContext } from '../core/cutscene.js';
 const directory = path.dirname(fileURLToPath(import.meta.url));
@@ -270,6 +272,7 @@ app.whenReady().then(async () => {
     const input=JSON.parse(await fs.readFile(result.filePaths[0],'utf8'));
     const saved=input?.format==='mafia-workbench-osm-source'&&input.version===1,data=saved?input.data:input,source=osmSource(data,saved?input.area:area),token=randomUUID();
     if(saved){
+      if(input.props!==undefined&&input.props!==null){validateOsmPropOptions(input.props);await loadOsmPropModels(active,input.props.models);if(!input.surface||input.props.selected.some(id=>!source.props.some(p=>p.id===id)))throw Error('OpenStreetMap · osazení: chybí povrchy nebo mapované body.');}
       if(input.green!==undefined&&input.green!==null){await loadOsmGreenTextures(active,input.green);if(!input.surface)throw Error('OpenStreetMap · zeleň: chybí povrchy ulic.');}
       const plan=osmRoadPlan(source,input.selected),surface=Object.hasOwn(input,'surface')&&input.surface!==null?osmSurfaceModel(plan,source.area,input.surface):null;
       if(Object.hasOwn(input,'buildings')&&input.buildings!==null){
@@ -285,8 +288,9 @@ app.whenReady().then(async () => {
         }
       }
     }
-    osmImport={project:active,token,data,area:source.area};return {token,source,cached:true,...(saved?{green:input.green??null,selected:input.selected,...(Object.hasOwn(input,'surface')?{surface:input.surface}:{}),...(Object.hasOwn(input,'buildings')?{buildings:input.buildings}:{})}:{})};
+    osmImport={project:active,token,data,area:source.area};return {token,source,cached:true,...(saved?{props:input.props??null,green:input.green??null,selected:input.selected,...(Object.hasOwn(input,'surface')?{surface:input.surface}:{}),...(Object.hasOwn(input,'buildings')?{buildings:input.buildings}:{})}:{})};
   }));
+  handle('osm:prop-models', () => operation(async () => {const {models,warnings}=await loadOsmPropModels(current());return {models,warnings};}));
   handle('osm:building-models', () => operation(async () => {const {models,warnings}=await loadOsmBuildingModels(current());return {models,warnings};}));
   handle('osm:building-styles', () => operation(() => loadOsmShellStyles(current())));
   handle('osm:cancel', token => {if(osmImport?.token===token)osmImport=null;});

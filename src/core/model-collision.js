@@ -5,7 +5,8 @@ export { sceneWorld } from '../shared/scene-world.js';
 const key=name=>name?.normalize('NFC').toLowerCase();
 
 // Native LS3D coordinates: the viewport's Z reflection is intentionally absent.
-function modelCollisionGeometry(model, object, scene, geometry, surface) {
+function modelCollisionGeometry(model, object, scene, geometry, surface, options={}) {
+  if(options.opaqueOnly!==undefined&&typeof options.opaqueOnly!=='boolean')throw new Error('Kolize: neplatný výběr neprůhledných ploch.');
   if(object.frameType!==9||!object.model||object.actorBound)throw new Error('Kolize: vyberte samostatný statický model bez aktéra.');
   if(model.meshes.some(mesh=>mesh.type===10||mesh.skin?.length||[3,5].includes(mesh.visual)))throw new Error('Kolize: animovaný model potřebuje dynamické kolize aktéra.');
   const root=sceneWorld(scene,geometry)(object.name),worlds=new Map(),enabled=new Map();
@@ -21,13 +22,17 @@ function modelCollisionGeometry(model, object, scene, geometry, surface) {
     const transform=meshWorld(mesh);if(mesh.type!==1||!enabled.get(mesh.id)||(mesh.renderFlags&0x40)||/(?:^|\s)SECT(?:\s|$)/i.test(mesh.properties??''))continue;
     if(mesh.skin?.length)throw new Error('Kolize: skinovaný model potřebuje dynamické kolize aktéra.');
     const data=lod(mesh);if(!data?.positions?.length)continue;
-    const indices=new Set(data.faces.flatMap(face=>face.indices)),mapped=new Map();
+    // Tree leaves are textured cards. Their rectangular polygons must not
+    // become invisible walls; retain only opaque bark in this explicit mode.
+    const selectedFaces=options.opaqueOnly?data.faces.filter(face=>{const material=model.materials?.[face.material-1];return material&&!(material.flags&0xe1008000)&&(material.opacity??1)>=1;}):data.faces;
+    if(!selectedFaces.length)continue;
+    const indices=new Set(selectedFaces.flatMap(face=>face.indices)),mapped=new Map();
     for(const index of indices){if(!Number.isInteger(index)||index<0||index*3+2>=data.positions.length)throw new Error('Kolize: neplatný vertex modelu.');point.fromArray(data.positions,index*3).applyMatrix4(transform);if(point.toArray().some(n=>!Number.isFinite(n)))throw new Error('Kolize: neplatné světové souřadnice modelu.');bounds.expandByPoint(point);vertices++;
       if(surface){const values=point.toArray().map(Math.fround);if(values.some(n=>!Number.isFinite(n)))throw new Error('Kolize: světové souřadnice přesahují float32.');const key=values.join(',');let vertex=unique.get(key);if(vertex===undefined){vertex=positions.length/3;unique.set(key,vertex);positions.push(...values);}mapped.set(index,vertex);}
     }
     if(surface){
       if(mesh.visual===2)throw new Error('Kolize: billboard potřebuje dynamické kolize aktéra.');
-      for(const face of data.faces){if(face.indices.length%3)throw new Error('Kolize: neplatné trojúhelníky modelu.');for(let i=0;i<face.indices.length;i+=3){
+      for(const face of selectedFaces){if(face.indices.length%3)throw new Error('Kolize: neplatné trojúhelníky modelu.');for(let i=0;i<face.indices.length;i+=3){
         const triangle=face.indices.slice(i,i+3).map(index=>mapped.get(index)),a=new Vector3().fromArray(positions,triangle[0]*3),b=new Vector3().fromArray(positions,triangle[1]*3).sub(a),c=new Vector3().fromArray(positions,triangle[2]*3).sub(a);
         if(b.cross(c).length()<1e-8){degenerate++;continue;}faces.push(...triangle);
       }}
@@ -41,7 +46,7 @@ function modelCollisionGeometry(model, object, scene, geometry, surface) {
 }
 
 export function modelCollisionBox(model, object, scene, geometry) { return modelCollisionGeometry(model,object,scene,geometry,false); }
-export function modelCollisionSurface(model, object, scene, geometry) { return modelCollisionGeometry(model,object,scene,geometry,true); }
+export function modelCollisionSurface(model, object, scene, geometry, options) { return modelCollisionGeometry(model,object,scene,geometry,true,options); }
 
 // Existing KLZ frame triangles address the first LOD's vertex buffer. These
 // world coordinates are needed to merge new surfaces into the X-sorted cells.
