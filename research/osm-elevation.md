@@ -2,7 +2,7 @@
 
 ## Stav a rozsah (16. 10. 2026)
 
-Ověřená příprava výšek pro [městský plugin](city-generator-plugin.md), **nikoli zapnutá funkce importu**. Produkční OSM generátor dál používá rovinu. Existující mise, nastavení importu ani běžící editor se při průzkumu neměnily. Pokusy čtou uložený veřejný pražský výřez a zapisují pouze do ignorovaného `local/osm-elevation-research/`.
+Ověřená příprava výšek pro [městský plugin](city-generator-plugin.md) a interní generátor výškové geometrie, **nikoli zapnutá funkce importu**. Produkční OSM generátor dál používá rovinu. Existující mise, nastavení importu ani běžící editor se neměnily. Pokusy čtou uložený veřejný pražský výřez a zapisují pouze do ignorovaného `local/osm-elevation-research/`.
 
 Výšky musí současně používat geometrie, KLZ, hráčský start, silniční síť, pěší navigace, domy, mobiliář, světla a zvukové body. Zvednutí pouze silnice by ostatní vrstvy ponechalo v rovině. Jednotlivé údaje OSM `ele` netvoří souvislý výškový podklad.
 
@@ -26,6 +26,18 @@ Oddělený prototyp použil společnou trojúhelníkovou síť po 5 m. Podle jej
 Výsledek: **514 trojúhelníků vozovky, 836 chodníků, 1 564 obrubníků a 3 200 podkladu; celkem 6 114 trojúhelníků a 3 341 kolizních vrcholů**. Jeden nativní 4DS díl, 623 956 bajtů; KLZ nad syntetickou testovací šablonou 327 099 bajtů. Existující writery a opětovné načtení potvrdily přesné množiny trojúhelníků modelu a jednostranné kolize. Těžiště 3 200 ploch výškové sítě se proti téže dlaždici liší nejvýše o 5,96 mm (RMS 1,56 mm); to opět není přesnost měření terénu.
 
 Místní evidence: `tile.json`, `grid.json`, `error.json`, `grid-error.json`, `prototype.json`; skripty `terrarium.mjs`, `survey.py`, `surface.mjs`, `error.py`, `prototype.mjs`. Data, modely a kolize se nepublikují. Prototyp **neověřuje** všechny švy, maximální oblast, domy, navigaci, dopravu ani původní engine. V editoru není nasazený.
+
+## Interní generátor a datové ověření
+
+`src/plugins/osm/elevation.js` přijímá pouze číselný podklad verze 1: stejnou oblast jako plán, 1–128 polí v každé ose, úplné pole `(columns + 1) × (rows + 1)` absolutních výšek v metrech a explicitní relativní základ `base`. Vzorky jsou po řádcích od západu k východu, řádky od jihu k severu (místní X/Z). Odmítnuté jsou chybějící/NoData vzorky, neplatné rozměry i jiná oblast; žádná tichá náhrada rovinou. Kopie vzorků a souřadnic jsou neměnné. Návratová výška je float32 `base + vzorek − minimum`, uvnitř pole se interpoluje po dvou trojúhelnících se stejnou diagonálou jako nativní geometrie. `splitEdge` rozděluje hrany podle polí i jejich diagonál. Mimo podklad se neextrapoluje.
+
+`src/plugins/osm/terrain.js` používá stávající půdorysy/profily ulic, rozřeže asfalt i chodník podle společné sítě a vytvoří svislé obrubníky se stejnými výškami. Doplní souvislý čtvercový podklad pod ulicemi; základní texturu a metrické opakování musí dodat volající. Výstup obsahuje standardní model 4DS a společné půdorysy pro navazující vrstvy. Kvantované hranice původního rovinného generátoru se znovu oříznou k přesným float32 hranicím rastru: například oblast 50,123 m jinak mohla zaokrouhlením na milimetry přesáhnout dostupné výšky. Normály se počítají z konečných vrcholů, každá část má nejvýše 60 000 vrcholů a celek nejvýše 60 000 trojúhelníků i jedinečných kolizních vrcholů. Překročení se odmítne; součet s dalšími vrstvami musí později hlídat importér.
+
+Osm veřejných testů v `test/osm-elevation.test.js` ověřuje odlišnost od bilineárního sedla, úplnost/neměnnost dat, obousměrné dělení hran obdélníkového rastru, normály/UV a pokrytí, otvory a profily bez chodníků, švy obrubníků s dlažbou v zatáčkách i neceločíselné oblasti, rozdělení velkých nativních dílů a odmítnutí přehnaně husté sítě. Uložení a nové čtení 4DS/KLZ potvrzuje přesné množiny nativních trojúhelníků. Původní rovinný výstup zůstává byteově stejný.
+
+Nový interní kód také znovu zpracoval výše uvedený uložený pražský výřez: **6 114 trojúhelníků, 3 341 kolizních vrcholů, 40 000 m² podkladu**. 4DS/KLZ mají přesné shodné trojúhelníky, maximální rozdíl výšky těžiště povrchu vůči společné síti byl `5,12 × 10⁻⁷ m` (numerická shoda, nikoli přesnost DEM). Evidence pouze místně: `foundation.mjs`, `foundation.json`, `foundation.4ds`, `foundation.klz`. Nativní engine tímto druhým ověřením stále testovaný není.
+
+Celá sada po změně: 756/757; jediný dříve doložený nesoulad je očekávání `/současně/` v `mission-dialogue.test.js` oproti stávající chybě „vyberte pouze jednu šablonu“. Check a build prošly. Generátor není připojený k importéru ani UI: zatím chybí zdrojový kontrakt/provenance, odběr výšek, rozmístění ostatních vrstev, společný celoměstský rozpočet, návazné nativní sítě a ověření ve hře.
 
 ## Závislosti implementace
 

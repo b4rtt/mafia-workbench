@@ -4,9 +4,11 @@ Aktualizace: 16. října 2026. Vývoj pokračuje; komplexní editor není dokon�
 
 ## Příprava výškového podkladu OSM (2026-10-16)
 
+- Interní `elevation.js` a `terrain.js`: neměnný verzovaný číselný rastr, trojúhelníková interpolace a dělení hran; výškové asfaltové/chodníkové plochy, obrubníky a souvislý podklad. Shodné float32 hranice, normály/UV, díly po 60 000 vrcholech a odmítnutí překročení plánovaného kolizního rozpočtu. Opravené napojení kvantovaných půdorysů u neceločíselných rozměrů oblasti; stávající rovinný generátor beze změny.
+- Osm nových datových testů včetně obdélníkového rastru/sedla/švů/otvorů a velké sítě. Nový kód zopakoval pražský vzorek: 6 114 trojúhelníků / 3 341 kolizních vrcholů, přesné množiny 4DS/KLZ po opětovném čtení, podklad 40 000 m². Pouze místní evidence foundation.*; engine ani celé město tím ověřené nejsou. Celá sada 756/757, jediný známý nesoulad textu chyby mission-dialogue; check/build prošly. Interní základ zatím není v importéru/UI, další vrstvy a jejich usazení/navigace/provenance zůstávají nutnou návazností.
 - Průzkum dostupných DEM a vazeb produkčního generátoru, bez změny aplikace či projektů. Dlaždice Terrarium pro veřejnou Prahu skutečně stažená a dekódovaná; zdrojová metadata uvádějí EUDEM a rok 2017. Vzorkovaný výřez 200 m má převýšení 3,591 m; nejde o přesné zaměření ulice. Číselný pokus Get Samples ČÚZK vrátil 403, bez obcházení omezení.
 - Oddělený prototyp společného výškového povrchu, rozřezaných ulic/chodníků/obrubníků a celoplošného podkladu: 6 114 trojúhelníků, 3 341 kolizních vrcholů. Existující 4DS/KLZ writery a následné čtení potvrdily přesné trojúhelníky. Síť po 5 m snížila chybu aproximace stejné dlaždice; nezvýšila přesnost zdrojového DEM. Engine, domy, provoz a navigace tím ověřené nejsou.
-- [Podrobnosti, zdroje, evidence a závislosti implementace](research/osm-elevation.md). Veškerá data a experimentální kód pouze v ignorovaném local/osm-elevation-research; žádné herní soubory, soukromá poloha ani runtime v Gitu. Dokumentační změna, produkční import je dál rovinný. Goal plného editoru a městského pluginu zůstává aktivní.
+- [Podrobnosti, zdroje, evidence a závislosti implementace](research/osm-elevation.md). Veškerá zdrojová data a experimentální kód pouze v ignorovaném local/osm-elevation-research; veřejně jen interní generátor, syntetické testy a dokumentace. Žádné herní soubory, soukromá poloha ani runtime v Gitu. Produkční import je dál rovinný. Goal plného editoru a městského pluginu zůstává aktivní.
 
 ## OSM stromy a pouliční vybavení (2026-10-16)
 
