@@ -96,7 +96,7 @@ export async function createOsmMission(project,zip,data,area,selected,options){
     if(!green.placements.length)throw Error('OpenStreetMap · zeleň: žádná vybraná plocha nevyhovuje; upravte výběr nebo vypněte zeleň.');
     greenTextures=await loadOsmGreenTextures(project,options.green);for(const texture of greenTextures)dependencies.push({path:texture.path,expectedHash:texture.sha256});
     for(const[index,item]of green.placements.entries()){
-      const modelName=`WB_OSMG_${name}_${index+1}`,modelPath=`models/${modelName}.4ds`,bytes=writeSurfaceModel(osmGreenModel(item));
+      const modelName=`WB_OSMG_${name}_${index+1}`,modelPath=`models/${modelName}.4ds`,bytes=writeSurfaceModel(osmGreenModel(item,green.elevation));
       if(project.manifest.assets.some(a=>a.path.toLowerCase()===modelPath.toLowerCase()))throw Error('Model zeleně tohoto názvu již existuje. Zvolte jiný název mise.');
       const {scene,object}=add(item.name,modelName+'.i3d',[0,0,0],[1,0,0,0],[1,1,1]);
       collisions.push({...modelCollisionSurface(parseFourDs(bytes,true),object,scene,geometry),doubleSided:false,material:0});extra.push({path:modelPath,data:bytes});item.model=modelPath;

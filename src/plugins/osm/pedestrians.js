@@ -34,7 +34,7 @@ function parkInset(edges){
 export function osmPedestrianPlan(source,roads,surface,props=null,green=null,options={}){
   if(!surface?.footprints?.sidewalk?.length)fail('vybrané ulice nemají chodníky; zapněte povrchy a zvolte průchozí profil.');
   const terrain=osmNavigationElevation(surface),y=terrain?terrain.levels.sidewalk:Math.fround(surface.model.meshes.reduce((height,m)=>m.lods[0].positions.reduce((h,n,i)=>i%3===1?Math.max(h,n):h,height),-Infinity));
-  if(terrain&&green)fail('parkové cesty zatím nemají společný výškový povrch; nelze je spojit s terénem.');
+  if(green&&(terrain?green.elevation!==terrain.field||green.placements.some(p=>!p.elevated):green.elevation))fail('parkové cesty musí mít stejný výškový povrch jako ulice.');
   let paths=[],ground=surface.footprints.sidewalk;
   if(green){
     const profiles=new Map(green.pathProfiles.filter(p=>!p.skipped).map(p=>[p.way,p]));
@@ -108,7 +108,7 @@ export function osmPedestrianPlan(source,roads,surface,props=null,green=null,opt
   const neighbors=positions.map(()=>[]),visited=new Set();let components=0;
   for(const [a,b]of unique){neighbors[a].push(b);neighbors[b].push(a);}
   for(let i=0;i<positions.length;i++)if(!visited.has(i)){components++;const queue=[i];visited.add(i);while(queue.length)for(const n of neighbors[queue.pop()])if(!visited.has(n)){visited.add(n);queue.push(n);}}
-  return {positions,links:unique,components,clearance:.4,radius:.1,regions,...(green?{parkPoints:positions.filter(p=>p[1]!==y&&(!crossings||paths.some(r=>contains(r.polygons,[p[0],p[2]])))).length}: {}),...(crossings?{crossings}:{})};
+  return {positions,links:unique,components,clearance:.4,radius:.1,regions,...(green?{parkPoints:positions.filter(p=>terrain?levelAt([p[0],p[2]])!==y&&paths.some(r=>contains(r.polygons,[p[0],p[2]])):p[1]!==y&&(!crossings||paths.some(r=>contains(r.polygons,[p[0],p[2]])))).length}: {}),...(crossings?{crossings}:{})};
 }
 
 export function osmPedestrianBytes(plan){

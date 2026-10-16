@@ -2,6 +2,9 @@ import clipping from 'polygon-clipping';
 import {ShapeUtils,Vector2} from 'three';
 import {osmRing,osmMultipolygon,osmBuildingFootprints} from './footprints.js';
 import {osmShellModel} from './building-shells.js';
+import {osmNavigationElevation} from './navigation-elevation.js';
+import {elevationCoordinate} from './elevation.js';
+import {osmGreenTerrainMeshes} from './green-terrain.js';
 
 export const osmGreenDefaults=Object.freeze({version:1,approximateParks:false,height:.03,tileSize:4,pathWidth:1.5,pathTileSize:2,texture:'maps/^trava02.bmp',pathTexture:'maps/^chdnk02.bmp'});
 const fail=message=>{throw Error(`OpenStreetMap · zeleň: ${message}`);};
@@ -47,26 +50,37 @@ export function osmGreenReservation(surface,buildings,catalog=[]){return (surfac
 export function osmGreenPlan(source,surface,o,reservedVertices=surface?vertexCount(surface.model):0){
   validateOsmGreenOptions(o);if(!Number.isFinite(source?.area?.size)||source.area.size<50||source.area.size>450)fail('neplatná oblast.');
   if(!Number.isSafeInteger(reservedVertices)||reservedVertices<0)fail('neplatný rozpočet kolizí.');
-  const half=source.area.size/2,box=[[[-half,-half],[half,-half],[half,half],[-half,half]]],exclusions=[...(surface?.footprints.road??[]),...(surface?.footprints.sidewalk??[]),...osmBuildingFootprints(source).filter(b=>!b.reason&&!b.suppressed).flatMap(b=>b.polygons)],reserved=exclusions.length?clipping.union(exclusions):[],paths=osmGreenPathFootprints(source,o),occupied=[],placements=[],skipped=[];
+  const terrain=osmNavigationElevation(surface),field=terrain?.field;
+  if(field&&['latitude','longitude','size'].some(k=>field.area[k]!==source.area[k]))fail('výškový podklad patří jiné oblasti.');
+  // Native float32 street edges mixed with decimal path strips can leave a
+  // numerically unclosed sweep. Elevated boolean operations share the same
+  // integral micron grid as the terrain; legacy planar bytes stay unchanged.
+  const boolean=(operation,...shapes)=>field?clipping[operation](...shapes.map(s=>s.map(p=>p.map(r=>r.map(v=>v.map(n=>Math.round(n*1e6))))))).map(p=>p.map(r=>r.map(v=>v.map(n=>elevationCoordinate(n/1e6))))):clipping[operation](...shapes);
+  const half=source.area.size/2,x=field?[field.x[0],field.x.at(-1)]:[-half,half],z=field?[field.z[0],field.z.at(-1)]:[-half,half],box=[[[x[0],z[0]],[x[1],z[0]],[x[1],z[1]],[x[0],z[1]]]],exclusions=[...(surface?.footprints.road??[]),...(surface?.footprints.sidewalk??[]),...osmBuildingFootprints(source).filter(b=>!b.reason&&!b.suppressed).flatMap(b=>b.polygons)],reserved=exclusions.length?boolean('union',exclusions):[],paths=osmGreenPathFootprints(source,o),occupied=[],placements=[],skipped=[];
   let vertices=reservedVertices;
   for(const id of [...o.selected].sort((a,b)=>Number(source.greenAreas?.find(f=>f.id===a)?.kind==='park')-Number(source.greenAreas?.find(f=>f.id===b)?.kind==='park')||String(a).localeCompare(String(b),'en'))){
     const f=source.greenAreas?.find(f=>f.id===id);if(!f||f.suppressed)fail(`plocha ${id} není v podkladu.`);const skip=reason=>skipped.push({id,name:f.tags.name??String(id),reason});
     if(f.reason){skip(f.reason);continue;}if(f.kind==='park'&&!o.approximateParks){skip('Park/zahrada neurčuje travnatý povrch; povolte výslovný odhad.');continue;}
     if(f.tags.surface&&f.tags.surface!=='grass'||f.tags.layer&&f.tags.layer!=='0'||f.tags.bridge&&f.tags.bridge!=='no'||f.tags.tunnel&&f.tags.tunnel!=='no'){skip('Jiný povrch nebo výšková úroveň vyžaduje ruční úpravu.');continue;}
-    const clipped=clipping.intersection(f.polygons,box),available=clipping.difference(clipped,reserved,occupied),walks=paths.polygons.length?clipping.intersection(available,paths.polygons):[],grass=walks.length?clipping.difference(available,walks):available;
+    const clipped=boolean('intersection',f.polygons,field?[box]:box),available=boolean('difference',clipped,reserved,occupied),walks=paths.polygons.length?boolean('intersection',available,paths.polygons):[],grass=walks.length?boolean('difference',available,walks):available;
     if(area(available)<1){skip('Po ořezu hranicí, ulicemi, budovami a ostatní zelení nezbyla plocha alespoň 1 m².');continue;}
-    const item={id,name:`OSM_GREEN_${String(id).replaceAll('/','_')}`,label:f.tags.name??`Zeleň ${id}`,kind:f.kind,grass,paths:walks,height:o.height,tileSize:o.tileSize,pathTileSize:o.pathTileSize,texture:o.texture,pathTexture:o.pathTexture,area:area(available),notes:f.kind==='park'?['Travnatý podklad parku/zahrady je ručně povolený odhad, nikoli přesný povrch z OSM.']:[],...(f.relation?{relation:f.relation,component:f.component}:{})},model=osmGreenModel(item),count=vertexCount(model);
+    const native=polygons=>field?polygons.map(p=>p.map(r=>r.map(v=>v.map(elevationCoordinate)))):polygons;
+    const item={id,name:`OSM_GREEN_${String(id).replaceAll('/','_')}`,label:f.tags.name??`Zeleň ${id}`,kind:f.kind,grass:native(grass),paths:native(walks),height:o.height,tileSize:o.tileSize,pathTileSize:o.pathTileSize,texture:o.texture,pathTexture:o.pathTexture,area:area(available),notes:f.kind==='park'?['Travnatý podklad parku/zahrady je ručně povolený odhad, nikoli přesný povrch z OSM.']:[],...(f.relation?{relation:f.relation,component:f.component}:{}),...(field?{elevated:true}:{})},model=osmGreenModel(item,field),count=vertexCount(model);
     if(vertices+count>60000){skip('Plocha by překročila sdílený bezpečný limit vrcholů kolizí.');continue;}vertices+=count;item.triangles=model.meshes.reduce((s,m)=>s+m.lods[0].faces.reduce((n,f)=>n+f.indices.length/3,0),0);placements.push(item);occupied.push(...available);
   }
-  return {placements,skipped,pathProfiles:paths.profiles};
+  return {placements,skipped,pathProfiles:paths.profiles,...(field?{elevation:field}:{})};
 }
 // New standard visuals only; original terrain geometry is never rebuilt.
-export function osmGreenModel(item){
+export function osmGreenModel(item,field){
+  const meshes=item.elevated?osmGreenTerrainMeshes(item,field):flatGreenMeshes(item);
+  return {version:29,materials:[item.texture,item.pathTexture].map(p=>({flags:0x00840001,ambient:[1,1,1],diffuse:[1,1,1],emission:[0,0,0],opacity:1,texture:p.slice(5)})),meshes,animated:0};
+}
+function flatGreenMeshes(item){
   const positions=[],normals=[],uv=[],faces=[1,2].map(material=>({material,indices:[]}));
   for(const[polygons,material,tile]of [[item.grass,1,item.tileSize],[item.paths,2,item.pathTileSize]])for(const polygon of polygons){
     const rings=polygon.map(r=>{const open=r.length>1&&r[0][0]===r.at(-1)[0]&&r[0][1]===r.at(-1)[1]?r.slice(0,-1):r;return open.map(p=>new Vector2(...p));}),v=rings.flat(),triangles=ShapeUtils.triangulateShape(rings[0],rings.slice(1));
     for(const ids of triangles){let p=ids.map(i=>[Math.fround(v[i].x),Math.fround(item.height),Math.fround(v[i].y)]);const[a,b,c]=p,n=(b[2]-a[2])*(c[0]-a[0])-(b[0]-a[0])*(c[2]-a[2]);if(Math.abs(n)<1e-8)continue;if(n<0)p=[p[0],p[2],p[1]];if(positions.length/3+3>60000)fail('plocha překračuje 60 000 vrcholů; zmenšete oblast.');const at=positions.length/3;positions.push(...p.flat());normals.push(0,1,0,0,1,0,0,1,0);uv.push(...p.flatMap(p=>[Math.fround(p[0]/tile),Math.fround(p[2]/tile)]));faces[material-1].indices.push(at,at+1,at+2);}
   }
   if(!positions.length)fail('plocha nemá platné trojúhelníky.');
-  return {version:29,materials:[item.texture,item.pathTexture].map(p=>({flags:0x00840001,ambient:[1,1,1],diffuse:[1,1,1],emission:[0,0,0],opacity:1,texture:p.slice(5)})),meshes:[{id:1,name:'OSM_GREEN',type:1,visual:0,renderFlags:0,logicFlags:0x2a,culling:9,parent:0,position:[0,0,0],rotation:[1,0,0,0],scale:[1,1,1],lods:[{distance:0,vertices:positions.length/3,positions,normals,uv,faces}]}],animated:0};
+  return [{id:1,name:'OSM_GREEN',type:1,visual:0,renderFlags:0,logicFlags:0x2a,culling:9,parent:0,position:[0,0,0],rotation:[1,0,0,0],scale:[1,1,1],lods:[{distance:0,vertices:positions.length/3,positions,normals,uv,faces}]}];
 }

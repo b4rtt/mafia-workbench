@@ -1,6 +1,13 @@
 # Vývoj Mafia Workbench
 
-Aktualizace: 16. října 2026. Vývoj pokračuje; komplexní editor není dokončený. Implementace, datové testy, ověření UI a ověření ve hře jsou různé úrovně dokončení; neoznačovat jednu za druhou. Podrobnosti existujících funkcí a jejich omezení jsou v README.md a research/formats.md. Původní hra se nemění, úpravy mají kontrolu verze, zálohu, export a undo. Herní data a soukromé reference nepatří do veřejného repozitáře.
+Aktualizace: 17. října 2026. Vývoj pokračuje; komplexní editor není dokončený. Implementace, datové testy, ověření UI a ověření ve hře jsou různé úrovně dokončení; neoznačovat jednu za druhou. Podrobnosti existujících funkcí a jejich omezení jsou v README.md a research/formats.md. Původní hra se nemění, úpravy mají kontrolu verze, zálohu, export a undo. Herní data a soukromé reference nepatří do veřejného repozitáře.
+
+## Zeleň a pěší cesty na výškovém terénu OSM (2026-10-17)
+
+- Interní green plán a writer používají stejný neměnný rastr jako ulice. Tráva i dlažba se rozdělí podle polí/diagonál, zachovají otvory, metrické UV a správné normály; velké nativní díly se rozdělí a společná kolizní rezervace počítá skutečné vrcholy. Výškové booleovské operace jsou na integrální mikrometrové mřížce kvůli uzavření šikmých obrysů. Smíchané rovinné/výškové parkové sítě či jiné rastry se odmítnou, stejné se propojí skutečnými výškami. Rovinné modely a import zůstávají stejné.
+- Šest nových testů; s dosavadními green/path/elevation-navigation 26/26, celkem 767/768. Jediné selhání je již známý text chyby mission-dialogue; check/build prošly. Skutečné pražské půdorysy 300 m se syntetickým svahem: 44 ploch / 9 822 trojúhelníků zeleně, 12 442 společných kolizních vrcholů. Všech 44 rovinných modelů byteově stejných. Hustá kombinovaná navigace byla v 300 m i 200 m odmítnutá limitem 8 192 bodů; optimalizace je nutná před širším použitím, nejde o potvrzení celého města.
+- Nativní GOG 1.2/Wine: svažitý park má 174 trojúhelníků, pěší síť 218 bodů / 223 spojů. Chodec dosáhl vzdálené části parku a vrátil se; čerstvé checkpointy ověřily polohy/výšky. Paprsky potvrdily trávu/dlažbu/chodník; po odebrání jen parkové kolize první dva zasáhly podklad o 0,03 m níž, chodník zůstal stejný. Část chůze vedla po trávě vedle pásu, přesné držení NPC uvnitř dlažby není prokázané. První kontrolní paprsek přes stojící NPC byl opraven v testu, důkazem je až opakovaný pozitivní a negativní běh. Vlastní prefix ukončený, transakce vrácené, původní projekty/EXE zachované.
+- [Přesné rozsahy a místní evidence](research/osm-elevation.md). Výšková volba není nasazená v UI; zbývá usazení domů/mobiliáře/světel/zvuků, provenance, navigační rozpočet a společná transakční integrace. Tento blok neřeší dopravu autem ani celou generaci města; goal zůstává aktivní.
 
 ## Nativní navigace na výškovém povrchu OSM (2026-10-16)
 
