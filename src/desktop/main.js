@@ -278,7 +278,7 @@ app.whenReady().then(async () => {
       if(input.props!==undefined&&input.props!==null){validateOsmPropOptions(input.props);await loadOsmPropModels(active,input.props.models);if(!input.surface||input.props.selected.some(id=>!source.props.some(p=>p.id===id)))throw Error('OpenStreetMap · osazení: chybí povrchy nebo mapované body.');}
       if(input.green!==undefined&&input.green!==null){await loadOsmGreenTextures(active,input.green);if(!input.surface)throw Error('OpenStreetMap · zeleň: chybí povrchy ulic.');}
       const plan=osmRoadPlan(source,input.selected),surface=Object.hasOwn(input,'surface')&&input.surface!==null?osmSurfaceModel(plan,source.area,input.surface):null;
-      if(input.pedestrians!==undefined&&input.pedestrians!==null){await loadOsmPedestrianModels(active,input.pedestrians);if(!surface)throw Error('OpenStreetMap · chodci: chybí povrchy ulic.');}
+      if(input.pedestrians!==undefined&&input.pedestrians!==null){await loadOsmPedestrianModels(active,input.pedestrians);if(!surface)throw Error('OpenStreetMap · chodci: chybí povrchy ulic.');if(input.pedestrians.parkPaths&&!input.green)throw Error('OpenStreetMap · chodci: chybí zeleň pro parkové cesty.');}
       if(input.traffic!==undefined&&input.traffic!==null){await loadOsmTrafficModels(active,input.traffic);osmTrafficPlan(plan,surface,input.traffic);}
       if(Object.hasOwn(input,'buildings')&&input.buildings!==null){
         if(input.buildings.mode==='footprint'){

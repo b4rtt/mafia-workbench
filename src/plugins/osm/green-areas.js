@@ -26,7 +26,7 @@ export function validateOsmGreenOptions(o){
   for(const[key,min,max]of [['height',.01,.04],['tileSize',.25,20],['pathWidth',.5,5],['pathTileSize',.25,10]])if(!Number.isFinite(o[key])||o[key]<min||o[key]>max)fail(`neplatný rozměr ${key}.`);
   for(const key of ['texture','pathTexture'])if(typeof o[key]!=='string'||!/^maps\/[\x20-\x7e]+\.bmp$/i.test(o[key])||/[\\/:*?"<>|]/.test(o[key].slice(5))||o[key].slice(5).length>120)fail('vyberte BMP z hlavní složky maps.');
 }
-function pathFootprints(source,o){
+export function osmGreenPathFootprints(source,o){
   const parts=[],profiles=[];
   const ways=source.ways.filter(w=>['footway','path','pedestrian'].includes(w.tags.highway)&&w.tags.area!=='yes');
   if(ways.reduce((s,w)=>s+w.points.length,0)>8192)fail('příliš mnoho bodů pěších cest; zmenšete oblast.');
@@ -47,7 +47,7 @@ export function osmGreenReservation(surface,buildings,catalog=[]){return (surfac
 export function osmGreenPlan(source,surface,o,reservedVertices=surface?vertexCount(surface.model):0){
   validateOsmGreenOptions(o);if(!Number.isFinite(source?.area?.size)||source.area.size<50||source.area.size>450)fail('neplatná oblast.');
   if(!Number.isSafeInteger(reservedVertices)||reservedVertices<0)fail('neplatný rozpočet kolizí.');
-  const half=source.area.size/2,box=[[[-half,-half],[half,-half],[half,half],[-half,half]]],exclusions=[...(surface?.footprints.road??[]),...(surface?.footprints.sidewalk??[]),...osmBuildingFootprints(source).filter(b=>!b.reason&&!b.suppressed).flatMap(b=>b.polygons)],reserved=exclusions.length?clipping.union(exclusions):[],paths=pathFootprints(source,o),occupied=[],placements=[],skipped=[];
+  const half=source.area.size/2,box=[[[-half,-half],[half,-half],[half,half],[-half,half]]],exclusions=[...(surface?.footprints.road??[]),...(surface?.footprints.sidewalk??[]),...osmBuildingFootprints(source).filter(b=>!b.reason&&!b.suppressed).flatMap(b=>b.polygons)],reserved=exclusions.length?clipping.union(exclusions):[],paths=osmGreenPathFootprints(source,o),occupied=[],placements=[],skipped=[];
   let vertices=reservedVertices;
   for(const id of [...o.selected].sort((a,b)=>Number(source.greenAreas?.find(f=>f.id===a)?.kind==='park')-Number(source.greenAreas?.find(f=>f.id===b)?.kind==='park')||String(a).localeCompare(String(b),'en'))){
     const f=source.greenAreas?.find(f=>f.id===id);if(!f||f.suppressed)fail(`plocha ${id} není v podkladu.`);const skip=reason=>skipped.push({id,name:f.tags.name??String(id),reason});
