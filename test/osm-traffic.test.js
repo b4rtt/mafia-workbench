@@ -8,6 +8,7 @@ import {osmRoadBytes} from '../src/plugins/osm/mission.js';
 import {parseRoads} from '../src/core/roads.js';
 import {writeSurfaceModel} from '../src/core/surface-model.js';
 import {hash} from '../src/core/files.js';
+import {roadConnections,roadSettingsPair} from '../src/shared/roads.js';
 const area={latitude:50,longitude:14,size:200},node=(id,x,z)=>({type:'node',id,lat:50+z/6371008.8*180/Math.PI,lon:14+x/6371008.8*180/Math.PI/Math.cos(50*Math.PI/180)});
 const plan=(tags={})=>osmRoadPlan(osmSource({elements:[node(1,-50,0),node(2,50,0),{type:'way',id:10,nodes:[1,2],tags:{highway:'residential',...tags}}]},area),[10]);
 const options=()=>({version:1,density:20,tableHash:'a'.repeat(64),models:[{path:'models/taxi10.4ds',table:'taxi',sha256:'b'.repeat(64),width:2}]});
@@ -26,7 +27,7 @@ test('one-way cars use the street center and reversed ways retain only the permi
 });
 test('narrow streets, missing surfaces and stale/ambiguous traffic settings reject before compilation',()=>{
   const p=plan(),sf=surface(p);sf.profiles[0].width=4;assert.throws(()=>osmTrafficPlan(p,sf,options()),/alespoň 4.80/);assert.throws(()=>osmTrafficPlan(p,null,options()),/povrchy/);
-  for(const patch of [{version:3},{version:'2'},{density:0},{density:1.5},{density:101},{tableHash:'stale'},{models:[]},{models:Array(33).fill(options().models[0])},{models:[options().models[0],options().models[0]]},{models:[{...options().models[0],path:'models/../taxi10.4ds'}]},{models:[{...options().models[0],width:NaN}]}])assert.throws(()=>validateOsmTraffic({...options(),...patch}),/doprava/);
+  for(const patch of [{version:4},{version:'2'},{density:0},{density:1.5},{density:101},{tableHash:'stale'},{models:[]},{models:Array(33).fill(options().models[0])},{models:[options().models[0],options().models[0]]},{models:[{...options().models[0],path:'models/../taxi10.4ds'}]},{models:[{...options().models[0],width:NaN}]}])assert.throws(()=>validateOsmTraffic({...options(),...patch}),/doprava/);
 });
 test('omitting traffic preserves the existing default road bytes and lane offsets',()=>{
   const p=plan();assert.deepEqual(osmRoadBytes(p),osmRoadBytes(p,null));assert.equal(hash(osmRoadBytes(p)),'31c5c111122e68be8e171382c9f1ca30da65c80f21d6dcf3974b4f215fb620fe');const native=parseRoads(osmRoadBytes(p));assert(native.crossings.flatMap(c=>c.directions).filter(d=>d.target!==65535).every(d=>d.lanes[0].distance===1.5));
@@ -54,6 +55,41 @@ test('traffic v2 uses the native half-distance rule to center cars in each permi
     for(const direction of active){assert.equal(direction.lanes[0].type,2);assert.equal(direction.lanes[0].distance/2,Math.fround(offset));assert(direction.lanes.slice(1).every(l=>l.type===0&&l.distance===0));assert(offset+o.models[0].width/2<=width/2);}
     assert.deepEqual({p,sf,o},before);assert.deepEqual(osmTrafficPlan(p,sf,JSON.parse(JSON.stringify(o))),t);
     assert.deepEqual(native.warnings,[]);
+  }
+});
+test('traffic v3 retains the incoming native slot without enabling ambient traffic against a one-way street',()=>{
+  for(const oneway of ['yes','-1']){
+    const p=plan({oneway}),sf=surface(p),o={...options(),version:3,speedKmh:30,cornerSpeedKmh:15},before=structuredClone({p,sf,o}),t=osmTrafficPlan(p,sf,o),bytes=osmRoadBytes(p,t),native=parseRoads(bytes);
+    const edge=roadConnections(native,0)[0],pair=roadSettingsPair(native,0,edge.slot);
+    assert(pair);assert(pair.forward.enabled&&pair.reverse.enabled);
+    assert.equal(pair.forward.lanes[0].type,oneway==='yes'?2:1);
+    assert.equal(pair.reverse.lanes[0].type,oneway==='yes'?1:2);
+    for(const direction of [pair.forward,pair.reverse]){
+      assert.equal(direction.lanes[0].distance,0);
+      assert(direction.lanes.slice(1).every(l=>l.type===0&&l.distance===0));
+    }
+    // roads_disconnect_unused_road_links discards slots whose four lane bytes
+    // are zero. Every physical endpoint must retain its path/lane metadata.
+    for(const c of native.crossings)for(let i=0;i<4;i++)if(c.links[i]!==65535){
+      assert(c.directions[i].lanes.some(l=>l.type!==0));
+      assert.notEqual(c.directions[i].target,65535);
+    }
+    assert.deepEqual(native.warnings,[]);assert.deepEqual({p,sf,o},before);
+    assert.deepEqual(osmRoadBytes(p,osmTrafficPlan(p,sf,JSON.parse(JSON.stringify(o)))),bytes);
+  }
+});
+test('traffic v3 changes only one-way metadata and preserves the saved v1/v2 native networks',()=>{
+  const expected=['22a9f2dd06dfe166ac4b230ec438dd42461973f99bdd8ebd5265803d23d0ea8a','e4084a80026140845b6f30f529d5a71997507280b0f87efcbabe79f0ada66d5a','6753eddb26c62f0aab1adc681c4a0b72b262dc51051aa426d5de50880e9ef1a0'];
+  for(const [i,oneway]of [undefined,'yes','-1'].entries()){
+    const p=plan(oneway?{oneway}:{}),sf=surface(p),v2=osmRoadBytes(p,osmTrafficPlan(p,sf,{...options(),version:2})),v3=osmRoadBytes(p,osmTrafficPlan(p,sf,{...options(),version:3}));
+    assert.equal(hash(v2),expected[i]);
+    if(!oneway)assert.deepEqual(v3,v2);
+    else{
+      const a=parseRoads(v2),b=parseRoads(v3);
+      assert.deepEqual(b.nodes,a.nodes);
+      assert.equal(b.crossings.flatMap(c=>c.directions).filter(d=>d.lanes.some(l=>l.type===2)).length,1);
+      assert.equal(b.crossings.flatMap(c=>c.directions).filter(d=>d.lanes.some(l=>l.type===1)).length,1);
+    }
   }
 });
 function table(){const b=Buffer.alloc(8+4+36+4+1);b.writeUInt32LE(1);b.writeUInt32LE(1,4);b.writeUInt32LE(b.length-12,8);b.write('taxi',12);b.writeUInt32LE(1,44);b.writeUInt32LE(1,48);return b;}

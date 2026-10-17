@@ -32,9 +32,9 @@ test('single-road bends slow before the corner independently of point order or h
   const back=osmTrafficPlan(reversed,sf,options()).roads[0];assert.deepEqual(back.positions.toReversed(),r.positions);assert.deepEqual(back.nodeSpeeds.toReversed(),r.nodeSpeeds);
 });
 test('junction turn detection respects permitted incoming and outgoing one-way directions',()=>{
-  for(const [directions,expected]of [[[true,false,true,false],0],[[false,true,false,true],0],[[true,false,false,true],1]]){
+  for(const version of [2,3])for(const [directions,expected]of [[[true,false,true,false],0],[[false,true,false,true],0],[[true,false,false,true],1]]){
     const p=fixture([[-100,0],[0,0],[0,100]],[[0,1,[[-50,0]],directions[0],directions[1]],[2,1,[[0,50]],directions[2],directions[3]]]);
-    assert.equal(osmTrafficPlan(p,surface(p),options()).cornering.sites,expected);
+    assert.equal(osmTrafficPlan(p,surface(p),{...options(),version}).cornering.sites,expected);
   }
 });
 test('nearby disconnected streets keep their speed instead of inheriting a spatial corner cap',()=>{
