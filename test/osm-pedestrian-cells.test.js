@@ -74,7 +74,7 @@ test('convex islands, distant dead ends and small entrance gaps remain represent
 });
 
 test('terrain node overflow is still refused and legacy planar navigation bytes stay exact',()=>{
-  const steep=fixtures({dense:true,steep:true});assert.throws(()=>osmPedestrianPlan(steep.source,steep.roads,steep.surface,null,steep.green),/8192/);
+  const steep=fixtures({dense:true,steep:true});assert.throws(()=>osmPedestrianPlan(steep.source,steep.roads,steep.surface,null,steep.green),/16384/);
   const f=fixtures(),flat=osmSurfaceModel(f.roads,f.source.area,f.options),green=osmGreenPlan(f.source,flat,f.greenOptions),bytes=osmPedestrianBytes(osmPedestrianPlan(f.source,f.roads,flat,null,green));
   assert.equal(createHash('sha256').update(bytes).digest('hex'),'cc9918ceacb80a7afe1bc5a3b34cea70caa39442d9453546ead45ef5cfb01f01');
 });

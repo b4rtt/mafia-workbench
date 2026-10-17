@@ -40,3 +40,14 @@ test('civilian configuration rejects invalid numbers, missing hashes, paths and 
 test('civilian catalog reports invalid skeletons and rejects unavailable or changed saved models',async()=>{
   const p={manifest:{assets:[{path:'models/civil13.4ds'},{path:'models/cop01.4ds'}]},read:async()=>Buffer.alloc(4)},c=await loadOsmPedestrianModels(p);assert.equal(c.models.length,0);assert.equal(c.warnings.length,1);await assert.rejects(loadOsmPedestrianModels(p,settings()),/chodci/);await assert.rejects(loadOsmPedestrianModels({...p,manifest:{assets:[]}},settings()),/dostupné/);
 });
+
+test('larger pedestrian networks retain every island and native link while enforcing the import budget',()=>{
+  // Disjoint body-wide strips in a 450 m square exercise the real planner,
+  // not just a hand-built serializer input or a configurable test limit.
+  const surface=count=>({model:{meshes:[{lods:[{positions:[0,.2,0]}]}]},footprints:{sidewalk:Array.from({length:count},(_,i)=>{const z=-215+i;return [[[-220,z],[220,z],[220,z+.85],[-220,z+.85],[-220,z]]];})}}),source={ways:[],buildings:[]},roads={roads:[]},plan=osmPedestrianPlan(source,roads,surface(250)),bytes=osmPedestrianBytes(plan),native=parseNavigation(bytes);
+  assert(plan.positions.length>8192&&plan.positions.length<=16384);assert.equal(plan.components,250);assert.equal(native.points.length,plan.positions.length);assert.equal(native.linkCount,plan.links.length*2);assert.deepEqual(native.warnings,[]);
+  const visited=new Set();let islands=0;
+  for(const p of native.points){assert.equal(p.id,p.index);if(p.index)assert(p.position[0]>=native.points[p.index-1].position[0]);for(const link of p.links){const q=native.points[link.target];assert(q.links.some(l=>l.target===p.index));assert(Math.hypot(...p.position.map((n,k)=>n-q.position[k]))<=4.000001);}if(!visited.has(p.index)){islands++;const queue=[p.index];visited.add(p.index);while(queue.length)for(const l of native.points[queue.pop()].links)if(!visited.has(l.target)){visited.add(l.target);queue.push(l.target);}}}
+  assert.equal(islands,250);assert.equal(visited.size,native.points.length);assert.deepEqual(osmPedestrianBytes(osmPedestrianPlan(source,roads,surface(250))),bytes);
+  assert.throws(()=>osmPedestrianPlan(source,roads,surface(430)),/síť přesahuje 16384 bodů/);
+});

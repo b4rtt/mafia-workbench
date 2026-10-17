@@ -8,6 +8,9 @@ import {convexPedestrianCells} from './pedestrian-cells.js';
 import {compactPedestrianLinks} from './pedestrian-compact.js';
 
 const fail=m=>{throw Error('OpenStreetMap · chodci: '+m);};
+// Import budget, not the ushort format limit. Shipped city graphs contain
+// up to 17,607 nodes; keep generated networks below that observed size.
+const pointBudget=16384;
 export function validateOsmPedestrians(o){
   if(!o||o.version!==1||['parkPaths','crossings'].some(k=>o[k]!==undefined&&typeof o[k]!=='boolean')||!Number.isInteger(o.density)||o.density<1||o.density>100||!Number.isInteger(o.capacity)||o.capacity<1||o.capacity>20||!Array.isArray(o.models)||!o.models.length||o.models.length>16||new Set(o.models.map(m=>m?.path?.toLowerCase())).size!==o.models.length||o.models.some(m=>!/^models\/civil\d+\.4ds$/i.test(m?.path??'')||!/^civil\d+\.i3d$/i.test(m?.model??'')||m.path.slice(7,-4).toLowerCase()!==m.model.slice(0,-4).toLowerCase()||m.model.length>16||!/^[a-f0-9]{64}$/.test(m?.sha256??'')))fail('načtěte 1–16 civilních modelů; hustota je 1–100 a kapacita každého modelu 1–20.');
 }
@@ -71,7 +74,7 @@ export function osmPedestrianPlan(source,roads,surface,props=null,green=null,opt
     safe=edges.length?clipping.difference(walkable,inset):[];
   }catch{fail('průchozí plochy nelze bezpečně spojit; zmenšete oblast nebo upravte osazení.');}
   const points=[],regions=[],used=new Map(),pinned=new Set();let links=[];
-  const add=(p,y)=>{let v=[Math.fround(p[0]),y,Math.fround(p[1])];if(mixed||terrain)v[1]=levelAt([v[0],v[2]]);if(terrain)v=terrain.point(v,v[1]);const key=v.join('/');if(!used.has(key)){if(points.length>=(terrain?65536:8192))fail(terrain?'výpočet sítě přesahuje 65 536 bodů; zmenšete oblast.':'síť přesahuje 8192 bodů; zmenšete oblast.');used.set(key,points.length);points.push(v);}return used.get(key);};
+  const add=(p,y)=>{let v=[Math.fround(p[0]),y,Math.fround(p[1])];if(mixed||terrain)v[1]=levelAt([v[0],v[2]]);if(terrain)v=terrain.point(v,v[1]);const key=v.join('/');if(!used.has(key)){if(points.length>=(terrain?65536:pointBudget))fail(terrain?'výpočet sítě přesahuje 65 536 bodů; zmenšete oblast.':`síť přesahuje ${pointBudget} bodů; zmenšete oblast.`);used.set(key,points.length);points.push(v);}return used.get(key);};
   const connect=(a,b)=>{if(a===b)return;const p=points[a],q=points[b];let prev=a;if(terrain){const chain=terrain.split(p,q,levelAt,4,true);for(let i=1;i<chain.length;i++){const next=i===chain.length-1?b:add([chain[i][0],chain[i][2]],y);if(prev!==next)links.push([prev,next]);prev=next;}return;}const steps=Math.ceil(Math.hypot(p[0]-q[0],p[2]-q[2])/(mixed?Math.sqrt(16-.25**2):4));for(let n=1;n<=steps;n++){const next=n===steps?b:add([p[0]+(q[0]-p[0])*n/steps,p[2]+(q[2]-p[2])*n/steps],p[1]);if(prev!==next)links.push([prev,next]);prev=next;}};
   for(const polygon of safe){
     if(area(polygon[0])-polygon.slice(1).reduce((s,r)=>s+area(r),0)<1)continue;
@@ -128,7 +131,7 @@ export function osmPedestrianPlan(source,roads,surface,props=null,green=null,opt
   }
   if(terrain)links=compactPedestrianLinks(points,links,{walkable,levels:[...surface.footprints.sidewalk,...paths.flatMap(p=>p.polygons),...(crossings?.placements??[]).flatMap(p=>p.polygons)],terrain,levelAt,pinned});
   const live=new Set(links.flat()),remap=new Map(),positions=[];for(const [i,p]of points.entries())if(live.has(i)){remap.set(i,positions.length);positions.push(p);}
-  if(positions.length>8192)fail('síť přesahuje 8192 bodů; zmenšete oblast.');
+  if(positions.length>pointBudget)fail(`síť přesahuje ${pointBudget} bodů; zmenšete oblast.`);
   const unique=[...new Map(links.map(([a,b])=>[a<b?`${a}/${b}`:`${b}/${a}`,[remap.get(a),remap.get(b)]])).values()];
   if(!unique.length)fail('po odečtení hran a překážek nezbyla pěší trasa alespoň 1 m². Rozšiřte chodník nebo změňte osazení.');
   // Count actual graph components; degenerate triangulation slivers may split
