@@ -45,7 +45,9 @@ export function osmRoadBytes(plan,traffic=null){
       if(!link||!Array.isArray(speeds)||link.nodes.length!==speeds.length)throw Error('OpenStreetMap · doprava: rychlosti neodpovídají jízdním bodům.');
       link.nodes.forEach((ref,j)=>changes.push({id:`nodes/${ref&32767}/speed`,value:speeds[j]}));
     }
-    data=editRoads(data,changes);
+    // The native editor accepts at most 1024 field edits per call; an OSM
+    // network can contain 4096 nodes. Keep batches local until publication.
+    for(let at=0;at<changes.length;at+=1024)data=editRoads(data,changes.slice(at,at+1024));
   }
   const file=parseRoads(data);if(file.warnings.length)throw Error('OpenStreetMap: síť se nepodařilo nativně sestavit.');return data;
 }

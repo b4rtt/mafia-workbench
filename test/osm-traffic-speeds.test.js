@@ -50,3 +50,16 @@ test('corner speed never raises the cruise speed, including old traffic without 
 test('native writer refuses a mismatched speed array rather than applying it to another road',()=>{
   const p=corner(),t=osmTrafficPlan(p,surface(p),options());t.roads[0].nodeSpeeds.pop();assert.throws(()=>osmRoadBytes(p,t),/rychlosti neodpovídají/);
 });
+test('large cornered networks preserve every speed beyond the native edit batch limit',()=>{
+  for(const segments of [150,450]){
+    const positions=Array.from({length:segments-1},(_,i)=>[(i+1)%2?12:0,(i+1)*12]),p=fixture([[0,0],[0,segments*12]],[[0,1,positions]]),t=osmTrafficPlan(p,surface(p),options());
+    assert(t.cornering.affectedNodes>(segments===150?1024:4000));assert(t.roads[0].positions.length<=4096);
+    const original=osmRoadBytes(p,osmTrafficPlan(p,surface(p),{...options(),cornerSpeedKmh:undefined})),bytes=osmRoadBytes(p,t),n=parseRoads(bytes),link=roadConnections(n,0).find(l=>l.target===1);
+    assert.deepEqual(n.warnings,[]);assert.equal(link.nodes.length,t.roads[0].nodeSpeeds.length);
+    for(const [i,ref]of link.nodes.entries())assert.equal(n.nodes[ref&32767].speed,Math.fround(t.roads[0].nodeSpeeds[i]));
+    const expected=Buffer.from(original),start=12+n.crossings.length*236;
+    n.crossings.forEach((_,i)=>expected.writeFloatLE(t.crossingSpeeds[i],8+i*236+16));
+    link.nodes.forEach((ref,i)=>expected.writeFloatLE(t.roads[0].nodeSpeeds[i],start+(ref&32767)*24+12));
+    assert.deepEqual(bytes,expected);assert.deepEqual(osmRoadBytes(p,t),bytes);
+  }
+});
