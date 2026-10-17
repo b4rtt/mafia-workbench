@@ -25,6 +25,12 @@ const recipes=Object.freeze({
   charcoal:{rows:[0,1],swatch:[.3,.12,.45,.23]},
   ochre:{rows:[0,1],swatch:[.3,.3,.6,.4]},
   'arched-brick':{rows:[0,1],swatch:[.2,.03,.4,.1]},
+  'brick-relief':{rows:[0,.37,.71,1],swatch:[.01,.15,.08,.25]},
+  'sage-relief':{rows:[0,.32,.67,1],swatch:[.01,.14,.08,.25]},
+  'arched-orange':{rows:[0,.36,.70,1],swatch:[.01,.1,.08,.25]},
+  'pale-columns':{rows:[0,.37,.70,1],swatch:[.01,.16,.06,.25]},
+  'cream-lintels':{rows:[0,.5,1],swatch:[.01,.18,.05,.36]},
+  'peach-arches':{rows:[0,.5,1],swatch:[.01,.2,.05,.4]},
 });
 export function validateOsmFacade(options){
   if(options===undefined)return;
