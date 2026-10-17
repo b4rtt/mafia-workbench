@@ -171,6 +171,8 @@ REP parser a writer prošly 92 z 93 skutečných záznamů: 33 988 objektových 
 
 Volitelná sekce OSM **Zvukové prostředí** přidává upravitelné opakované bodové zvuky ulic a zeleně. Pro každou vrstvu lze zvolit projektový mono WAV, přehrát náhled a nastavit rozestup, hlasitost a dosah. Nejvýše 64 bodů leží na vytvořených površích mimo budovy a otvory. Výběr nahrávek je ruční; OSM akustiku neurčuje. Nastavení a hashe WAV se zachovávají pro opakovaný import, export a společné undo. Starší podklad zvuky sám nezapne. [Postup a omezení](research/osm-integration.md#zvukové-prostředí-ulic-a-zeleně).
 
+Uložený OSM podklad může obnovit také ověřený místní číselný rastr výšek. Terén, domy/sokly, zeleň, objekty, světla, zvuky a obě navigační sítě pak vzniknou společně s jedním undo. Rastr musí mít úplná data, popis zdroje, deklarované rozlišení/výškový systém a správný kontrolní součet; automatické stahování DEM zatím není součástí formuláře. [Formát, ověření a omezení](research/osm-elevation.md#uložený-zdroj-a-společná-transakce-17-10-2026).
+
 ## Reference a rozsah
 
 - [Celé zadání](goal.json)
