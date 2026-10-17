@@ -4,6 +4,7 @@ import {osmBuildingFootprints} from './footprints.js';
 import {Vector3} from 'three';
 import {frameMatrix} from '../../shared/scene-world.js';
 import {osmBuildingSupport,osmFoundationVertices} from './building-terrain.js';
+import {validateOsmBuildingMatching,osmBuildingMatch,osmBuildingProfile,osmBuildingTie} from './building-selection.js';
 const fail=message=>{throw Error(`OpenStreetMap · budovy: ${message}`);};
 const cross=(a,b,c)=>(b[0]-a[0])*(c[1]-a[1])-(b[1]-a[1])*(c[0]-a[0]);
 const area=ring=>Math.abs(ring.reduce((s,a,i)=>{const b=ring[(i+1)%ring.length];return s+a[0]*b[1]-b[0]*a[1];},0))/2;
@@ -23,7 +24,8 @@ export function osmBuildingHeight(tags,fallback){
 // The original model is a substitute, never a reconstruction of a landmark.
 // Its entire conservative XZ bounds must fit the actual closed OSM outline.
 export function osmBuildingPlan(source,roads,surface,catalog,options){
-  if(!source?.area||!Array.isArray(source.ways)||!Array.isArray(catalog)||!catalog.length||catalog.length>16||!options||options.version!==1||!Array.isArray(options.selected)||options.selected.length>128||new Set(options.selected).size!==options.selected.length||options.selected.some(id=>!(Number.isSafeInteger(id)&&id>0)&&!(typeof id==='string'&&/^relation\/[1-9]\d*\/[1-9]\d*$/.test(id)))||typeof options.adjustScale!=='boolean'||typeof options.minCoverage!=='number'||!Number.isFinite(options.minCoverage)||options.minCoverage<.25||options.minCoverage>.9||typeof options.fallbackHeight!=='number'||!Number.isFinite(options.fallbackHeight)||options.fallbackHeight<5||options.fallbackHeight>60||typeof options.ground!=='number'||!Number.isFinite(options.ground)||Math.abs(options.ground)>5)fail('neplatné nastavení nebo výběr.');
+  if(!source?.area||!Array.isArray(source.ways)||!Array.isArray(catalog)||!catalog.length||catalog.length>32||!options||options.version!==1||!Array.isArray(options.selected)||options.selected.length>128||new Set(options.selected).size!==options.selected.length||options.selected.some(id=>!(Number.isSafeInteger(id)&&id>0)&&!(typeof id==='string'&&/^relation\/[1-9]\d*\/[1-9]\d*$/.test(id)))||typeof options.adjustScale!=='boolean'||typeof options.minCoverage!=='number'||!Number.isFinite(options.minCoverage)||options.minCoverage<.25||options.minCoverage>.9||typeof options.fallbackHeight!=='number'||!Number.isFinite(options.fallbackHeight)||options.fallbackHeight<5||options.fallbackHeight>60||typeof options.ground!=='number'||!Number.isFinite(options.ground)||Math.abs(options.ground)>5)fail('neplatné nastavení nebo výběr.');
+  validateOsmBuildingMatching(options.matching);
   for(const m of catalog)if(typeof m.path!=='string'||typeof m.sha256!=='string'||[m.min,m.max].some(a=>!Array.isArray(a)||a.length!==3||a.some(n=>!Number.isFinite(n)||Math.abs(n)>1000))||m.min.some((n,i)=>n>=m.max[i])||!Number.isSafeInteger(m.vertices)||m.vertices<3||m.vertices>60000)fail('neplatné rozměry modelu.');
   // Even a network-only import reserves the default road/pavement corridor.
   surface??=osmSurfaceModel(roads,source.area,osmSurfaceDefaults);
@@ -38,12 +40,17 @@ export function osmBuildingPlan(source,roads,surface,catalog,options){
     const polygon=way.polygons[0],ring=polygon[0],size=polygonArea([polygon]);
     if(polygon.some(r=>r.some(p=>p.some(n=>!Number.isFinite(n)||Math.abs(n)>half)))){skip('Budova přesahuje hranici oblasti; půdorys se neořezává.');continue;}
     if(size<16||ring.some((a,i)=>ring.some((c,j)=>i!==j&&(i+1)%ring.length!==j&&(j+1)%ring.length!==i&&crosses(a,ring[(i+1)%ring.length],c,ring[(j+1)%ring.length])))){skip('Půdorys je příliš malý nebo se protíná.');continue;}
+    const match=options.matching?osmBuildingMatch(way.tags,options.fallbackHeight):null;
+    if(match?.kind==='unsupported'){skip(match.note);continue;}
+    const allowed=match?catalog.filter(m=>{const profile=osmBuildingProfile(m.path);return profile&&(match.kind==='mixed'||profile.kind===match.kind);}):catalog;
+    if(!allowed.length){skip('Ve vybraných modelech není ověřený dům odpovídající typu OSM.');continue;}
     const angles=polygon.flatMap(ring=>ring.map((a,i)=>{const b=ring[(i+1)%ring.length];return {angle:Math.atan2(b[1]-a[1],b[0]-a[0]),length:Math.hypot(b[1]-a[1],b[0]-a[0])};})).sort((a,b)=>b.length-a.length),unique=[];
     for(const {angle,length}of angles){if(length<1)continue;const value=(angle%Math.PI+Math.PI)%Math.PI;if(!unique.some(a=>Math.abs(Math.sin(a-value))<.03))unique.push(value);if(unique.length===8)break;}
-    const target=osmBuildingHeight(way.tags,options.fallbackHeight),candidates=[];
+    const target=osmBuildingHeight(way.tags,match?.fallbackHeight??options.fallbackHeight),candidates=[];
+    if(match&&match.fallbackHeight!==options.fallbackHeight&&target.heightSource==='ruční náhradní výška')target.heightSource=`odhad podle typu OSM: ${target.height} m (omezený náhradní výškou)`;
     for(const axis of unique)for(const turn of [0,Math.PI/2]){
       const angle=axis+turn,c=Math.cos(angle),s=Math.sin(angle),local=ring.map(([x,z])=>[c*x+s*z,-s*x+c*z]),lo=[0,1].map(i=>Math.min(...local.map(p=>p[i]))),hi=[0,1].map(i=>Math.max(...local.map(p=>p[i]))),center=lo.map((n,i)=>(n+hi[i])/2);
-      for(const m of catalog){
+      for(const m of allowed){
         const width=m.max[0]-m.min[0],depth=m.max[2]-m.min[2],maxScale=options.adjustScale?Math.min(1.15,(hi[0]-lo[0])/width,(hi[1]-lo[1])/depth):1;
         for(const scale of options.adjustScale?[maxScale,maxScale-.075,maxScale-.15,maxScale-.225].filter(n=>n>=.85):[1]){
           const coverage=width*depth*scale*scale/size;if(coverage<options.minCoverage||coverage>1.00001)continue;
@@ -57,7 +64,14 @@ export function osmBuildingPlan(source,roads,surface,catalog,options){
         }
       }
     }
-    candidates.sort((a,b)=>b.score-a.score||a.model.path.localeCompare(b.model.path,'en'));
+    if(match){
+      // Prefer variety among similar fits, without stretching models or relaxing
+      // the outline, height, coverage and collision constraints.
+      const uses=new Map();for(const p of placements)uses.set(p.model,(uses.get(p.model)??0)+1);
+      const least=candidates.reduce((n,p)=>Math.min(n,uses.get(p.model.path)??0),Infinity);
+      for(const p of candidates)p.score-=Math.min(.12,((uses.get(p.model.path)??0)-least)*.03);
+    }
+    candidates.sort((a,b)=>b.score-a.score||(match?osmBuildingTie(id,a.model.path)-osmBuildingTie(id,b.model.path):0)||a.model.path.localeCompare(b.model.path,'en'));
     const best=candidates.find(p=>{
       const poly=[[...p.footprint,p.footprint[0]]];
       // Verify the full polygon as well as corners; concave bays are not filled.
@@ -71,6 +85,7 @@ export function osmBuildingPlan(source,roads,surface,catalog,options){
     let angle=best.angle;if(nearest&&Math.sin(angle)*(nearest[0]-best.center[0])-Math.cos(angle)*(nearest[1]-best.center[1])<0)angle+=Math.PI;
     const c=Math.cos(angle),s=Math.sin(angle),m=best.model,scale=best.scale,cx=(m.min[0]+m.max[0])/2*scale,cz=(m.min[2]+m.max[2])/2*scale;
     const item={way:id,name:way.relation?`OSM_R_${way.relation}_${way.component??1}`:`OSM_B_${id}`,label:way.tags.name??`Budova ${id}`,...(way.relation?{relation:way.relation,component:way.component,components:way.components}:{}),model:m.path,modelHash:m.sha256,position:[best.center[0]-c*cx+s*cz,options.ground,best.center[1]-s*cx-c*cz].map(Math.fround),rotation:[Math.cos(angle/2),0,Math.sin(angle/2),0].map(Math.fround),scale:[scale,scale,scale].map(Math.fround),footprint:best.footprint,coverage:best.coverage,modelHeight:best.height,...target};
+    if(match)item.matching={version:1,kind:match.kind,modelKind:osmBuildingProfile(m.path).kind,note:match.note};
     let vertices=best.model.vertices;
     if(surface.elevation){
       const matrix=frameMatrix(item),footprint=[[m.min[0],m.min[2]],[m.max[0],m.min[2]],[m.max[0],m.max[2]],[m.min[0],m.max[2]]].map(([x,z])=>{const p=new Vector3(x,0,z).applyMatrix4(matrix);return [p.x,p.z];}),support=osmBuildingSupport(surface,source.area,[footprint],options.ground);
