@@ -3,7 +3,7 @@ import {osmBuildingFootprints} from './footprints.js';
 import {osmNavigationElevation} from './navigation-elevation.js';
 
 const fail=m=>{throw Error('OpenStreetMap · přechody: '+m);};
-const keys=['highway','crossing','crossing:signals','crossing:markings','crossing:island','crossing:continuous','traffic_calming','width','foot','foot:conditional','access','access:conditional','layer','bridge','tunnel'];
+const keys=['highway','crossing','crossing:signals','crossing:markings','crossing:markings:colour','crossing:island','crossing:continuous','traffic_calming','width','foot','foot:conditional','access','access:conditional','layer','bridge','tunnel'];
 export function readOsmCrossings(data,nodes,project){
   const result=[];
   for(const row of data.elements)if(row.type==='node'&&row.tags?.highway==='crossing'){
