@@ -448,3 +448,34 @@ Oddělený Electron audit produkčního formuláře a IPC ověřil blokování p
 Samostatný nativní test **produkčního** importu `WB_CURBS_NATIVE` používá původní produkční síť a tři paprsky `coll_testline`: nově přidaný asfalt, zbývající zvýšený chodník a změněný oblouk obrubníku. První běh zasáhl příslušné nové plochy s odchylkou pod 1,5 cm; asfalt Y=0,05 m, chodník Y=0,2 m. Kontrolní běh po odebrání generovaných kolizí trefil místo obou horních ploch původní rovinu Y=0 a boční obrubník netrefil. Připravený model i KLZ jsou hashově totožné s projektem a současný generátor dává přesně stejné bajty modelu jako nativně testovaná verze. Evidence `local/osm-provider-vQHlcF/rounded-curbs-native-result.json`. To dokládá načtení nových kolizí, nikoli bezpečné vedení aut.
 
 Všechny vlastní Wine běhy byly ukončené, soukromý projekt vrácený na historii 38, původní EXE i oba chráněné projekty hashově zachované. Herní data, snímky a testovací skripty se nepublikují. Další práce na automatickém odbočování musí stále dořešit fyzikální vedení celé karoserie, obousměrné vazby, výšky a opakovatelný import celé skutečné oblasti. Celkový goal pokračuje.
+
+### Skutečné cíle řidiče, odmítnutý posun trasy a rozdíly verzí (17. října 2026)
+
+Další kontrola zachovala obousměrný prototyp s oddělenými osami R=3 m, ale používá již produkční zaoblení asfaltu `surface.cornerRadius=2`. Soukromý pomocník pouze čte vlastní běžící GOG 1.2 proces přes `OpenProcess`/`ReadProcessMemory`; paměť nezapisuje ani nepozastavuje. Před zpracováním snímku znovu ověřuje začátek/konec pole cílů a aktuální index. To chrání před výměnou trasy během čtení, nikoli před změnou všech fyzikálních polí mezi dvěma čteními.
+
+V běhu `junction-prague-turn-ports-driver-v10` se zachytilo 835 koherentních snímků jednoho řidiče. V 12 973 záznamech bodů bylo 75 různých odkazů na nativní síť. Aktivní vybrané cíle měly v XZ nulovou odchylku od odpovídajících uložených bodů. Jeden budoucí cíl křižovatky 3 byl ve 22 snímcích posunut o 1,3846 m; při jeho aktivním použití se posun nezachytil. Řidič cíle průběžně mění. Není proto podložené přisuzovat výjezdy v tomto běhu trvalému zaseknutí na jednom cíli nebo soustavnému přepisování aktivních uzlů. Vzdálenost od spojnice předchozího a aktuálního cíle není obecná chyba sledování nejbližší trasy a tak se nevyhodnocuje.
+
+Model `airflFor10.4ds` má po složení hierarchie rámů AI00 přibližně 2,322959 m před počátkem modelu a AI01 přibližně 2,288712 m za ním. Je nutné zahrnout transformaci rodiče; samotná lokální souřadnice AI00 je jiná. Soukromý pokus v11 posunul celou navrženou osu dopředu o 2,322959 m podle její místní tečny. Neprošel kontrolou průjezdu a do editoru se nezavádí.
+
+| Soukromý běh | Změna vůči obousměrnému prototypu | Viditelné vzorky | Součet úseků XZ | Středy / obálky mimo asfalt | Největší přesah |
+| --- | --- | ---: | ---: | ---: | ---: |
+| `junction-prague-turn-ports-driver-v10` | Produkční zaoblení povrchu 2 m, čtení cílů | 172 | 350,656 m | 0 / 63 | 1,5852 m² |
+| `junction-prague-turn-ports-frontprobe-v11` | Navíc posun celé osy po tečně | 193 | 398,562 m | 28 / 102 | 7,4633 m² |
+| `junction-prague-turn-ports-physics-v13` | Bez posunu osy, čtení parametrů auta | 179 | 384,164 m | 9 / 59 | 5,4034 m² |
+
+Každý běh má 36 checkpointů; zdraví hráče 100 a držený viditelný aktér odpovídal nejbližšímu autu ve všech zachycených vzorcích. Jde o odlišné náhodné spawny a úseky jízdy, nikoli párové měření účinku změny. Obálka je obdélník modelu, ne přesný collider. Nativní pozice/rotace pro měření obálky jsou zachyceny atomickým blokem herního skriptu; interní přední sledovací bod se za polohu karoserie nezaměňuje. Žádný z běhů nedokládá bezpečný průjezd celé karoserie.
+
+Při čtení fyziky se potvrdilo zásadní omezení primárního referenčního exportu: `Game-ghidra.exe.annotated.c` a `structs/car.md` popisují jiné rozložení než používaný GOG 1.2. Názvy funkcí a jejich význam pomáhají hledat odpovídající kód, adresy a offsety se však musí ověřit ve skutečném podporovaném EXE (`src/core/game-build.js`). Konkrétně:
+
+| Význam | Referenční rozložení | Ověřený GOG 1.2 |
+| --- | --- | --- |
+| Skalární rychlost, od základu auta | `+0x688` | `+0x60c`; čte ji řízení u `0x442923` |
+| Aktuální mez úhlu řízení, od základu auta | `+0x6fc` | `+0x680`; clamp u `0x442b82` / `0x442b95` |
+| Lokální přední / zadní AI bod | `+0x1fc0` / `+0x1fcc` | `+0x2080` / `+0x208c` |
+| Světový přední / zadní AI bod | `+0x1fd8` / `+0x1fe4` | `+0x2098` / `+0x20a4`; přístupová funkce `0x429510` |
+
+GOG výstup řízení `driver+0x1e0` je na konci funkce normalizovaný dělením mezí z `car+0x680` (`0x442ded`–`0x442e1b`), nikoli úhel v radiánech. Ve v13 bylo 872 úplných snímků za 90,012 s, rychlost 3,047–8,877 m/s, aktuální mez 0,638767–0,677752 rad (36,599–38,832°) a pouze 11 snímků s absolutním normalizovaným řízením nad 0,999; žádné dva takové zachycené snímky nenásledovaly bezprostředně po sobě. Trvalé držení mechanického limitu se v tomto běhu nepotvrdilo. Tyto údaje samy neurčují minimální fyzikální poloměr ani nevylučují krátkou saturaci mezi vzorky. Rozdíl živého sledovacího bodu a později čtené pozice auta nelze bez zastavení snímku použít jako přesné měření lokálního posunu AI00.
+
+Předchozí pokus `junction-prague-turn-ports-physics-v12` s plným blokem auta nevytvořil žádné interní záznamy; jeho 36 checkpointů není důkazem úspěšného čtení fyziky. V13 použil dva menší bloky a výslovné příznaky úspěchu čtení, oba úspěšné ve všech 872 snímcích. Interpretace nesprávných offsetů se zahodila; číselné závěry výše používají až ověřené GOG offsety. Další úprava vedení potřebuje společnou kontrolu obálky karoserie a skutečné reakce řidiče, nikoli samotné posunutí bodů nebo odhad podle tabulky jiné verze.
+
+Všechny vlastní hry jsou ukončené, testovací klon má opět historii 38 a připravené road/check/KLZ odpovídaly testovanému projektu. Původní EXE i oba chráněné projekty zůstaly hashově stejné. Snímky, binární pomocníci, checkpointy a surová čtení zůstávají jen v ignorovaném `local/osm-provider-vQHlcF`; souhrn čtení v13 je v `local/osm-turn-physics-v13-diagnostic.json`. Produkční algoritmus a nasazená aplikace se tímto blokem nemění. Celkový goal pokračuje.
