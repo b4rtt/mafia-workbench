@@ -13,8 +13,8 @@ export async function loadOsmTrafficModels(project,saved){
     try{
       const data=await project.read(asset.path),model=parseFourDs(data,true);validateVehicleModel(model);
       const object={name:'CAR',frameType:9,model:asset.path,position:[0,0,0],rotation:[1,0,0,0],scale:[1,1,1]},bounds=modelCollisionBox(model,object,{objects:[object]},{meshes:[]}),width=bounds.max[0]-bounds.min[0];if(width<.5||width>5)throw Error('Neplatná šířka automobilu.');
-      const item={path:asset.path,table:definition.table,sha256:hash(data),width};
-      if(saved){const previous=saved.models.find(m=>m.path.toLowerCase()===asset.path.toLowerCase());if(previous.sha256!==item.sha256||previous.table!==item.table||previous.width!==item.width)throw Error('Model nebo rozměry auta se změnily; načtěte katalog znovu.');}
+      const item={path:asset.path,table:definition.table,sha256:hash(data),width,envelope:{min:[bounds.min[0],bounds.min[2]],max:[bounds.max[0],bounds.max[2]]}};
+      if(saved){const previous=saved.models.find(m=>m.path.toLowerCase()===asset.path.toLowerCase());if(previous.sha256!==item.sha256||previous.table!==item.table||previous.width!==item.width||previous.envelope&&!['min','max'].every(k=>previous.envelope[k].every((v,i)=>v===item.envelope[k][i])))throw Error('Model nebo rozměry auta se změnily; načtěte katalog znovu.');}
       models.push(item);
     }catch(error){warnings.push(`${asset.path}: ${error.message}`);}
   }

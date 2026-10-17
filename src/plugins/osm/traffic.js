@@ -1,3 +1,4 @@
+import {osmTrafficTurns} from './traffic-turns.js';
 import {osmCornerSpeeds} from './traffic-speeds.js';
 import {osmTrafficContinuity} from './traffic-continuity.js';
 const fail=message=>{throw Error('OpenStreetMap · doprava: '+message);};
@@ -6,6 +7,7 @@ export function validateOsmTraffic(options){
   if(options.speedKmh!==undefined&&(!Number.isFinite(options.speedKmh)||options.speedKmh<1||options.speedKmh>50))fail('rychlost musí být 1–50 km/h.');
   if(options.cornerSpeedKmh!==undefined&&(!Number.isFinite(options.cornerSpeedKmh)||options.cornerSpeedKmh<1||options.cornerSpeedKmh>50))fail('rychlost v zatáčkách musí být 1–50 km/h.');
   if(options.continuous!==undefined&&(typeof options.continuous!=='boolean'||options.continuous&&options.version!==3))fail('vyloučení slepých tras vyžaduje aktualizovanou dopravní síť.');
+  if(options.turnRadius!==undefined&&(!Number.isFinite(options.turnRadius)||options.turnRadius<5||options.turnRadius>12||options.version!==3||options.models.some(m=>!m.envelope||!['min','max'].every(k=>Array.isArray(m.envelope[k])&&m.envelope[k].length===2&&m.envelope[k].every(v=>Number.isFinite(v)&&Math.abs(v)<=15))||m.envelope.min.some((v,i)=>v>=m.envelope.max[i])||Math.abs(m.envelope.max[0]-m.envelope.min[0]-m.width)>1e-6)))fail('oblouky vyžadují aktualizovanou síť, poloměr 5–12 m a ověřené rozměry všech vybraných aut.');
   if(options.excludedWays!==undefined&&(!Array.isArray(options.excludedWays)||options.excludedWays.length>256||new Set(options.excludedWays).size!==options.excludedWays.length||options.excludedWays.some(id=>!Number.isSafeInteger(id)||id<=0)||options.excludedWays.length&&options.version!==3))fail('výběr ulic bez běžné dopravy vyžaduje aktualizovanou síť a nejvýše 256 jedinečných OSM ID ulic.');
 }
 // One native traffic lane per permitted direction. Keep the legacy network
@@ -45,5 +47,13 @@ export function osmTrafficPlan(plan,surface,options){
     cornering=result.cornering;crossingSpeeds=result.crossingSpeeds;roads.forEach(road=>road.nodeSpeeds=road.positions.map(()=>baseSpeed));indices.forEach((i,j)=>roads[i].nodeSpeeds=result.nodeSpeeds[j]);
   }
   const excludedRoads=plan.roads.filter(r=>excluded.has(r.way));
-  return {...(excludedRoads.length?{exclusions:{ways:[...new Set(excludedRoads.map(r=>r.way))].sort((a,b)=>a-b),roads:excludedRoads.length,directions:excludedRoads.reduce((n,r)=>n+Number(r.forward)+Number(r.reverse),0)}}:{}),...(continuity?{continuity:{before:continuity.before,retained:continuity.retained,excluded:continuity.excluded}}:{}),...(cornering?{cornering,crossingSpeeds}:{}),density:options.density,...(options.speedKmh===undefined?{}:{speed:options.speedKmh/3.6}),clearance,roads,models:options.models.map(m=>m.table)};
+  const result={...(excludedRoads.length?{exclusions:{ways:[...new Set(excludedRoads.map(r=>r.way))].sort((a,b)=>a-b),roads:excludedRoads.length,directions:excludedRoads.reduce((n,r)=>n+Number(r.forward)+Number(r.reverse),0)}}:{}),...(continuity?{continuity:{before:continuity.before,retained:continuity.retained,excluded:continuity.excluded}}:{}),...(cornering?{cornering,crossingSpeeds}:{}),density:options.density,...(options.speedKmh===undefined?{}:{speed:options.speedKmh/3.6}),clearance,roads,models:options.models.map(m=>m.table)};
+  if(options.turnRadius===undefined)return result;
+  const {network,turns:curves}=osmTrafficTurns(plan,surface,result,options.turnRadius,options.models.map(m=>m.envelope));
+  const smooth=osmTrafficPlan({...network,roads:network.roads.map(r=>({...r,forward:r.ambient}))},{profiles:network.roads.map(()=>({width:Math.max(...surface.profiles.map(p=>p.width))}))},{...options,turnRadius:undefined,cornerSpeedKmh:undefined,continuous:false,excludedWays:[]});
+  if(options.cornerSpeedKmh!==undefined){
+    const indices=network.roads.flatMap((r,i)=>r.ambient?[i]:[]),baseSpeed=(options.speedKmh??4.32)/3.6,cap=osmCornerSpeeds({...network,roads:indices.map(i=>network.roads[i])},indices.map(i=>smooth.roads[i]),options.cornerSpeedKmh,baseSpeed);
+    smooth.cornering=cap.cornering;smooth.crossingSpeeds=cap.crossingSpeeds;smooth.roads.forEach(r=>r.nodeSpeeds=r.positions.map(()=>baseSpeed));indices.forEach((i,j)=>smooth.roads[i].nodeSpeeds=cap.nodeSpeeds[j]);
+  }
+  return {...result,roads:smooth.roads,...(smooth.cornering?{cornering:smooth.cornering,crossingSpeeds:smooth.crossingSpeeds}:{}),network,turns:curves};
 }

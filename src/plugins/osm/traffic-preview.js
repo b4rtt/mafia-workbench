@@ -3,6 +3,7 @@ import {osmTrafficCornerSites} from './traffic-speeds.js';
 // Segment arrows use the first native band's half width. They describe the
 // requested lane layout, not the engine's smoothed trajectory through a bend.
 export function osmTrafficPreview(plan,traffic){
+  plan=traffic.network??plan;
   const arrows=[],activeRoads=[];
   for(const [index,road]of plan.roads.entries()){
     const lane=traffic.roads[index],chain=[plan.crossings[road.from].position,...road.positions,plan.crossings[road.to].position];
