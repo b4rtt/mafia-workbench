@@ -335,3 +335,19 @@ Regrese skutečné Prahy (`city-ambient-continuous-v3`) ponechala 28 ze 43 směr
 Sedm veřejných regresí ověřuje okruh s příjezdy, rekurzivní jednosměrné pasti, odpojené komponenty, paralelní návratové silnice, pořadí a neměnnost vstupu, přesné nativní body/legacy bajty, prázdnou síť, validaci i vyloučení falešného zpomalení odbočky. Cíleně 26/26, check/build prošly. Běh celé sady (815 testů před poslední doplněnou regresí zatáček) má jen známý baseline textový regex `mission-dialogue.test.js:27`. Skutečný Electron formulář ověřil výchozí filtr, odmítnutí samotné ulice a přepnutí, export/reopen/reimport, v1/v2 bez migrace, explicitní aktualizace, uložené false, konflikty bez zápisu a undo; konzole bez chyb. Snímek rozhraní byl vizuálně zkontrolován.
 
 Všechny tři vlastní nativní běhy byly ukončené, historie klonu obnovená na 38 a původní EXE i oba chráněné projekty hashově stejné. Soukromé důkazy jsou v `local/osm-provider-vQHlcF` pod uvedenými prefixy a v `local/osm-speed-ui-jkZzc7/continuity-v3-result.json`. Žádná herní data se nepublikují. Celkový goal editoru a města zůstává aktivní.
+
+### Oddělení krátkých návazností, objektů a výšek (17. října 2026)
+
+Tři další izolované běhy použily produkční import v3 s filtrem slepých směrů, rodinu Airflow a cílové rychlosti 30/15 km/h. Každý má 36 checkpointů, atomické polohy jednoho drženého viditelného aktéra a porovnání středu i obdélníkové obálky skutečného modelu s vozovkou. Nejde o souvislé sledování všech vozidel ani o přesný fyzikální collider.
+
+| Běh | Síť a vrstvy | Viditelné vzorky | Součet úseků XZ | Středy / obálky mimo vozovku |
+| --- | --- | ---: | ---: | ---: |
+| `junction-short-transition-v3` | Malý rovinný okruh; přechod jednosměrky do obousměrné, čtyři větve a další průběžná křižovatka po přibližně 6,6 m | 210 | 593,48 m | 0 / 0 |
+| `city-skeleton-continuous-v3` | Skutečná Praha 300 m a EU-DEM; pouze povrchy, terén a automobilový provoz | 204 | 128,69 m | 26 / 37 |
+| `city-flat-skeleton-continuous-v3` | Stejné OSM ulice bez výšek, zástavby, zeleně, rekvizit, chodců a zvuků | 167 | 301,45 m | 16 / 94 |
+
+Malý okruh zachovává přibližné místní XZ polohy návaznosti u 102/46 a 102/40, ale není přesnou kopií všech pražských úseků a větví. Jeho úspěch nedokládá opravu původní zatáčky; samotný krátký rozestup v této zjednodušené konfiguraci chybu nezopakoval. Zachováno 8 z 12 ambientních směrů. Skutečné sítě obě ponechaly 28 ze 43 směrů; varianta s DEM měla 702 jízdních bodů, rovinná 491, protože podklad doplňuje výškové vzorky. Nejsou tedy byteově totožné.
+
+Na holé síti s DEM první zachycený výjezd nastal v čase 21 335 ms u XZ≈122,87/−75,60 poblíž křižovatky OSM n25685548. Na rovině nastal v čase 30 370 ms u ≈96,25/−45,76 poblíž n25685546. Náhodný ambientní provoz zvolil odlišné trasy; nelze tyto běhy vydávat za párové měření stejného odbočení ani určit účinek odstraněné vrstvy. Prokazují však, že k výjezdu v tomto výřezu stačí samotná jízdní síť a vozovka bez zástavby či výšek. Další izolace se má soustředit na skutečné těsné zatáčky a návaznost bočních jízdních poloh, nikoli plošně měnit DEM nebo odstraňovat objekty města.
+
+Ve všech bězích bylo zdraví hráče stále 100, vlastní Wine bylo ukončené, klon vrácený na historii 38 a původní EXE i oba chráněné projekty hashově stejné. Připravené road/check/KLZ byly shodné s příslušným projektem. Snímky tyto běhy nedoložily; závěry jsou z checkpointů. Soukromé výsledky a skripty zůstávají v `local/osm-provider-vQHlcF` a `local/probe-osm-*.mjs`, bez publikace herních dat. Produkční kód se v této etapě neměnil. Cílená sada kontroly názvu, mise a dopravy prošla 29/29. Celkový goal zůstává aktivní; spolehlivý průjezd všech zatáček není dokončený.
