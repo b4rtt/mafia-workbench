@@ -1,6 +1,7 @@
 const fail=message=>{throw Error('OpenStreetMap · doprava: '+message);};
 export function validateOsmTraffic(options){
   if(!options||options.version!==1||!Number.isInteger(options.density)||options.density<1||options.density>100||!/^[a-f0-9]{64}$/.test(options.tableHash??'')||!Array.isArray(options.models)||!options.models.length||options.models.length>32||new Set(options.models.map(m=>m?.path?.toLowerCase())).size!==options.models.length||options.models.some(m=>typeof m?.path!=='string'||!/^models\/[a-zA-Z0-9_ -]+10\.4ds$/i.test(m.path)||typeof m.table!=='string'||!/^[a-zA-Z0-9_ -]{1,19}$/.test(m.table)||!/^[a-f0-9]{64}$/.test(m.sha256??'')||!Number.isFinite(m.width)||m.width<.5||m.width>5))fail('načtěte katalog aut a vyberte 1–32 rodin; hustota je 1–100.');
+  if(options.speedKmh!==undefined&&(!Number.isFinite(options.speedKmh)||options.speedKmh<1||options.speedKmh>50))fail('rychlost musí být 1–50 km/h.');
 }
 // One native traffic lane per permitted direction. Keep the legacy network
 // byte-exact when this explicit, versioned feature is absent.
@@ -19,5 +20,5 @@ export function osmTrafficPlan(plan,surface,options){
     return {index,way:road.way,width,positions,forward:road.forward,reverse:road.reverse,forwardLanes:lanes(),reverseLanes:lanes()};
   });
   if(roads.reduce((n,r)=>n+r.positions.length,0)>4096)fail('síť potřebuje více než 4096 jízdních bodů; zmenšete oblast nebo výběr ulic.');
-  return {density:options.density,clearance,roads,models:options.models.map(m=>m.table)};
+  return {density:options.density,...(options.speedKmh===undefined?{}:{speed:options.speedKmh/3.6}),clearance,roads,models:options.models.map(m=>m.table)};
 }

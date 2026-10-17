@@ -33,9 +33,10 @@ import {loadOsmShellStyles} from './building-shell-assets.js';
 import {osmGreenPlan,osmGreenModel,osmGreenReservation} from './green-areas.js';
 import {loadOsmGreenTextures} from './green-assets.js';
 export function osmRoadBytes(plan,traffic=null){
+  const speed=traffic?.speed??1.2;
   let data=Buffer.alloc(12);data.writeUInt32LE(2);
-  for(const crossing of plan.crossings)data=changeRoadTopology(data,{action:'create-crossing',position:crossing.position,speed:1.2,semaphore:0}).data;
-  for(const [index,road]of plan.roads.entries())data=changeRoadTopology(data,{action:'connect',from:road.from,to:road.to,positions:traffic?.roads[index].positions??road.positions,speed:1.2,forwardEnabled:road.forward,reverseEnabled:road.reverse,...(traffic?{forwardLanes:traffic.roads[index].forwardLanes,reverseLanes:traffic.roads[index].reverseLanes}:{})}).data;
+  for(const crossing of plan.crossings)data=changeRoadTopology(data,{action:'create-crossing',position:crossing.position,speed,semaphore:0}).data;
+  for(const [index,road]of plan.roads.entries())data=changeRoadTopology(data,{action:'connect',from:road.from,to:road.to,positions:traffic?.roads[index].positions??road.positions,speed,forwardEnabled:road.forward,reverseEnabled:road.reverse,...(traffic?{forwardLanes:traffic.roads[index].forwardLanes,reverseLanes:traffic.roads[index].reverseLanes}:{})}).data;
   const file=parseRoads(data);if(file.warnings.length)throw Error('OpenStreetMap: síť se nepodařilo nativně sestavit.');return data;
 }
 export async function createOsmMission(project,zip,data,area,selected,options){
