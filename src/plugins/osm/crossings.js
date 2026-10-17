@@ -62,7 +62,7 @@ export function osmCrossingPlan(source,roads,surface,props=null){
     if(Math.min(c.at,c.length-c.at)<extent){skip('Přechod je příliš blízko konce ulice, hranice nebo křižovatky.');continue;}
     // Reject another street near the corridor even when its pavement union
     // happens to cover a landing: do not invent a junction-wide shortcut.
-    if(chains.some((other,i)=>!joined.has(i)&&nearest(other,p).distance<extent+surface.profiles[i].width/2+Math.max(profile.left,profile.right))){skip('Přechod zasahuje do blízké další ulice.');continue;}
+    if(chains.some((other,i)=>!joined.has(i)&&nearest(other,p).distance<extent+surface.profiles[i].width/2+Math.max(surface.profiles[i].left,surface.profiles[i].right))){skip('Přechod zasahuje do blízké další ulice.');continue;}
     const across=[-direction[1],direction[0]],vertex=(d,w)=>[p[0]+direction[0]*d+across[0]*w,p[1]+direction[1]*d+across[1]*w],ring=[vertex(-right,-width/2),vertex(left,-width/2),vertex(left,width/2),vertex(-right,width/2)];ring.push(ring[0]);
     const strip=[[ring]],polygons=clipping.intersection(strip,ground);
     const landing=(sign,w)=>{const d=sign*(profile.width/2+w/2)/cosine,q=vertex(d,0);return [[Array.from({length:24},(_,i)=>[q[0]+.41*Math.cos(i*Math.PI/12),q[1]+.41*Math.sin(i*Math.PI/12)])]];};

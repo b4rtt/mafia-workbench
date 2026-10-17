@@ -62,6 +62,14 @@ test('missing landings, tall curbs, bends, junctions and blockers never get a ro
 test('crossings and park paths combine without counting road nodes as park paving',()=>{
   const f=fixture({park:true}),green=osmGreenPlan(f.source,f.surface,{...osmGreenDefaults,selected:[104]}),p=osmPedestrianPlan(f.source,f.roads,f.surface,null,green,{crossings:true});assert.equal(p.components,1);assert(p.parkPoints>5);assert.equal(p.parkPoints,p.positions.filter(v=>v[2]>5&&v[1]===Math.fround(.03)).length);assert.equal(p.crossings.placements.length,1);
 });
+test('nearby street exclusion uses that street’s pavement profile in either road order',()=>{
+  for(const[own,other,separation,accepted]of[[1,5,8,false],[1,5,12,true],[5,.5,8,true]])for(const selected of[[101,102],[102,101]]){
+    const node=(id,x,z,tags)=>({type:'node',id,lat:50+z/6371008.8*180/Math.PI,lon:14+x/6371008.8*180/Math.PI/Math.cos(50*Math.PI/180),...(tags?{tags}:{})}),source=osmSource({elements:[node(1,-110,0),node(2,0,0,{highway:'crossing',crossing:'uncontrolled'}),node(3,110,0),node(4,-110,separation),node(5,110,separation),{type:'way',id:101,nodes:[1,2,3],tags:{highway:'residential'}},{type:'way',id:102,nodes:[4,5],tags:{highway:'residential',width:'2','sidewalk:both:width':String(other)}}]},area),roads=osmRoadPlan(source,selected),surface=osmSurfaceModel(roads,area,{...osmSurfaceDefaults,sidewalkWidth:own,useOsmTags:true}),plan=osmCrossingPlan(source,roads,surface);
+    assert.equal(plan.placements.length,accepted?1:0,JSON.stringify({own,other,separation,selected}));assert.equal(plan.skipped.length,accepted?0:1);
+    if(!accepted)assert.match(plan.skipped[0].reason,/blízké další ulice/);
+    else{const[a,b]=plan.placements[0].landings;for(let i=0;i<=20;i++)assert.notEqual(floor(surface.model,a[0]+(b[0]-a[0])*i/20,a[1]+(b[1]-a[1])*i/20),null,'accepted crossing has continuous actual ground');}
+  }
+});
 test('the option validates as a boolean and disabled imports keep legacy navigation bytes',()=>{
   const f=fixture({surfaceOptions:{curbHeight:.4}}),old=osmPedestrianPlan(f.source,f.roads,f.surface),off=osmPedestrianPlan(f.source,f.roads,f.surface,null,null,{crossings:false});assert.deepEqual(off,old);assert(!Object.hasOwn(off,'crossings'));assert.equal(createHash('sha256').update(osmPedestrianBytes(old)).digest('hex'),createHash('sha256').update(osmPedestrianBytes(off)).digest('hex'));
   const settings={version:1,density:30,capacity:3,models:[{path:'models/civil13.4ds',model:'civil13.i3d',sha256:'a'.repeat(64)}]};for(const crossings of [true,false])validateOsmPedestrians({...settings,crossings});for(const crossings of [null,1,'yes'])assert.throws(()=>validateOsmPedestrians({...settings,crossings}),/chodci/);
