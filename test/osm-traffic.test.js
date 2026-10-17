@@ -26,7 +26,7 @@ test('one-way cars use the street center and reversed ways retain only the permi
 });
 test('narrow streets, missing surfaces and stale/ambiguous traffic settings reject before compilation',()=>{
   const p=plan(),sf=surface(p);sf.profiles[0].width=4;assert.throws(()=>osmTrafficPlan(p,sf,options()),/alespoň 4.80/);assert.throws(()=>osmTrafficPlan(p,null,options()),/povrchy/);
-  for(const patch of [{version:2},{density:0},{density:1.5},{density:101},{tableHash:'stale'},{models:[]},{models:Array(33).fill(options().models[0])},{models:[options().models[0],options().models[0]]},{models:[{...options().models[0],path:'models/../taxi10.4ds'}]},{models:[{...options().models[0],width:NaN}]}])assert.throws(()=>validateOsmTraffic({...options(),...patch}),/doprava/);
+  for(const patch of [{version:3},{version:'2'},{density:0},{density:1.5},{density:101},{tableHash:'stale'},{models:[]},{models:Array(33).fill(options().models[0])},{models:[options().models[0],options().models[0]]},{models:[{...options().models[0],path:'models/../taxi10.4ds'}]},{models:[{...options().models[0],width:NaN}]}])assert.throws(()=>validateOsmTraffic({...options(),...patch}),/doprava/);
 });
 test('omitting traffic preserves the existing default road bytes and lane offsets',()=>{
   const p=plan();assert.deepEqual(osmRoadBytes(p),osmRoadBytes(p,null));assert.equal(hash(osmRoadBytes(p)),'31c5c111122e68be8e171382c9f1ca30da65c80f21d6dcf3974b4f215fb620fe');const native=parseRoads(osmRoadBytes(p));assert(native.crossings.flatMap(c=>c.directions).filter(d=>d.target!==65535).every(d=>d.lanes[0].distance===1.5));
@@ -46,6 +46,15 @@ test('saved traffic without a speed retains its derived plan shape and native by
   assert(!Object.hasOwn(t,'speed'));assert.equal(hash(bytes),'a6e889c1d6d87f74d159c44bd11efe8ab36af2ec1d062296b139945e10bead72');
   assert.deepEqual(bytes,osmRoadBytes(p,osmTrafficPlan(p,sf,{...options(),speedKmh:4.32})));
   assert([...parseRoads(bytes).crossings,...parseRoads(bytes).nodes].every(v=>v.speed===Math.fround(1.2)));
+});
+test('traffic v2 uses the native half-distance rule to center cars in each permitted direction',()=>{
+  for(const oneway of [undefined,'yes','-1'])for(const width of [4.8,8,12]){
+    const p=plan(oneway?{oneway}:{}),sf=osmSurfaceModel(p,area,{...osmSurfaceDefaults,width}),o={...options(),version:2,speedKmh:30},before=structuredClone({p,sf,o}),t=osmTrafficPlan(p,sf,o),native=parseRoads(osmRoadBytes(p,t)),active=native.crossings.flatMap(c=>c.directions).filter(d=>d.target!==65535),offset=oneway?0:width/4;
+    assert.equal(active.length,oneway?1:2);
+    for(const direction of active){assert.equal(direction.lanes[0].type,2);assert.equal(direction.lanes[0].distance/2,Math.fround(offset));assert(direction.lanes.slice(1).every(l=>l.type===0&&l.distance===0));assert(offset+o.models[0].width/2<=width/2);}
+    assert.deepEqual({p,sf,o},before);assert.deepEqual(osmTrafficPlan(p,sf,JSON.parse(JSON.stringify(o))),t);
+    assert.deepEqual(native.warnings,[]);
+  }
 });
 function table(){const b=Buffer.alloc(8+4+36+4+1);b.writeUInt32LE(1);b.writeUInt32LE(1,4);b.writeUInt32LE(b.length-12,8);b.write('taxi',12);b.writeUInt32LE(1,44);b.writeUInt32LE(1,48);return b;}
 function model(){const identity={position:[0,0,0],rotation:[1,0,0,0],scale:[1,1,1]},mesh=name=>({...identity,name,type:1,visual:0,parent:0,renderFlags:0,logicFlags:0,culling:1,lods:[{distance:0,vertices:3,positions:[-1,0,-2,1,0,2,0,2,0],normals:[0,1,0,0,1,0,0,1,0],uv:[0,0,1,1,0,1],faces:[{material:1,indices:[0,1,2]}]}]});return writeSurfaceModel({version:29,materials:[{flags:0,ambient:[1,1,1],diffuse:[1,1,1],emission:[0,0,0],opacity:1,texture:'car.bmp'}],meshes:['BODY','SEAT0','WHL0','WHR0','WHL1','WHR1','BODYCOLB0'].map(mesh)});}

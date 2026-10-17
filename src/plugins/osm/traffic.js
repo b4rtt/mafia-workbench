@@ -1,6 +1,6 @@
 const fail=message=>{throw Error('OpenStreetMap · doprava: '+message);};
 export function validateOsmTraffic(options){
-  if(!options||options.version!==1||!Number.isInteger(options.density)||options.density<1||options.density>100||!/^[a-f0-9]{64}$/.test(options.tableHash??'')||!Array.isArray(options.models)||!options.models.length||options.models.length>32||new Set(options.models.map(m=>m?.path?.toLowerCase())).size!==options.models.length||options.models.some(m=>typeof m?.path!=='string'||!/^models\/[a-zA-Z0-9_ -]+10\.4ds$/i.test(m.path)||typeof m.table!=='string'||!/^[a-zA-Z0-9_ -]{1,19}$/.test(m.table)||!/^[a-f0-9]{64}$/.test(m.sha256??'')||!Number.isFinite(m.width)||m.width<.5||m.width>5))fail('načtěte katalog aut a vyberte 1–32 rodin; hustota je 1–100.');
+  if(!options||![1,2].includes(options.version)||!Number.isInteger(options.density)||options.density<1||options.density>100||!/^[a-f0-9]{64}$/.test(options.tableHash??'')||!Array.isArray(options.models)||!options.models.length||options.models.length>32||new Set(options.models.map(m=>m?.path?.toLowerCase())).size!==options.models.length||options.models.some(m=>typeof m?.path!=='string'||!/^models\/[a-zA-Z0-9_ -]+10\.4ds$/i.test(m.path)||typeof m.table!=='string'||!/^[a-zA-Z0-9_ -]{1,19}$/.test(m.table)||!/^[a-f0-9]{64}$/.test(m.sha256??'')||!Number.isFinite(m.width)||m.width<.5||m.width>5))fail('načtěte katalog aut a vyberte 1–32 rodin; hustota je 1–100.');
   if(options.speedKmh!==undefined&&(!Number.isFinite(options.speedKmh)||options.speedKmh<1||options.speedKmh>50))fail('rychlost musí být 1–50 km/h.');
 }
 // One native traffic lane per permitted direction. Keep the legacy network
@@ -12,7 +12,9 @@ export function osmTrafficPlan(plan,surface,options){
   const roads=plan.roads.map((road,index)=>{
     const width=surface.profiles[index]?.width,both=road.forward&&road.reverse;if(!Number.isFinite(width)||width<=0)fail('neplatný profil vozovky.');
     if(width<(both?2:1)*clearance)fail(`ulice ${road.tags.name??road.way} má ${width.toFixed(2)} m; vybraná auta potřebují alespoň ${((both?2:1)*clearance).toFixed(2)} m. Změňte výběr aut/ulic nebo profil vozovky.`);
-    const distance=both?width/4:0,lanes=()=>[{type:2,distance},...Array.from({length:3},()=>({type:0,distance:0}))];
+    // The engine places the first lane at half its stored distance. Version 1
+    // treated that field as a centre offset; retain its bytes on saved imports.
+    const distance=both?width/(options.version===2?2:4):0,lanes=()=>[{type:2,distance},...Array.from({length:3},()=>({type:0,distance:0}))];
     // The engine smooths sparse road nodes and can cut far across an OSM bend.
     // Retain every mapped point and bound interpolation spans to two metres.
     const chain=[plan.crossings[road.from].position,...road.positions,plan.crossings[road.to].position],positions=[];
