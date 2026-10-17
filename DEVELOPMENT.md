@@ -2,6 +2,14 @@
 
 Aktualizace: 17. října 2026. Vývoj pokračuje; komplexní editor není dokončený. Implementace, datové testy, ověření UI a ověření ve hře jsou různé úrovně dokončení; neoznačovat jednu za druhou. Podrobnosti existujících funkcí a jejich omezení jsou v README.md a research/formats.md. Původní hra se nemění, úpravy mají kontrolu verze, zálohu, export a undo. Herní data a soukromé reference nepatří do veřejného repozitáře.
 
+## Praha se skutečným DEM v původním enginu (2026-10-17)
+
+- Produkční import skutečného výřezu 200 m se všemi vrstvami se načetl v izolované GOG/Wine kopii. Tři čerstvé checkpointy v 8 917 / 23 943 / 38 962 ms, šest paprsků na vozovky odpovídá plánovanému povrchu do 0,006 mm. Road/check/KLZ připravené hry jsou hashově stejné jako projekt. Jde o numerickou shodu s použitým DEM, nikoli jeho geodetickou přesnost.
+- Oba generovaní chodci změnili pozici o 15,06 m a 2,33 m; první sestoupil o 0,653 m. Šest uložených poloh odpovídá místní pěší ploše 3 cm nad terénem s odchylkou nejvýše 0,42 mm. Tento vzorek neověřuje všechny větve sítě ani ruční hráčský průchod.
+- Automobil byl vidět už při původní hustotě 10. Samostatný kontrolní běh s hustotou 100 zachytil jeho jízdu po vozovce v nezměněném záběru v 9,38 / 14,70 / 19,97 / 25,24 s. Skriptové `findnearactor Car` vracelo prázdný registr, takže číselná poloha auta změřená není; průjezd všech křižovatek, kontakt kol a hustý souvislý provoz zůstávají neověřené. Žádný diagnostický program se nepřenáší do uživatelské mise.
+- Vlastní Wine ukončené, testovací historie vrácená přes undo, původní Game.exe a oba chráněné projekty hashově zachované. Místní důkazy jsou v local/osm-provider-vQHlcF, city-native-result.json / city-traffic-result.json, checkpointy a snímky. Celá veřejná sada 793/794, pouze dříve známý textový regex mission-dialogue.test.js:27; check/build prošly. Produkční kód se při tomto ověření neměnil.
+- Další práce: souvislý průchod a průjezd oblastí, návaznost městských vrstev a ruční opravitelnost výsledku. Dosavadní limit pěší sítě stále odmítá tento konkrétní výřez 300 m; nezvětšovat limit bez ověření enginu. Celý editor/generátor zůstává aktivní goal.
+
 ## Stažení výšek pro OSM (2026-10-17)
 
 - Dialog nyní nabízí Terrain Tiles EU-DEM, původní PNG cache a výslovné přepnutí do roviny. Sdílený rastr stále používají všechny vrstvy; změna textury/UV vyžaduje nové sestavení z cache. Export uchovává atribuci, jednotlivé otisky a skutečné datum stažení oddělené od stáří dlaždice.
