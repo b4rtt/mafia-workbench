@@ -56,6 +56,7 @@ import { toLs3dRotation } from './transforms.js';
 import { renderSegments } from './segments.js';
 import { NavigationViewport } from './navigation.js';
 import { navigationRouteControls } from './navigation-route.js';
+import { loadMissionGeometry } from './mission-geometry.js';
 import { TrackViewport, companionAnimation } from './track.js';
 import { CutsceneViewport, CutsceneAudio, activeCutsceneAudio } from './cutscene.js';
 import { Group } from 'three';
@@ -680,25 +681,27 @@ function renderNavigation(main, file, previous) {
   navigationRouteControls(center,tools,view,file,previous?.route);
   jump.onclick = () => { const index = Number(number.value); if (number.value !== '' && Number.isInteger(index) && index>=0 && index<file.points.length) view.select(String(index)); else status('Číslo bodu je mimo rozsah.',true); };
   fit.onclick = () => view.fit(view.markers); focus.onclick = () => { if (view.selectedPoint !== null) view.fit(view.proxy); };
+  const geometryStatus = element('p', undefined, 'view-status'); geometryStatus.hidden = true; center.insertBefore(geometryStatus,viewport);
   let geometry, geometryLoading;
   async function toggleGeometry() {
     view.navigationGeometryWanted = !view.navigationGeometryWanted;
     background.textContent = view.navigationGeometryWanted ? 'Skrýt geometrii mise' : 'Zobrazit geometrii mise';
-    if (geometry) { geometry.visible = view.navigationGeometryWanted; return; }
+    geometryStatus.hidden = !view.navigationGeometryWanted;
+    if (geometry) { geometry.group.visible = view.navigationGeometryWanted; return; }
     if (!view.navigationGeometryWanted) return;
-    if (!geometryLoading) geometryLoading = (async () => {
-      const model = await api.inspect(file.path.replace(/check\.bin$/i,'scene.4ds'));
-      if (state.file !== file || view.disposed) return;
-      if (model.type !== 'model') throw new Error(model.warning ?? 'Geometrii mise zatím nelze načíst.');
-      geometry = new Group(); geometry.visible=false; view.root.add(geometry);
-      for (const object of view.addModel(model,geometry,'nav-context/').values()) object.userData.frame.editable = false;
-      geometry.traverse(object=>{object.raycast=()=>{};});
-      await view.loadTextures(async texture=>{const path=texture.replaceAll('\\','/').toLowerCase(),asset=state.project.assets.find(a=>a.path.toLowerCase()===`maps/${path}`||a.path.toLowerCase()===path);return asset?api.media(asset.path):null;});
-      if (state.file === file && !view.disposed) geometry.visible=view.navigationGeometryWanted;
-    })();
-    try { await geometryLoading; }
-    catch (error) { view.navigationGeometryWanted=false; background.textContent='Zobrazit geometrii mise'; throw error; }
-    finally { geometryLoading=null; }
+    background.disabled = true; geometryStatus.textContent = 'Načítám geometrii a vložené modely mise…';
+    if (!geometryLoading) geometryLoading = loadMissionGeometry(view,file.path,{assets:state.project.assets,api,active:()=>state.file===file});
+    try {
+      geometry = await geometryLoading;
+      if (geometry && !view.disposed && state.file===file) {
+        geometry.group.visible=view.navigationGeometryWanted; view.navigationGeometry=geometry.group;
+        geometryStatus.textContent=`Statický kontext: geometrie + ${geometry.modelCount} vložených modelů${geometry.warnings.length?` · ${geometry.warnings.length} upozornění: ${geometry.warnings[0]}`:''}.`;
+        geometryStatus.title=['scene.4ds a dostupné modely scene2.bin. Bez animací, skriptů a streamovaných modelů cache.bin.',...geometry.warnings].join('\n');
+        status('Geometrie mise načtena.');
+      }
+    }
+    catch (error) { view.navigationGeometryWanted=false; geometryStatus.hidden=true; background.textContent='Zobrazit geometrii mise'; throw error; }
+    finally { geometryLoading=null; background.disabled=false; }
   }
   background.onclick = () => run(toggleGeometry);
   if (previous?.geometry) toggleGeometry().catch(error=>status(error.message,true));
