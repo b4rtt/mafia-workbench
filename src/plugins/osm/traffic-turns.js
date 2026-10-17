@@ -12,9 +12,9 @@ function simplified(chain){
 function fillet(A,B,u,v,radius){
   const den=cross(u,v),angle=Math.acos(Math.max(-1,Math.min(1,u[0]*v[0]+u[2]*v[2])));
   if(angle>Math.PI-.01)fail('obrat o 180° nelze zaoblit.');
-  if(angle<1e-5){if(gap(A,B)>.001)fail('přímé pokračování mění boční polohu pruhu.');return {incoming:0,outgoing:0,points:[A]};}
+  if(angle<1e-5){if(gap(A,B)>.001)fail('přímé pokračování mění boční polohu pruhu.');return {incoming:0,outgoing:0,angle,points:[A]};}
   const difference=B.map((n,k)=>n-A[k]),t=cross(difference,v)/den,s=cross(difference,u)/den,p=A.map((n,k)=>n+u[k]*t),inset=radius*Math.tan(angle/2),start=p.map((n,k)=>n-u[k]*inset),end=p.map((n,k)=>n+v[k]*inset),sign=Math.sign(den),centre=[start[0]-sign*u[2]*radius,0,start[2]+sign*u[0]*radius],theta=Math.atan2(start[2]-centre[2],start[0]-centre[0]),count=Math.max(2,Math.ceil(angle*radius/.5));
-  return {incoming:inset-t,outgoing:inset+s,points:Array.from({length:count+1},(_,j)=>j===0?start:j===count?end:[centre[0]+radius*Math.cos(theta+sign*angle*j/count),0,centre[2]+radius*Math.sin(theta+sign*angle*j/count)])};
+  return {incoming:inset-t,outgoing:inset+s,angle,points:Array.from({length:count+1},(_,j)=>j===0?start:j===count?end:[centre[0]+radius*Math.cos(theta+sign*angle*j/count),0,centre[2]+radius*Math.sin(theta+sign*angle*j/count)])};
 }
 // Separate directional axes and explicit tangent connectors. This edits only
 // native navigation; the mapped street surface is never enlarged to fit it.
@@ -41,18 +41,21 @@ export function osmTrafficTurns(plan,surface,traffic,radius,envelopes){
     turns.push({a,b,...f,crossing:i});a.insetEnd=Math.max(a.insetEnd,f.incoming);b.insetStart=Math.max(b.insetStart,f.outgoing);
   }
   const port=p=>{crossings.push({id:'traffic-port-'+crossings.length,position:p.map(Math.fround)});return crossings.length-1;};
-  const connect=(from,to,points,source,ambient,kind)=>{
+  const connect=(from,to,points,source,ambient,kind,curves)=>{
     const chain=[crossings[from].position,...points.map(p=>p.map(Math.fround)),crossings[to].position].filter((p,i,all)=>!i||gap(p,all[i-1])>.001),positions=[];
     for(let j=1;j<chain.length;j++){const a=chain[j-1],b=chain[j],steps=Math.ceil(gap(a,b)/2);for(let n=1;n<=steps;n++)if(j<chain.length-1||n<steps)positions.push(mix(a,b,n/steps).map(Math.fround));}
     if(!positions.length)positions.push(mix(chain[0],chain.at(-1),.5).map(Math.fround));
-    roads.push({from,to,positions,forward:true,reverse:false,way:source.way,tags:source.tags,sourceRoad:source.road,sourceReverse:source.reverse,ambient,kind});
+    // Keep the original turn span: local angles on a sampled wide arc can all
+    // fall below 30 degrees, even though the complete mapped turn is sharp.
+    const cornerPaths=curves.filter(f=>f.angle>=Math.PI/6-1e-8).map(f=>f.points.map(p=>p.map(Math.fround)));
+    roads.push({from,to,positions,forward:true,reverse:false,way:source.way,tags:source.tags,sourceRoad:source.road,sourceReverse:source.reverse,ambient,kind,cornerPaths});
   };
   for(const a of chains){
     const lengths=a.offset.slice(1).map((p,i)=>gap(a.offset[i],p));a.curves[0].outgoing=a.insetStart;a.curves.at(-1).incoming=a.insetEnd;
     if(lengths.some((length,i)=>a.curves[i].outgoing+a.curves[i+1].incoming>=length-.01))fail(`poloměr ${radius} m se nevejde mezi ohyby ulice ${a.tags.name??a.way}. Zmenšete poloměr nebo upravte výběr ulic.`);
-    const start=mix(a.offset[0],a.offset[1],a.insetStart/lengths[0]),end=mix(a.offset.at(-1),a.offset.at(-2),a.insetEnd/lengths.at(-1));a.start=port(start);a.end=port(end);connect(a.start,a.end,a.curves.slice(1,-1).flatMap(f=>f.points),a,a.ambient,'street');
+    const curves=a.curves.slice(1,-1),start=mix(a.offset[0],a.offset[1],a.insetStart/lengths[0]),end=mix(a.offset.at(-1),a.offset.at(-2),a.insetEnd/lengths.at(-1));a.start=port(start);a.end=port(end);connect(a.start,a.end,curves.flatMap(f=>f.points),a,a.ambient,'street',curves);
   }
-  for(const t of turns)connect(t.a.end,t.b.start,t.points,t.a,t.a.ambient&&t.b.ambient,'turn');
+  for(const t of turns)connect(t.a.end,t.b.start,t.points,t.a,t.a.ambient&&t.b.ambient,'turn',[t]);
   if(crossings.length>1024||roads.reduce((n,r)=>n+r.positions.length,0)>4096)fail('oblouky překračují limit 1024 křižovatek nebo 4096 jízdních bodů; zmenšete výběr.');
   const degree=new Uint8Array(crossings.length);for(const r of roads){degree[r.from]++;degree[r.to]++;}if(degree.some(n=>n>4))fail('vzniklo napojení s více než čtyřmi výjezdy.');
   let poses=0;for(const r of roads)if(r.ambient){

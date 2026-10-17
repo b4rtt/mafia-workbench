@@ -54,3 +54,23 @@ test('reversed one-way streets keep the original permitted order and transform u
   const p=square();for(const r of p.roads){r.forward=false;r.reverse=true;}for(const c of p.crossings)c.position=[-c.position[2]+10,0,c.position[0]-15];for(const r of p.roads)r.positions=[p.crossings[r.from].position.map((v,i)=>(v+p.crossings[r.to].position[i])/2)];
   const t=osmTrafficPlan(p,surface(p,8,4),options);assert.equal(t.turns.axes,4);assert.equal(t.turns.connectors,4);assert(t.network.roads.filter(r=>r.kind==='street').every(r=>r.sourceReverse));assert.deepEqual(parseRoads(osmRoadBytes(p,t)).warnings,[]);
 });
+
+test('wide tangent turns retain their full corner cap in native data and one preview marker per turn',()=>{
+  const p=square(150),s=surface(p,16,6),o={...options,turnRadius:12},t=osmTrafficPlan(p,s,o),n=parseRoads(osmRoadBytes(p,t)),cap=15/3.6,cruise=30/3.6;
+  assert.equal(t.cornering.sites,8);assert.equal(osmTrafficPreview(p,t).corners.length,8);assert(t.roads.some(r=>r.nodeSpeeds.some(v=>v===cruise)));assert.deepEqual(n.warnings,[]);
+  for(const [i,r]of t.network.roads.entries())if(r.kind==='turn'){
+    assert.equal(r.cornerPaths.length,1);assert(t.roads[i].nodeSpeeds.every(v=>v===cap));
+    const link=roadConnections(n,r.from).find(l=>l.target===r.to);assert(link.nodes.every(ref=>n.nodes[ref&32767].speed===Math.fround(cap)));
+  }
+  const free=osmTrafficPlan(p,s,{...o,cornerSpeedKmh:undefined}),unlimited=parseRoads(osmRoadBytes(p,free));assert.equal(free.cornering,undefined);assert(unlimited.nodes.every(v=>v.speed===Math.fround(cruise)));assert.equal(osmTrafficPreview(p,free).corners.length,8);assert.deepEqual(free.network,t.network);
+  const excluded=osmTrafficPlan(p,s,{...o,continuous:false,excludedWays:[101]});assert.equal(excluded.cornering.sites,4);assert.equal(osmTrafficPreview(p,excluded).corners.length,4);for(const [i,r]of excluded.network.roads.entries())if(!r.ambient)assert(excluded.roads[i].nodeSpeeds.every(v=>v===cruise));
+  assert.deepEqual(osmRoadBytes(p,osmTrafficPlan(p,s,JSON.parse(JSON.stringify(o)))),osmRoadBytes(p,t));
+});
+
+test('rounded internal bends preserve their speed span without treating a gentle bend as a sharp turn',()=>{
+  const p=square(150);p.roads.forEach(r=>r.reverse=false);p.roads[0].positions=[[0,0,-45]];p.roads[2].positions=[[0,0,70]];
+  const t=osmTrafficPlan(p,surface(p,20,6),{...options,turnRadius:12}),cap=15/3.6,street=t.network.roads.find(r=>r.kind==='street'&&r.sourceRoad===0),gentle=t.network.roads.find(r=>r.kind==='street'&&r.sourceRoad===2),index=t.network.roads.indexOf(street);
+  assert.equal(street.cornerPaths.length,1);assert.equal(gentle.cornerPaths.length,0);
+  for(const point of street.cornerPaths[0]){const at=t.roads[index].positions.findIndex(p=>p.every((v,i)=>v===point[i]));assert(at>=0);assert.equal(t.roads[index].nodeSpeeds[at],cap);}
+  assert.equal(t.cornering.sites,5);assert.equal(osmTrafficPreview(p,t).corners.length,5);
+});
