@@ -6,6 +6,7 @@ import {osmSurfaceDefaults,osmSurfaceModel} from './surface.js';
 import {osmRoofPlan,osmRaisedRoof,validateOsmRoofOptions} from './building-roofs.js';
 import {osmBuildingSupport,osmBuildingFoundation} from './building-terrain.js';
 import {validateOsmFacade,osmFacadePanels,osmFacadeTileSize,osmFacadeRing} from './building-facades.js';
+import {validateOsmBuildingMatching,osmBuildingMatch} from './building-selection.js';
 
 // Recipes reference the user's original BMPs. No game pixels are distributed.
 // Tile sizes follow the source facade UVs, in native metres. Roof and trim
@@ -29,6 +30,7 @@ function settings(options){
   if(!options||options.version!==1||options.mode!=='footprint'||!Array.isArray(options.selected)||options.selected.length>128||new Set(options.selected).size!==options.selected.length||options.selected.some(id=>!idValid(id))||!Array.isArray(options.styles)||!options.styles.length||options.styles.length>osmShellStyles.length||new Set(options.styles.map(s=>s?.id)).size!==options.styles.length||options.styles.some(s=>!osmShellStyles.some(r=>r.id===s?.id))||!Number.isFinite(options.fallbackHeight)||options.fallbackHeight<5||options.fallbackHeight>60||!Number.isFinite(options.ground)||Math.abs(options.ground)>5)fail('neplatné nastavení nebo výběr.');
   validateOsmRoofOptions(options.roof);
   validateOsmFacade(options.facade);
+  validateOsmBuildingMatching(options.matching);
 }
 // Exterior shell only. Courtyard walls and roof holes remain explicit.
 export function osmShellModel(item){
@@ -72,21 +74,25 @@ export function osmShellModel(item){
   if(item.support){const foundation=osmBuildingFoundation(item.support,item.position);result.materials.push(...foundation.materials);result.meshes.push(...foundation.meshes.map(m=>({...m,id:2,lods:m.lods.map(l=>({...l,faces:l.faces.map(f=>({...f,material:textures.length+1}))}))})));}
   return result;
 }
-export function osmShellPlan(source,roads,surface,options){
+export function osmShellPlan(source,roads,surface,options,reserved={footprints:[],vertices:0,count:0}){
   settings(options);if(!Number.isFinite(source?.area?.size)||source.area.size<50||source.area.size>450)fail('neplatná oblast.');
+  if(!Array.isArray(reserved?.footprints)||!Number.isSafeInteger(reserved.vertices)||reserved.vertices<0||reserved.vertices>60000||!Number.isSafeInteger(reserved.count)||reserved.count<0||reserved.count>64)fail('neplatná rezervace původních domů.');
   surface??=osmSurfaceModel(roads,source.area,osmSurfaceDefaults);
-  const buildings=osmBuildingFootprints(source),placements=[],skipped=[],occupied=[],half=source.area.size/2,exclusions=[...surface.footprints.road,...surface.footprints.sidewalk];
-  let budget=60000-new Set(surface.model.meshes.flatMap(m=>{const p=m.lods[0].positions;return Array.from({length:p.length/3},(_,i)=>p.slice(i*3,i*3+3).map(Math.fround).join('/'));})).size;
+  const buildings=osmBuildingFootprints(source),placements=[],skipped=[],occupied=[...reserved.footprints],half=source.area.size/2,exclusions=[...surface.footprints.road,...surface.footprints.sidewalk];
+  let budget=60000-reserved.vertices-new Set(surface.model.meshes.flatMap(m=>{const p=m.lods[0].positions;return Array.from({length:p.length/3},(_,i)=>p.slice(i*3,i*3+3).map(Math.fround).join('/'));})).size;
   for(const id of options.selected){
     const feature=buildings.find(b=>b.id===id);if(!feature||feature.suppressed)fail(`půdorys ${id} není v podkladu.`);
     const skip=reason=>skipped.push({way:id,name:feature.tags.name??String(id),reason});if(feature.reason){skip(feature.reason);continue;}
     const tags=feature.tags;
     if(['no','roof','ruins','church','cathedral','chapel','mosque','tower','bridge','construction'].includes(tags.building)||tags['building:part']&&tags['building:part']!=='no'||tags.min_height&&Number(tags.min_height)!==0||tags['building:min_level']&&tags['building:min_level']!=='0'||tags.layer&&tags.layer!=='0'){skip('Zvláštní typ stavby, části nebo výšková úroveň vyžaduje ruční model.');continue;}
+    const match=options.matching?osmBuildingMatch(tags,options.fallbackHeight):null;
+    if(match?.kind==='unsupported'){skip(match.note);continue;}
     const polygon=feature.polygons[0];if(polygon.some(r=>r.some(p=>p.some(n=>!Number.isFinite(n)||Math.abs(n)>half)))){skip('Budova přesahuje hranici oblasti; půdorys se neořezává.');continue;}
     if(area([polygon])<16){skip('Půdorys je příliš malý.');continue;}
     if(exclusions.length&&area(clipping.intersection(polygon,exclusions))>.0001||occupied.length&&area(clipping.intersection(polygon,occupied))>.0001){skip('Půdorys zasahuje do vozovky, chodníku nebo jiné budovy.');continue;}
-    if(placements.length>=64){skip('Limit importu je 64 půdorysných domů.');continue;}
-    const ring=polygon[0],target=osmBuildingHeight(tags,options.fallbackHeight),center=[0,1].map(k=>(Math.min(...ring.map(p=>p[k]))+Math.max(...ring.map(p=>p[k])))/2),key=String(id),seed=[...key].reduce((n,c)=>(n*31+c.charCodeAt(0))>>>0,0),style=options.styles[seed%options.styles.length].id;
+    if(placements.length+reserved.count>=64){skip(reserved.count?'Limit společného importu je 64 domů.':'Limit importu je 64 půdorysných domů.');continue;}
+    const ring=polygon[0],target=osmBuildingHeight(tags,match?.fallbackHeight??options.fallbackHeight),center=[0,1].map(k=>(Math.min(...ring.map(p=>p[k]))+Math.max(...ring.map(p=>p[k])))/2),key=String(id),seed=[...key].reduce((n,c)=>(n*31+c.charCodeAt(0))>>>0,0),style=options.styles[seed%options.styles.length].id;
+    if(match&&match.fallbackHeight!==options.fallbackHeight&&target.heightSource==='ruční náhradní výška')target.heightSource=`odhad podle typu OSM: ${target.height} m (omezený náhradní výškou)`;
     const item={way:id,name:feature.relation?`OSM_R_${feature.relation}_${feature.component??1}`:`OSM_B_${id}`,label:tags.name??`Budova ${id}`,polygon:structuredClone(polygon),footprint:structuredClone(ring),style,position:[Math.fround(center[0]),options.ground,Math.fround(center[1])],rotation:[1,0,0,0],scale:[1,1,1],coverage:1,modelHeight:target.height,...target,roof:'flat',...(feature.relation?{relation:feature.relation,component:feature.component}:{}),notes:['Vnější plášť bez interiéru; plochá střecha je zjednodušení.']};
     const roof=osmRoofPlan(tags,polygon,target,options.roof);if(roof){Object.assign(item,roof);item.modelHeight=item.height;item.notes.unshift('Vnější plášť bez interiéru; tvar střechy je zjednodušení.');}
     if(options.facade){item.facade={...options.facade};item.notes.push('Celé bloky a řady oken; zbylá šířka/výška a štíty používají náhradní zdivo nebo omítku.');}
