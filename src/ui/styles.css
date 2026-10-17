@@ -298,6 +298,7 @@ body.spatial-open .workspace>aside { position: absolute; inset: 0 auto 0 0; z-in
 .osm-map{min-width:0}
 .osm-map canvas{display:block;width:100%;height:300px;object-fit:contain;border:1px solid var(--line);border-radius:6px}
 .osm-map small{display:block;margin-top:6px}
+.osm-map small[hidden]{display:none}
 .osm-selection{min-width:0}
 .osm-selection h3{margin:0 0 8px}
 .osm-ways{max-height:250px;overflow:auto;margin-top:8px}

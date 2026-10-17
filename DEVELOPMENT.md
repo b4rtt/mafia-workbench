@@ -2,6 +2,13 @@
 
 Aktualizace: 17. října 2026. Vývoj pokračuje; komplexní editor není dokončený. Implementace, datové testy, ověření UI a ověření ve hře jsou různé úrovně dokončení; neoznačovat jednu za druhou. Podrobnosti existujících funkcí a jejich omezení jsou v README.md a research/formats.md. Původní hra se nemění, úpravy mají kontrolu verze, zálohu, export a undo. Herní data a soukromé reference nepatří do veřejného repozitáře.
 
+## Náhled směrů dopravy OSM (2026-10-17)
+
+- Před importem se zobrazují směrové šipky běžného provozu a šedé směry vyřazené při vyloučení slepých tras. AI-only protisměr jednosměrky se za běžný provoz nevydává. Boční poloha používá polovinu prvního nativního pásu a zachovává rozdíl uložených verzí 1/2/3. Schéma je segmentové; nesimuluje hladkou trajektorii enginu ani obálku vozidla.
+- Oranžové značky sdílejí pravidlo 30° a čtyřmetrových ramen s rychlostním plánovačem. Používají původní mapované body, aby jediný ohyb neměl několik značek z doplněných jízdních bodů; zahrnují pouze směry ponechané běžnému provozu. Fungují i bez rychlostního zpomalení. Legenda je vedle mapy, překryv lze vypnout bez přepočtu města; tato volba nemění uložené nastavení ani road.bin.
+- Pět nových datových testů, cíleně 31/31. Celá sada 833/834: pouze dříve známý textový nesoulad v mission-dialogue.test.js. Check/build prošly. Skutečný Electron/Canvas ověřil rozdílné pixely zapnutí/vypnutí, obnovu ze zdroje, změnu vyloučení slepých směrů, nezávislost na zpomalování a stejné bajty road.bin při vytvoření/exportu/undo. Soukromá evidence local/osm-traffic-preview-ui-7X2O2Q; chráněné manifesty a původní EXE hashově beze změny.
+- Dodatečná analýza již získaných 872 čtení GOG řidiče z junction-prague-turn-ports-physics-v13 našla 125 různých sousedních kroků: všechny odpovídají povolenému směru zapsaného grafu, žádný opačný či neznámý krok, uložené souřadnice všech referencí shodné. Tato zkouška neodhalila záměnu směru; dříve naměřené přesahy auta v zatáčkách zůstávají nevyřešené. Soukromá evidence local/osm-turn-directions-v13.json.
+
 ## Praha se skutečným DEM v původním enginu (2026-10-17)
 
 - Produkční import skutečného výřezu 200 m se všemi vrstvami se načetl v izolované GOG/Wine kopii. Tři čerstvé checkpointy v 8 917 / 23 943 / 38 962 ms, šest paprsků na vozovky odpovídá plánovanému povrchu do 0,006 mm. Road/check/KLZ připravené hry jsou hashově stejné jako projekt. Jde o numerickou shodu s použitým DEM, nikoli jeho geodetickou přesnost.
