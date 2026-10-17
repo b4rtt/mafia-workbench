@@ -40,9 +40,9 @@ test('native foundations close sloping walls, preserve courtyard holes and metri
 
 test('sloped footprint shells retain horizontal roofs and exact native world collision with their own foundation',()=>{
   const s=surface(),input=source(),before=structuredClone(input);
-  for(const roof of [undefined,{useOsmTags:false,shape:'gabled',height:3,orientation:'along'}]){
-    const p=osmShellPlan(input,roads,s,{...shellOptions,...(roof?{roof}:{})}).placements[0],bytes=writeSurfaceModel(osmShellModel(p)),model=parseFourDs(bytes,true),object={...p,frameType:9,model:'house.4ds'},collision=modelCollisionSurface(model,object,{objects:[object]},{meshes:[]}),all=triangles(model);
-    assert.equal(model.meshes.length,2);assert.equal(model.materials.length,5);assert.equal(collision.indices.length/3,p.triangles);assert.equal(p.position[1],p.support.ground);assert.equal(p.rotation[0],1);assert.deepEqual(p.scale,[1,1,1]);assert(all.filter(t=>t.material===3).some(t=>t.p.some(v=>v[1]===15)));assert(all.filter(t=>t.material===5).some(t=>t.p.some(v=>v[1]<0)));
+  for(const facade of [undefined,{version:1}])for(const roof of [undefined,{useOsmTags:false,shape:'gabled',height:3,orientation:'along'}]){
+    const p=osmShellPlan(input,roads,s,{...shellOptions,...(facade?{facade}:{}),...(roof?{roof}:{})}).placements[0],bytes=writeSurfaceModel(osmShellModel(p)),model=parseFourDs(bytes,true),object={...p,frameType:9,model:'house.4ds'},collision=modelCollisionSurface(model,object,{objects:[object]},{meshes:[]}),all=triangles(model);
+    assert.equal(model.meshes.length,2);assert.equal(model.materials.length,facade?6:5);assert.equal(collision.indices.length/3,p.triangles);assert.equal(p.position[1],p.support.ground);assert.equal(p.rotation[0],1);assert.deepEqual(p.scale,[1,1,1]);assert(all.filter(t=>t.material===3).some(t=>t.p.some(v=>v[1]===15)));assert(all.filter(t=>t.material===(facade?6:5)).some(t=>t.p.some(v=>v[1]<0)));
     const actual=new Set();for(let i=0;i<collision.positions.length;i+=3)actual.add(collision.positions.slice(i,i+3).map(Math.fround).join('/'));const matrix=frameMatrix(object);for(const t of all)for(const v of t.p)assert(actual.has(new Vector3(...v).applyMatrix4(matrix).toArray().map(Math.fround).join('/')));
     assert.deepEqual(writeSurfaceModel(osmShellModel(JSON.parse(JSON.stringify(p)))),bytes);
   }assert.deepEqual(input,before);

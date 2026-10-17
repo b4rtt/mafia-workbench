@@ -5,6 +5,7 @@ import {osmBuildingHeight} from './buildings.js';
 import {osmSurfaceDefaults,osmSurfaceModel} from './surface.js';
 import {osmRoofPlan,osmRaisedRoof,validateOsmRoofOptions} from './building-roofs.js';
 import {osmBuildingSupport,osmBuildingFoundation} from './building-terrain.js';
+import {validateOsmFacade,osmFacadePanels,osmFacadeTileSize,osmFacadeRing} from './building-facades.js';
 
 // Recipes reference the user's original BMPs. No game pixels are distributed.
 // Tile sizes follow the source facade UVs, in native metres. Roof and trim
@@ -27,19 +28,31 @@ const idValid=id=>Number.isSafeInteger(id)&&id>0||typeof id==='string'&&/^relati
 function settings(options){
   if(!options||options.version!==1||options.mode!=='footprint'||!Array.isArray(options.selected)||options.selected.length>128||new Set(options.selected).size!==options.selected.length||options.selected.some(id=>!idValid(id))||!Array.isArray(options.styles)||!options.styles.length||options.styles.length>osmShellStyles.length||new Set(options.styles.map(s=>s?.id)).size!==options.styles.length||options.styles.some(s=>!osmShellStyles.some(r=>r.id===s?.id))||!Number.isFinite(options.fallbackHeight)||options.fallbackHeight<5||options.fallbackHeight>60||!Number.isFinite(options.ground)||Math.abs(options.ground)>5)fail('neplatné nastavení nebo výběr.');
   validateOsmRoofOptions(options.roof);
+  validateOsmFacade(options.facade);
 }
 // Exterior shell only. Courtyard walls and roof holes remain explicit.
 export function osmShellModel(item){
+  validateOsmFacade(item?.facade);
   const style=osmShellStyles.find(s=>s.id===item?.style),polygon=item?.polygon;
   if(!style||!Array.isArray(polygon)||!polygon.length||polygon.length>32||polygon.some(r=>!Array.isArray(r)||r.length<3||r.length>256||r.some(p=>!Array.isArray(p)||p.length!==2||p.some(n=>!Number.isFinite(n)||Math.abs(n)>450)))||!Number.isFinite(item.height)||item.height<3||item.height>120||!Array.isArray(item.position)||item.position.length!==3||item.position.some(n=>!Number.isFinite(n)))fail('neplatná geometrie domu.');
-  const rings=polygon.map((r,i)=>{const copy=r.map(p=>[Math.fround(p[0]-item.position[0]),Math.fround(p[1]-item.position[2])]);if((signed(copy)>0)!==(i===0))copy.reverse();return copy;}),positions=[],normals=[],uv=[],faces=style.textures.map((_,i)=>({material:i+1,indices:[]}));
+  const fillTexture=item.facadeTexture??`maps/WB_OSMF_${style.id}.BMP`;
+  if(item.facade&&!/^maps\/WB_OSMF_[A-Za-z0-9_-]{1,90}\.bmp$/i.test(fillTexture))fail('neplatná textura výplně fasády.');
+  const textures=[...style.textures,...(item.facade?[fillTexture]:[])];
+  const rings=polygon.map((r,i)=>{const copy=r.map(p=>[Math.fround(p[0]-item.position[0]),Math.fround(p[1]-item.position[2])]);if((signed(copy)>0)!==(i===0))copy.reverse();return copy;}),positions=[],normals=[],uv=[],faces=textures.map((_,i)=>({material:i+1,indices:[]}));
   function triangle(points,tex,material){
     points=points.map(p=>p.map(Math.fround));const[a,b,c]=points,u=b.map((n,i)=>n-a[i]),v=c.map((n,i)=>n-a[i]),n=[u[1]*v[2]-u[2]*v[1],u[2]*v[0]-u[0]*v[2],u[0]*v[1]-u[1]*v[0]],length=Math.hypot(...n);if(length<1e-8)fail('nulová plocha po převodu na nativní souřadnice.');
     if(positions.length/3+3>60000)fail('dům překračuje 60 000 vrcholů.');const at=positions.length/3;positions.push(...points.flat());normals.push(...Array(3).fill(n.map(x=>Math.fround(x/length))).flat());uv.push(...tex.flat().map(Math.fround));faces[material-1].indices.push(at,at+1,at+2);
   }
-  const top=Math.fround(item.height),raised=item.roofPlan&&item.roofPlan.shape!=='flat',wallTop=raised?Math.fround(top-item.roofPlan.height):top,trim=Math.fround(wallTop-.25),ground=Math.fround(Math.min(style.groundHeight,trim-1));
-  for(const ring of rings)for(const[a,i]of ring.map((p,i)=>[p,i])){
+  const top=Math.fround(item.height),raised=item.roofPlan&&item.roofPlan.shape!=='flat',wallTop=raised?Math.fround(top-item.roofPlan.height):top,trim=Math.fround(wallTop-.25),ground=Math.fround(Math.min(style.groundHeight,trim-(item.facade?0:1)));
+  for(const ring of item.facade?rings.map(osmFacadeRing):rings)for(const[a,i]of ring.map((p,i)=>[p,i])){
     const b=ring[(i+1)%ring.length],length=Math.hypot(b[0]-a[0],b[1]-a[1]);if(length<.001)fail('příliš krátká hrana.');
+    if(item.facade){
+      for(const panel of [...osmFacadePanels(length,ground,trim,style),{x0:0,x1:length,y0:trim,y1:wallTop,material:4,uv:[0,0,length,1]}]){
+        const {x0,x1,y0,y1,material,uv:[u0,v0,u1,v1]}=panel,at=x=>[a[0]+(b[0]-a[0])*x/length,a[1]+(b[1]-a[1])*x/length],lo=at(x0),hi=at(x1),p=[[lo[0],y0,lo[1]],[lo[0],y1,lo[1]],[hi[0],y0,hi[1]],[hi[0],y1,hi[1]]],t=[[u0,v1],[u0,v0],[u1,v1],[u1,v0]];
+        for(const ids of [[0,1,2],[2,1,3]])triangle(ids.map(j=>p[j]),ids.map(j=>t[j]),material);
+      }
+      continue;
+    }
     for(const[lo,hi,material,tileWidth,tileHeight]of [[0,ground,1,style.groundWidth,style.groundHeight],[ground,trim,2,style.width,style.upperHeight],[trim,wallTop,4,1,.25]]){
       // Prefer whole texture bays when the adjustment stays within 15%; short
       // edges keep metric UVs instead of stretching a whole window across them.
@@ -48,14 +61,15 @@ export function osmShellModel(item){
       for(const ids of [[0,1,2],[2,1,3]])triangle(ids.map(j=>p[j]),ids.map(j=>t[j]),material);
     }
   }
-  if(raised)osmRaisedRoof(rings,item.roofPlan,top,style,triangle);
+  const [fillWidth,fillHeight]=item.facade?osmFacadeTileSize(style):[1,1];
+  if(raised)osmRaisedRoof(rings,item.roofPlan,top,style,item.facade?(p,t,m)=>triangle(p,m===2?t.map(([u,v])=>[u*style.width/fillWidth,v*style.upperHeight/fillHeight]):t,m===2?5:m):triangle);
   else{
     const vectors=rings.map(r=>r.map(p=>new Vector2(...p))),vertices=vectors.flat(),roof=ShapeUtils.triangulateShape(vectors[0],vectors.slice(1));
     if(!roof.length)fail('střechu nelze triangulovat.');
     for(let ids of roof){let p=ids.map(i=>vertices[i]);if((p[1].x-p[0].x)*(p[2].y-p[0].y)-(p[1].y-p[0].y)*(p[2].x-p[0].x)>0)p=[p[0],p[2],p[1]];triangle(p.map(p=>[p.x,top,p.y]),p.map(p=>[p.x/4,p.y/4]),3);}
   }
-  const result={version:29,materials:style.textures.map(path=>({flags:0x00840001,ambient:[1,1,1],diffuse:[1,1,1],emission:[0,0,0],opacity:1,texture:path.slice(5)})),meshes:[{id:1,name:'OSM_HOUSE',type:1,visual:0,renderFlags:0,logicFlags:0x2a,culling:9,parent:0,position:[0,0,0],rotation:[1,0,0,0],scale:[1,1,1],lods:[{distance:0,vertices:positions.length/3,positions,normals,uv,faces}]}],animated:0};
-  if(item.support){const foundation=osmBuildingFoundation(item.support,item.position);result.materials.push(...foundation.materials);result.meshes.push(...foundation.meshes.map(m=>({...m,id:2,lods:m.lods.map(l=>({...l,faces:l.faces.map(f=>({...f,material:5}))}))})));}
+  const result={version:29,materials:textures.map(path=>({flags:0x00840001,ambient:[1,1,1],diffuse:[1,1,1],emission:[0,0,0],opacity:1,texture:path.slice(5)})),meshes:[{id:1,name:'OSM_HOUSE',type:1,visual:0,renderFlags:0,logicFlags:0x2a,culling:9,parent:0,position:[0,0,0],rotation:[1,0,0,0],scale:[1,1,1],lods:[{distance:0,vertices:positions.length/3,positions,normals,uv,faces}]}],animated:0};
+  if(item.support){const foundation=osmBuildingFoundation(item.support,item.position);result.materials.push(...foundation.materials);result.meshes.push(...foundation.meshes.map(m=>({...m,id:2,lods:m.lods.map(l=>({...l,faces:l.faces.map(f=>({...f,material:textures.length+1}))}))})));}
   return result;
 }
 export function osmShellPlan(source,roads,surface,options){
@@ -75,6 +89,7 @@ export function osmShellPlan(source,roads,surface,options){
     const ring=polygon[0],target=osmBuildingHeight(tags,options.fallbackHeight),center=[0,1].map(k=>(Math.min(...ring.map(p=>p[k]))+Math.max(...ring.map(p=>p[k])))/2),key=String(id),seed=[...key].reduce((n,c)=>(n*31+c.charCodeAt(0))>>>0,0),style=options.styles[seed%options.styles.length].id;
     const item={way:id,name:feature.relation?`OSM_R_${feature.relation}_${feature.component??1}`:`OSM_B_${id}`,label:tags.name??`Budova ${id}`,polygon:structuredClone(polygon),footprint:structuredClone(ring),style,position:[Math.fround(center[0]),options.ground,Math.fround(center[1])],rotation:[1,0,0,0],scale:[1,1,1],coverage:1,modelHeight:target.height,...target,roof:'flat',...(feature.relation?{relation:feature.relation,component:feature.component}:{}),notes:['Vnější plášť bez interiéru; plochá střecha je zjednodušení.']};
     const roof=osmRoofPlan(tags,polygon,target,options.roof);if(roof){Object.assign(item,roof);item.modelHeight=item.height;item.notes.unshift('Vnější plášť bez interiéru; tvar střechy je zjednodušení.');}
+    if(options.facade){item.facade={...options.facade};item.notes.push('Celé bloky a řady oken; zbylá šířka/výška a štíty používají náhradní zdivo nebo omítku.');}
     if(item.height>120){skip('Odhad výšky přesahuje podporovaných 120 m.');continue;}
     if(surface.elevation){const support=osmBuildingSupport(surface,source.area,polygon,options.ground);if(support.reason){skip(support.reason);continue;}item.support=support;item.position[1]=support.ground;item.notes.push('Vodorovná základna se soklem podle celého terénního půdorysu; odhad bez terasování.');}
     const model=osmShellModel(item),vertices=new Set(model.meshes.flatMap(m=>{const lod=m.lods[0];return Array.from({length:lod.vertices},(_,i)=>lod.positions.slice(i*3,i*3+3).join('/'));})).size;

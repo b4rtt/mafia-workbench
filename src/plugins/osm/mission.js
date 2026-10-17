@@ -32,8 +32,9 @@ import {surfaceSignature} from '../../core/scene-collision.js';
 import {parseBmp} from '../../core/bmp.js';
 import {loadOsmBuildingModels} from './building-assets.js';
 import {osmBuildingPlan} from './buildings.js';
-import {osmShellPlan,osmShellModel} from './building-shells.js';
+import {osmShellPlan,osmShellModel,osmShellStyles} from './building-shells.js';
 import {loadOsmShellStyles} from './building-shell-assets.js';
+import {osmFacadeTexture} from './building-facade-texture.js';
 import {osmGreenPlan,osmGreenModel,osmGreenReservation} from './green-areas.js';
 import {loadOsmGreenTextures} from './green-assets.js';
 export function osmRoadBytes(plan,traffic=null){
@@ -93,7 +94,14 @@ export async function createOsmMission(project,zip,data,area,selected,options){
       const {styles}=await loadOsmShellStyles(project,settings.styles);
       buildings=osmShellPlan(source,plan,generated,{...settings,styles});
       if(!buildings.placements.length)throw Error('OpenStreetMap · půdorysné domy: žádná vybraná budova nevyhovuje; upravte výběr nebo vypněte budovy.');
+      const fillTextures=new Map();
+      if(settings.facade)for(const style of styles.filter(s=>buildings.placements.some(p=>p.style===s.id))){
+        const texturePath=`maps/WB_OSMF_${name}_${style.id}.BMP`;
+        if(project.manifest.assets.some(a=>a.path.toLowerCase()===texturePath.toLowerCase()))throw Error('Textura výplně domu tohoto názvu již existuje. Zvolte jiný název mise.');
+        extra.push({path:texturePath,data:osmFacadeTexture(await project.read(style.textures[1].path),osmShellStyles.find(s=>s.id===style.id))});fillTextures.set(style.id,texturePath);
+      }
       for(const [index,item]of buildings.placements.entries()){
+        if(settings.facade)item.facadeTexture=fillTextures.get(item.style);
         const modelName=`WB_OSMH_${name}_${index+1}`,modelPath=`models/${modelName}.4ds`,bytes=writeSurfaceModel(osmShellModel(item));
         if(project.manifest.assets.some(a=>a.path.toLowerCase()===modelPath.toLowerCase()))throw Error('Model domu tohoto názvu již existuje. Zvolte jiný název mise.');
         const {scene,object}=add(item.name,modelName+'.i3d',item.position,item.rotation,item.scale);
