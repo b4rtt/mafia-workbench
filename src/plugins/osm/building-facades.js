@@ -31,6 +31,20 @@ const recipes=Object.freeze({
   'pale-columns':{rows:[0,.37,.70,1],swatch:[.01,.16,.06,.25]},
   'cream-lintels':{rows:[0,.5,1],swatch:[.01,.18,.05,.36]},
   'peach-arches':{rows:[0,.5,1],swatch:[.01,.2,.05,.4]},
+  'golden-brick':{rows:[0,1],swatch:[.02,.25,.07,.43]},
+  'flower-brick':{rows:[0,.25,.5,.75,1],swatch:[.02,.08,.07,.2]},
+  'ochre-relief':{rows:[0,.4,.7,1],swatch:[.01,.2,.04,.3]},
+  'pale-panels':{rows:[0,1],swatch:[.1,.05,.3,.2]},
+  'mottled-plaster':{rows:[0,.5,1],swatch:[.01,.2,.06,.4]},
+  'asymmetric-brick':{rows:[0,.25,.5,.75,1],swatch:[.52,.16,.60,.25]},
+  'aged-sandstone':{rows:[0,.36,.69,1],swatch:[.01,.18,.05,.28]},
+  'soot-plaster':{rows:[0,.25,.5,.75,1],swatch:[.1,.2,.3,.3]},
+  'gridded-tan':{rows:[0,.5,1],swatch:[.32,.15,.37,.3]},
+  'green-arches':{rows:[0,.5,1],swatch:[.01,.25,.05,.4]},
+  'pearl-stone':{rows:[0,.34,.68,1],swatch:[.22,.15,.28,.25]},
+  'industrial-brick':{rows:[0,.22,.51,.75,1],swatch:[.87,.1,.95,.18]},
+  'grey-pilasters':{rows:[0,1/3,2/3,1],swatch:[.015,.15,.05,.23]},
+  'weathered-cream':{rows:[0,.36,.69,1],swatch:[.01,.15,.07,.25]},
 });
 export function validateOsmFacade(options){
   if(options===undefined)return;
