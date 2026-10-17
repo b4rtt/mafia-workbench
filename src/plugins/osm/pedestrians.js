@@ -12,7 +12,7 @@ const fail=m=>{throw Error('OpenStreetMap · chodci: '+m);};
 // up to 17,607 nodes; keep generated networks below that observed size.
 const pointBudget=16384;
 export function validateOsmPedestrians(o){
-  if(!o||o.version!==1||['parkPaths','crossings'].some(k=>o[k]!==undefined&&typeof o[k]!=='boolean')||!Number.isInteger(o.density)||o.density<1||o.density>100||!Number.isInteger(o.capacity)||o.capacity<1||o.capacity>20||!Array.isArray(o.models)||!o.models.length||o.models.length>16||new Set(o.models.map(m=>m?.path?.toLowerCase())).size!==o.models.length||o.models.some(m=>!/^models\/civil\d+\.4ds$/i.test(m?.path??'')||!/^civil\d+\.i3d$/i.test(m?.model??'')||m.path.slice(7,-4).toLowerCase()!==m.model.slice(0,-4).toLowerCase()||m.model.length>16||!/^[a-f0-9]{64}$/.test(m?.sha256??'')))fail('načtěte 1–16 civilních modelů; hustota je 1–100 a kapacita každého modelu 1–20.');
+  if(!o||o.version!==1||['parkPaths','crossings','walkways'].some(k=>o[k]!==undefined&&typeof o[k]!=='boolean')||!Number.isInteger(o.density)||o.density<1||o.density>100||!Number.isInteger(o.capacity)||o.capacity<1||o.capacity>20||!Array.isArray(o.models)||!o.models.length||o.models.length>16||new Set(o.models.map(m=>m?.path?.toLowerCase())).size!==o.models.length||o.models.some(m=>!/^models\/civil\d+\.4ds$/i.test(m?.path??'')||!/^civil\d+\.i3d$/i.test(m?.model??'')||m.path.slice(7,-4).toLowerCase()!==m.model.slice(0,-4).toLowerCase()||m.model.length>16||!/^[a-f0-9]{64}$/.test(m?.sha256??'')))fail('načtěte 1–16 civilních modelů; hustota je 1–100 a kapacita každého modelu 1–20.');
 }
 const distanceXZ=(a,b)=>Math.hypot(a[0]-b[0],a[2]-b[2]);
 const snap=n=>Math.round(n*1000)/1000;
@@ -37,8 +37,8 @@ function parkInset(edges){
 }
 // Additional park/crossing routes are opt-in. A small curb step keeps
 // the actual surface heights; missing ground is never bridged.
-export function osmPedestrianPlan(source,roads,surface,props=null,green=null,options={}){
-  if(!surface?.footprints?.sidewalk?.length)fail('vybrané ulice nemají chodníky; zapněte povrchy a zvolte průchozí profil.');
+export function osmPedestrianPlan(source,roads,surface,props=null,green=null,options={},walkways=null){
+  if(!surface?.footprints?.sidewalk?.length&&!walkways?.placements.length)fail('vybrané ulice nemají chodníky; zapněte povrchy a zvolte průchozí profil.');
   const terrain=osmNavigationElevation(surface),y=terrain?terrain.levels.sidewalk:Math.fround(surface.model.meshes.reduce((height,m)=>m.lods[0].positions.reduce((h,n,i)=>i%3===1?Math.max(h,n):h,height),-Infinity));
   if(green&&(terrain?green.elevation!==terrain.field||green.placements.some(p=>!p.elevated):green.elevation))fail('parkové cesty musí mít stejný výškový povrch jako ulice.');
   let paths=[],ground=surface.footprints.sidewalk;
@@ -50,9 +50,14 @@ export function osmPedestrianPlan(source,roads,surface,props=null,green=null,opt
       if(!Number.isFinite(item.height)||Math.abs(y-Math.fround(item.height))>.250001)fail('cesty v zeleni vyžadují rozdíl výšek proti chodníku nejvýše 0,25 m; snižte obrubník nebo vypněte parkové cesty.');
       const polygons=allowed.length?clipping.intersection(item.paths,allowed):[];
       // Match the native mesh precision at shared sidewalk/path seams.
-      if(polygons.length)paths.push({polygons:polygons.map(p=>p.map(r=>r.map(v=>v.map(Math.fround)))),height:Math.fround(item.height)});
+      if(polygons.length)paths.push({polygons:polygons.map(p=>p.map(r=>r.map(v=>v.map(Math.fround)))),height:Math.fround(item.height),kind:'park'});
     }
     if(!paths.length)fail('zapněte zeleň a vyberte plochu s podporovanou veřejnou pěší cestou.');
+    ground=clipping.union(ground.map(p=>p.map(r=>r.map(v=>v.map(Math.fround)))),...paths.map(p=>p.polygons));
+  }
+  if(walkways){
+    if(terrain?walkways.elevation!==terrain.field||walkways.placements.some(p=>!p.elevated):walkways.elevation)fail('samostatné pěší cesty musí mít stejný výškový podklad jako ulice.');
+    for(const item of walkways.placements){if(!Number.isFinite(item.height)||Math.abs(y-Math.fround(item.height))>.250001)fail('pěší cesty vyžadují výškový rozdíl proti chodníku nejvýše 0,25 m.');paths.push({polygons:item.paths,height:Math.fround(item.height),kind:'walkway'});}
     ground=clipping.union(ground.map(p=>p.map(r=>r.map(v=>v.map(Math.fround)))),...paths.map(p=>p.polygons));
   }
   const crossings=options.crossings?osmCrossingPlan(source,roads,surface,props):null,mixed=paths.length||crossings?.placements.length;
@@ -140,7 +145,7 @@ export function osmPedestrianPlan(source,roads,surface,props=null,green=null,opt
   for(const [a,b]of unique){neighbors[a].push(b);neighbors[b].push(a);}
   if(neighbors.some(n=>n.length>255))fail('bod překračuje 255 nativních spojů; zmenšete oblast.');
   for(let i=0;i<positions.length;i++)if(!visited.has(i)){components++;const queue=[i];visited.add(i);while(queue.length)for(const n of neighbors[queue.pop()])if(!visited.has(n)){visited.add(n);queue.push(n);}}
-  return {positions,links:unique,components,clearance:.4,radius:.1,regions,...(green?{parkPoints:positions.filter(p=>terrain?levelAt([p[0],p[2]])!==y&&paths.some(r=>contains(r.polygons,[p[0],p[2]])):p[1]!==y&&(!crossings||paths.some(r=>contains(r.polygons,[p[0],p[2]])))).length}: {}),...(crossings?{crossings}:{})};
+  return {positions,links:unique,components,clearance:.4,radius:.1,regions,...(green?{parkPoints:positions.filter(p=>walkways?(terrain?levelAt([p[0],p[2]])!==y:p[1]!==y)&&paths.some(r=>r.kind==='park'&&contains(r.polygons,[p[0],p[2]])):terrain?levelAt([p[0],p[2]])!==y&&paths.some(r=>contains(r.polygons,[p[0],p[2]])):p[1]!==y&&(!crossings||paths.some(r=>contains(r.polygons,[p[0],p[2]])))).length}:{}),...(walkways?{walkwayPoints:positions.filter(p=>paths.some(r=>r.kind==='walkway'&&contains(r.polygons,[p[0],p[2]]))).length}:{}),...(crossings?{crossings}:{})};
 }
 
 export function osmPedestrianBytes(plan){

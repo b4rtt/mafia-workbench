@@ -33,6 +33,7 @@ import {loadOsmBuildingModels} from '../plugins/osm/building-assets.js';
 import {osmBuildingPlan} from '../plugins/osm/buildings.js';
 import {loadOsmPropModels} from '../plugins/osm/prop-assets.js';
 import {validateOsmPropOptions} from '../plugins/osm/props.js';
+import {loadOsmWalkwayTexture} from '../plugins/osm/walkway-assets.js';
 import {loadOsmGreenTextures} from '../plugins/osm/green-assets.js';
 import { replayMissions, loadCutsceneContext } from '../core/cutscene.js';
 const directory = path.dirname(fileURLToPath(import.meta.url));
@@ -291,9 +292,10 @@ app.whenReady().then(async () => {
     if(saved){
       if(input.props!==undefined&&input.props!==null){validateOsmPropOptions(input.props);await loadOsmPropModels(active,input.props.models);if(!input.surface||input.props.selected.some(id=>!source.props.some(p=>p.id===id)))throw Error('OpenStreetMap · osazení: chybí povrchy nebo mapované body.');}
       if(input.green!==undefined&&input.green!==null){await loadOsmGreenTextures(active,input.green);if(!input.surface)throw Error('OpenStreetMap · zeleň: chybí povrchy ulic.');}
+      if(input.walkways!==undefined&&input.walkways!==null){await loadOsmWalkwayTexture(active,input.walkways);if(!input.surface)throw Error('OpenStreetMap · pěší cesty: chybí povrchy ulic.');}
       if(input.ambient!==undefined&&input.ambient!==null){validateOsmAmbient(input.ambient);if(!input.surface||input.ambient.green&&!input.green)throw Error('OpenStreetMap · zvuky: chybí povrchy nebo zeleň.');await loadOsmAmbientSounds(active,[input.ambient.streets,input.ambient.green].filter(Boolean).map(l=>l.sound));}
       const plan=osmRoadPlan(source,input.selected),surface=Object.hasOwn(input,'surface')&&input.surface!==null?(elevation?osmTerrainSurface(plan,source.area,input.surface,elevation):osmSurfaceModel(plan,source.area,input.surface)):null;
-      if(input.pedestrians!==undefined&&input.pedestrians!==null){await loadOsmPedestrianModels(active,input.pedestrians);if(!surface)throw Error('OpenStreetMap · chodci: chybí povrchy ulic.');if(input.pedestrians.parkPaths&&!input.green)throw Error('OpenStreetMap · chodci: chybí zeleň pro parkové cesty.');}
+      if(input.pedestrians!==undefined&&input.pedestrians!==null){await loadOsmPedestrianModels(active,input.pedestrians);if(!surface)throw Error('OpenStreetMap · chodci: chybí povrchy ulic.');if(input.pedestrians.walkways&&!input.walkways)throw Error('OpenStreetMap · chodci: chybí samostatné pěší cesty.');if(input.pedestrians.parkPaths&&!input.green)throw Error('OpenStreetMap · chodci: chybí zeleň pro parkové cesty.');}
       if(input.traffic!==undefined&&input.traffic!==null){await loadOsmTrafficModels(active,input.traffic);osmTrafficPlan(elevation?osmTerrainRoadPlan(plan,surface):plan,surface,input.traffic);}
       if(Object.hasOwn(input,'buildings')&&input.buildings!==null){
         if(input.buildings.mode==='footprint'){
@@ -308,7 +310,7 @@ app.whenReady().then(async () => {
         }
       }
     }
-    osmImport={project:active,token,data,area:source.area};return {token,source,cached:true,...(elevation?{elevation}:{}),...(saved?{ambient:input.ambient??null,pedestrians:input.pedestrians??null,traffic:input.traffic??null,props:input.props??null,green:input.green??null,selected:input.selected,...(Object.hasOwn(input,'surface')?{surface:input.surface}:{}),...(Object.hasOwn(input,'buildings')?{buildings:input.buildings}:{})}:{})};
+    osmImport={project:active,token,data,area:source.area};return {token,source,cached:true,...(elevation?{elevation}:{}),...(saved?{walkways:input.walkways??null,ambient:input.ambient??null,pedestrians:input.pedestrians??null,traffic:input.traffic??null,props:input.props??null,green:input.green??null,selected:input.selected,...(Object.hasOwn(input,'surface')?{surface:input.surface}:{}),...(Object.hasOwn(input,'buildings')?{buildings:input.buildings}:{})}:{})};
   }));
   handle('osm:ambient-sounds', sounds => operation(() => loadOsmAmbientSounds(current(),sounds)));
   handle('osm:pedestrian-models', () => operation(async () => {const {models,warnings}=await loadOsmPedestrianModels(current());return {models,warnings};}));

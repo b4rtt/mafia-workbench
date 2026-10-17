@@ -2,6 +2,13 @@
 
 Aktualizace: 17. října 2026. Vývoj pokračuje; komplexní editor není dokončený. Implementace, datové testy, ověření UI a ověření ve hře jsou různé úrovně dokončení; neoznačovat jednu za druhou. Podrobnosti existujících funkcí a jejich omezení jsou v README.md a research/formats.md. Původní hra se nemění, úpravy mají kontrolu verze, zálohu, export a undo. Herní data a soukromé reference nepatří do veřejného repozitáře.
 
+## Samostatné pěší cesty OSM (2026-10-17)
+
+- Volitelná vrstva liniových footway/path/pedestrian mimo generovanou zeleň; vlastní výběr cest, BMP, metrické UV a šířka z mapy nebo označená náhrada. Ořez kolem ulic, budov a zeleně, společný terén, jeden objekt OSM_WALKWAYS s vlastněnými KLZ kolizemi. Samostatná volba připojí plochy do pěší navigace. Výchozí vypnutí zachovává dosavadní import. Omezené/podmíněné cesty, jiné vrstvy a přechody mají důvody vynechání; schody, boční obruby, pěší plochy a doplňování mezer zůstávají nehotové.
+- 182/182 OSM testů, check/build, celá sada 853/854: pouze známý textový regex mission-dialogue.test.js. Skutečný Electron formulář ověřil blokování vadných voleb, obnovu zdroje, 4DS/check bajty, export/reopen, opakování a undo; kontrola otisku textury i závislostí. Soukromá evidence local/osm-walkways-ui-rH8hFW. Při vypnutí nové vrstvy všech 11 vytvořených souborů mise byteově stejných jako ec093bb.
+- V izolované GOG/Wine hře civilista přešel novou cestu do svahu a zpět. Dva kolizní paprsky i negativní kontrola po odebrání jen kolizí této vrstvy potvrdily rozdíl 3 cm; kontrolní ulice se nezměnila. Check/KLZ odpovídají projektu, vlastní test ukončený, historie38, chráněné projekty a EXE hashově stejné. Evidence local/osm-provider-vQHlcF/walkways-native-result.json.
+- Produkční datový import reálné Prahy 200 m se všemi stávajícími vrstvami přidal 903.85 m² pěších cest, 523 trojúhelníků a 1 551 navigačních bodů na nich; celkem 5 583 pěších bodů. Tento kompletní import s novými cestami nemá nativní průchod všech větví. Další práce má ověřit návaznost reálných tras a ruční opravitelnost výsledku; celý goal zůstává aktivní. Podrobnosti a zdroje: research/osm-integration.md.
+
 ## Náhled směrů dopravy OSM (2026-10-17)
 
 - Před importem se zobrazují směrové šipky běžného provozu a šedé směry vyřazené při vyloučení slepých tras. AI-only protisměr jednosměrky se za běžný provoz nevydává. Boční poloha používá polovinu prvního nativního pásu a zachovává rozdíl uložených verzí 1/2/3. Schéma je segmentové; nesimuluje hladkou trajektorii enginu ani obálku vozidla.
