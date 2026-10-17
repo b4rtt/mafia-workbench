@@ -7,7 +7,7 @@ export function roadSettingsDialog(file,from,{element,state,api,run,refresh,rend
   const numeric=(label,value,parent)=>{const input=element('input');input.type='number';input.step='any';input.required=true;input.value=Object.is(value,-0)?'-0':String(value);return field(label,input,parent);};
   const target=field('Silniční propojení',element('select'));
   for(const link of roadConnections(file,from)){const option=element('option',`Výjezd ${link.slot} → křižovatka ${link.target}`);option.value=String(link.slot);target.append(option);}
-  form.append(element('p',`Z křižovatky ${from}. Nastavení mění oba směry vybraného propojení. Boční posun je vzdálenost pruhu od osy cesty v herních jednotkách. Body a vozovka zůstanou na místě. Oba směry lze vypnout a cestu později znovu otevřít.`,'notice'));
+  form.append(element('p',`Z křižovatky ${from}. Nastavení mění oba směry vybraného propojení. Uložená hodnota je šířka pásu v herních jednotkách. Střed pruhu běžného provozu nebo parkování leží za předchozími pásy, v polovině jeho vlastní šířky. I vypnutý pás s nenulovou šířkou posouvá další pruhy. Body a vozovka zůstanou na místě. Oba směry lze vypnout a cestu později znovu otevřít.`,'notice'));
   fields.append(panels);
   const actions=element('div',undefined,'tools'),cancel=element('button','Zrušit'),save=element('button','Uložit nastavení','primary');cancel.type='button';save.type='submit';save.disabled=true;cancel.onclick=()=>dialog.close();actions.append(cancel,save);form.append(fields,message,actions);
   let pair,forward,reverse,selectedSlot;
@@ -19,10 +19,10 @@ export function roadSettingsDialog(file,from,{element,state,api,run,refresh,rend
     const lanes=original.lanes.map((lane,i)=>{
       const row=element('fieldset',undefined,'road-lane');row.append(element('legend',`Pruh ${i+1}`));grid.append(row);
       const type=element('select');for(const [value,name]of [[0,'Vypnutý'],[1,'AI — bez běžného provozu'],[2,'Provoz'],[3,'Podélné parkování'],...(lane.type>3?[[lane.type,`Původní typ ${lane.type} (raw)`]]:[])]){const option=element('option',name);option.value=String(value);type.append(option);}type.value=String(lane.type);field(`${label} · pruh ${i+1} · typ`,type,row);
-      const distance=numeric(`${label} · pruh ${i+1} · boční posun`,lane.distance,row);let replace;
+      const distance=numeric(`${label} · pruh ${i+1} · šířka pásu`,lane.distance,row);let replace;
       if(!Number.isFinite(lane.distance)){
         distance.value='';distance.readOnly=true;distance.required=false;distance.placeholder=`Původní ${String(lane.distance)}`;
-        replace=element('input');replace.type='checkbox';field(`${label} · pruh ${i+1} · nahradit neplatný posun`,replace,row);replace.onchange=()=>{distance.readOnly=!replace.checked;distance.required=replace.checked;if(replace.checked&&distance.value==='')distance.value='0';};
+        replace=element('input');replace.type='checkbox';field(`${label} · pruh ${i+1} · nahradit neplatnou šířku`,replace,row);replace.onchange=()=>{distance.readOnly=!replace.checked;distance.required=replace.checked;if(replace.checked&&distance.value==='')distance.value='0';};
       }
       return {type,distance,replace};
     });return {enabled,priority,lanes,original};

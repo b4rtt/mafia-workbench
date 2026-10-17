@@ -79,14 +79,14 @@ export function roadTopologyDialog(file,action,point,{element,state,api,run,refr
     if(!candidates.length)form.append(element('p','Žádná vhodná křižovatka. Vytvořte další nebo nejprve uvolněte obsazené propojení.','notice'));
     if(action==='connect'){
       positions=numeric('Počet mezilehlých bodů',2,{min:1,step:'1'});positions.max='4096';velocity=numeric('Rychlost nových bodů (herní jednotky)',Math.max(0,source.speed),{min:0});
-      form.append(element('p','Body začnou na přímce mezi křižovatkami. Po vytvoření je můžete posouvat ve 3D nebo doplnit další. Pro jednosměrnou cestu vypněte jeden směr. Povolený směr potřebuje aktivní pruh. Boční posun je původní hodnota vzdálenosti pruhu od osy cesty.','notice'));
+      form.append(element('p','Body začnou na přímce mezi křižovatkami. Po vytvoření je můžete posouvat ve 3D nebo doplnit další. Pro jednosměrnou cestu vypněte jeden směr. Povolený směr potřebuje aktivní pruh. Šířka pásu je uložená hodnota: střed pruhu běžného provozu nebo parkování je v polovině jeho šířky za součtem předchozích pásů. I vypnuté pásy s nenulovou šířkou tento součet ovlivňují.','notice'));
       function laneFields(label){
         const enabled=element('input');enabled.type='checkbox';enabled.checked=true;field(`Povolit ${label.toLocaleLowerCase('cs')}`,enabled);
         const details=element('details'),grid=element('fieldset',undefined,'mission-fields');details.append(element('summary',label),grid);fields.append(details);enabled.onchange=()=>{grid.disabled=!enabled.checked;};
         const priority=numeric(`${label} · priorita`,100,{min:0,step:'1',parent:grid});priority.max='4294967295';
         const lanes=Array.from({length:4},(_,i)=>{
           const laneRow=element('fieldset',undefined,'road-lane');laneRow.append(element('legend',`Pruh ${i+1}`));grid.append(laneRow);const type=element('select');for(const [value,name] of [[0,'Vypnutý'],[1,'AI — bez běžného provozu'],[2,'Provoz'],[3,'Podélné parkování']]){const option=element('option',name);option.value=String(value);type.append(option);}type.value=String(i===0?2:0);field(`${label} · pruh ${i+1} · typ`,type,laneRow);
-          const distance=numeric(`${label} · pruh ${i+1} · boční posun`,i===0?1.5:4,{parent:laneRow});return {type,distance};
+          const distance=numeric(`${label} · pruh ${i+1} · šířka pásu`,i===0?1.5:4,{parent:laneRow});return {type,distance};
         });return {enabled,priority,lanes};
       }
       forward=laneFields('Směr tam');reverse=laneFields('Směr zpět');priorities=[forward.priority,reverse.priority];
