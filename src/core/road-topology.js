@@ -1,5 +1,6 @@
 import {parseRoads,compileRoadTopology} from './roads.js';
 import {roadDissolvePlan,roadMergePlan} from '../shared/roads.js';
+import {roadCurvePlan} from '../shared/road-curve.js';
 
 const CROSS=236,NODE=24,SLOT=52,NONE=65535;
 const fail=message=>{throw new Error('Road: '+message);};
@@ -95,6 +96,23 @@ function editSlot(data,cross,slot,target,patch){
 export function changeRoadTopology(source,request){
   const file=parseRoads(source),total=file.crossings.length,count=file.nodes.length,rows=records(source,file),identity=Array.from({length:total+count},(_,i)=>i);
   const action=request?.action;
+  if(action==='round-node'){
+    validateRoutes(file);const plan=roadCurvePlan(file,request.index,request.radius),index=plan.index,added=plan.positions.length-1;
+    const remap=ref=>ref===NONE||!(ref&32768)?ref:(ref&32767)===index?32768|(index+plan.middle):(ref&32767)>index?ref+added:ref;
+    // Relocate existing references before inserting the new records. Complete
+    // crossing slots and all unaffected node records retain their raw bytes.
+    const relocated=Buffer.from(source);rewriteRefs(relocated,file,remap);const next=records(relocated,file),first=32768|index,last=32768|(index+added);
+    for(const [i,r]of plan.refs.entries()){
+      const n=r&32768?file.nodes[r&32767]:file.crossings[r],bytes=r&32768?next.nodes[r&32767]:next.crossings[r];
+      const offset=r&32768?(n.previous===(32768|index)?16:18):20+n.links.indexOf(32768|index)*2;bytes.writeUInt16LE(i?last:first,offset);
+    }
+    const generated=plan.positions.map((position,i)=>{
+      const bytes=Buffer.from(rows.nodes[index]);position.forEach((n,j)=>bytes.writeFloatLE(n,j*4));
+      bytes.writeUInt16LE(i?32768|(index+i-1):remap(plan.refs[0]),16);bytes.writeUInt16LE(i<added?32768|(index+i+1):remap(plan.refs[1]),18);return bytes;
+    });
+    next.nodes.splice(index,1,...generated);const data=serialize(next.crossings,next.nodes),compiled=compileRoadTopology(data,plan.owners,generated.map((_,i)=>index+i));validateRoutes(parseRoads(compiled.data));
+    return {data:compiled.data,index:compiled.mapping[plan.selection],mapping:identity.map(i=>compiled.mapping[i<total?i:i===total+index?plan.selection:i>total+index?i+added:i])};
+  }
   if(action==='create-crossing'){
     if(total>=32768)fail('síť už má maximální počet křižovatek.');
     const position=xyz(request.position),velocity=speed(request.speed??1.2),semaphore=request.semaphore??0;

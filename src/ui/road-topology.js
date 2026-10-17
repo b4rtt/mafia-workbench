@@ -1,13 +1,35 @@
 import {roadConnections,roadDissolvePlan,roadMergePlan} from '../shared/roads.js';
+import {roadCurvePlan} from '../shared/road-curve.js';
 
 export function roadTopologyDialog(file,action,point,{element,state,api,run,refresh,renderDetail,status}) {
   const format=position=>position.map(n=>Number(n.toPrecision(7))).join(', ');
-  const titles={'create-crossing':'Nová křižovatka','split-crossing':'Vytvořit křižovatku z bodu','dissolve-crossing':'Spojit silnice přes křižovatku','merge-crossings':'Sloučit dvě křižovatky',connect:'Propojit křižovatky',disconnect:'Odstranit silniční propojení','delete-crossing':'Odstranit volnou křižovatku'};
+  const titles={'round-node':'Zaoblit silniční ohyb','create-crossing':'Nová křižovatka','split-crossing':'Vytvořit křižovatku z bodu','dissolve-crossing':'Spojit silnice přes křižovatku','merge-crossings':'Sloučit dvě křižovatky',connect:'Propojit křižovatky',disconnect:'Odstranit silniční propojení','delete-crossing':'Odstranit volnou křižovatku'};
   const dialog=element('dialog',undefined,'road-topology-dialog'),form=element('form',undefined,'mission-form'),fields=element('div',undefined,'mission-fields');dialog.append(element('h2',titles[action]),form);
   const field=(label,input,parent=fields)=>{const row=element('label',label);input.setAttribute('aria-label',label);row.append(input);parent.append(row);return input;};
   const numeric=(label,value,{min,step='any',parent=fields}={})=>{const input=element('input');input.type='number';input.step=step;input.value=String(value);input.required=true;if(min!==undefined)input.min=String(min);return field(label,input,parent);};
-  let target,positions,velocity,semaphore,forward,reverse,priorities,updateMerge,blocked=false;
-  if(action==='create-crossing'){
+  let target,positions,velocity,semaphore,forward,reverse,priorities,updateMerge,radius,updateCurve,blocked=false;
+  if(action==='round-node'){
+    form.append(element('p','Vybraný mezilehlý bod nahradí kruhový oblouk tečný k oběma sousedním úsekům. Poloměr se musí vejít mezi sousedy; ostatní ohyby zůstanou na místě. Nové body převezmou rychlost vybraného bodu, výška lineárně propojí konce oblouku. Pruhy a směry zůstanou zachované. Změna má jeden krok undo.','notice'));
+    form.append(element('p','Upravuje se jen navigace aut. Vozovka a kolize se nemění; průjezd celé karoserie je třeba ověřit vůči skutečné ulici.','notice'));
+    let initial=1;try{initial=roadCurvePlan(file,point.recordIndex).radius;}catch{}
+    radius=numeric('Poloměr ohybu (m)',Number(initial.toPrecision(7)),{min:.05});
+    const preview=element('div');preview.style.gridColumn='1 / -1';fields.append(preview);
+    updateCurve=()=>{
+      preview.replaceChildren();blocked=true;
+      try{
+        if(radius.value==='')throw Error('Zadejte poloměr ohybu.');
+        const plan=roadCurvePlan(file,point.recordIndex,Number(radius.value)),points=[...plan.original,...plan.positions];
+        preview.append(element('p',`Poloměr ${plan.radius.toLocaleString('cs')} m · ohyb ${(plan.angle*180/Math.PI).toFixed(1)}° · ${plan.positions.length} nových bodů místo jednoho. Největší poloměr mezi sousedy: ${plan.maxRadius.toFixed(3)} m.`));
+        const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('viewBox','0 0 360 180');svg.setAttribute('role','img');svg.setAttribute('aria-label','Náhled zaoblení silničního ohybu shora');svg.style.cssText='width:100%;height:180px;background:var(--panel-bg, #182123);border-radius:6px';
+        const xs=points.map(p=>p[0]),zs=points.map(p=>p[2]),minX=Math.min(...xs),minZ=Math.min(...zs),scale=Math.min(320/Math.max(1,Math.max(...xs)-minX),140/Math.max(1,Math.max(...zs)-minZ)),project=p=>[20+(p[0]-minX)*scale,160-(p[2]-minZ)*scale];
+        for(const [i,line]of [plan.original,[plan.original[0],...plan.positions,plan.original[2]]].entries()){
+          const poly=document.createElementNS(svg.namespaceURI,'polyline');poly.setAttribute('points',line.map(p=>project(p).join(',')).join(' '));poly.setAttribute('fill','none');poly.setAttribute('stroke',i?'#8bb8e8':'#e98989');poly.setAttribute('stroke-width','3');if(!i)poly.setAttribute('stroke-dasharray','5 5');svg.append(poly);
+        }
+        preview.append(svg,element('p','Modře: nová osa. Červeně přerušovaně: původní ohyb. Náhled v XZ nezobrazuje šířku auta ani povrch ulice.','notice'));blocked=false;
+      }catch(error){preview.append(element('p',error.message,'notice'));}
+      save.disabled=blocked;
+    };radius.oninput=()=>updateCurve();
+  }else if(action==='create-crossing'){
     form.append(element('p','Volná křižovatka má až čtyři výjezdy. Po vložení ji vyberte a propojte s jinou křižovatkou. Tento krok vytváří navigaci aut; model vozovky ani kolize nepřidává.','notice'));
     const origin=point?.position??[0,0,0];positions=['X','Y','Z'].map((axis,i)=>numeric(`Pozice ${axis}`,origin[i]+(i===0&&point?5:0)));
     velocity=numeric('Rychlost (herní jednotky)',1.2,{min:0});semaphore=element('input');semaphore.type='checkbox';field('Semafor — příznak pro kontrolu policie',semaphore);
@@ -70,13 +92,14 @@ export function roadTopologyDialog(file,action,point,{element,state,api,run,refr
       forward=laneFields('Směr tam');reverse=laneFields('Směr zpět');priorities=[forward.priority,reverse.priority];
     }else form.append(element('p','Odstraní se oba výjezdy a celý jejich společný řetězec bodů. Další cesty zůstanou připojené; úhly a číslování se upraví společně. Sdílené nebo nejednoznačné řetězce se neodstraní.','notice'));
   }else form.append(element('p',`Křižovatka ${point.recordIndex} se odstraní pouze tehdy, když ji nepoužívá žádná cesta ani jiný bod. Ostatní indexy a reference se přemapují.`));
-  const message=element('p','','notice'),actions=element('div',undefined,'tools'),cancel=element('button','Zrušit'),save=element('button',action==='merge-crossings'?'Sloučit křižovatky':action==='dissolve-crossing'?'Spojit silnice':action.startsWith('delete')||action==='disconnect'?'Odstranit z modu':'Vytvořit v modu','primary');cancel.type='button';cancel.onclick=()=>dialog.close();save.type='submit';save.disabled=blocked||Boolean(target&&!target.options.length);actions.append(cancel,save);form.append(fields,message,actions);updateMerge?.();
+  const message=element('p','','notice'),actions=element('div',undefined,'tools'),cancel=element('button','Zrušit'),save=element('button',action==='round-node'?'Zaoblit v modu':action==='merge-crossings'?'Sloučit křižovatky':action==='dissolve-crossing'?'Spojit silnice':action.startsWith('delete')||action==='disconnect'?'Odstranit z modu':'Vytvořit v modu','primary');cancel.type='button';cancel.onclick=()=>dialog.close();save.type='submit';save.disabled=blocked||Boolean(target&&!target.options.length);actions.append(cancel,save);form.append(fields,message,actions);updateMerge?.();updateCurve?.();
   const laneValues=direction=>direction.lanes.map(lane=>({type:Number(lane.type.value),distance:Number(lane.distance.value)}));
   form.onsubmit=event=>{event.preventDefault();if(blocked||state.busy||!form.reportValidity())return;run(async()=>{
     save.disabled=cancel.disabled=true;fields.inert=true;
     try{
       let request={action};
-      if(action==='create-crossing')request={...request,position:positions.map(input=>Number(input.value)),speed:Number(velocity.value),semaphore:Number(semaphore.checked)};
+      if(action==='round-node')request={...request,index:point.recordIndex,radius:Number(radius.value)};
+      else if(action==='create-crossing')request={...request,position:positions.map(input=>Number(input.value)),speed:Number(velocity.value),semaphore:Number(semaphore.checked)};
       else if(action==='split-crossing')request={...request,index:point.recordIndex,speed:Number(velocity.value),semaphore:Number(semaphore.checked)};
       else if(action==='delete-crossing'||action==='dissolve-crossing')request.index=point.recordIndex;
       else {

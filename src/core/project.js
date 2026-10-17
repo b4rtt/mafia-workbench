@@ -1015,7 +1015,7 @@ export class ModProject {
     await this.change(name,before=>{
       if(expectedHash!==hash(before))throw new Error('Soubor se od otevření změnil. Otevřete jej znovu.');
       result=changeRoadTopology(before,request);return result.data;
-    },'Změna křižovatek a propojení silniční sítě');
+    },request?.action==='round-node'?'Zaoblení silničního ohybu':'Změna křižovatek a propojení silniční sítě');
     return {index:result.index,mapping:result.mapping};
   }
   async saveDifference(name, changes, expectedHash) {
