@@ -75,6 +75,7 @@ export function changeNavigationConnection(source, request) {
 }
 
 export function changeNavigationPoint(source, request) {
+  if(request?.action==='insert')return insertNavigationPoint(source,request);
   const parsed=parseNavigation(source),bytes=Buffer.from(source),{action,index,position,type=1}=request??{};
   if(!['add','delete'].includes(action))throw new Error('Check: neplatná operace s bodem.');
   if(parsed.points.some((point,i)=>i>0&&point.position[0]<parsed.points[i-1].position[0]))throw new Error('Check: body nejsou seřazené podle X. Nejprve je potřeba opravit síť i segmenty.');
@@ -99,6 +100,36 @@ export function changeNavigationPoint(source, request) {
   const header=Buffer.from(bytes.subarray(0,8));header.writeUInt32LE(nodes.length,4);
   const result=Buffer.concat([header,...nodes,...connections]);parseNavigation(result);
   return {data:result,mapping,index:action==='add'?insertion:Math.min(index,nodes.length-1),pointCount:nodes.length};
+}
+
+function insertNavigationPoint(source, {from,to,position}) {
+  const parsed=parseNavigation(source),a=parsed.points[from],b=parsed.points[to];
+  if(!Number.isInteger(from)||!Number.isInteger(to)||!a||!b||from===to)throw new Error('Check: vyberte dva různé existující body spojení.');
+  const ab=a.links.filter(link=>link.target===to),ba=b.links.filter(link=>link.target===from);
+  if(!ab.length&&!ba.length)throw new Error('Check: mezi těmito body není spojení.');
+  if(ab.length>1||ba.length>1)throw new Error('Check: spojení má opakované vazby; nelze jednoznačně vložit bod.');
+  if(navigationLinkType(a.type,b.type)===null)throw new Error('Check: hra nedovoluje spojení těchto kategorií bodů.');
+  const added=changeNavigationPoint(source,{action:'add',position,type:a.type}),after=parseNavigation(added.data),bytes=Buffer.from(added.data),start=8+after.points.length*POINT_SIZE;
+  const inserted=after.points[added.index],first=added.mapping[from],last=added.mapping[to],outgoing=[];
+  if(!navigationDistance(a.position,inserted.position)||!navigationDistance(b.position,inserted.position))throw new Error('Check: nový bod musí mít jinou pozici než oba konce spojení.');
+  // Split each stored direction independently: asymmetric paths, block flags
+  // and all raw link types survive without inventing a missing reverse edge.
+  for(const [endpoint,other] of [[first,last],[last,first]])for(const link of after.points[endpoint].links)if(link.target===other){
+    const record=Buffer.from(bytes.subarray(start+link.index*LINK_SIZE,start+(link.index+1)*LINK_SIZE));
+    record.writeUInt16LE(other);record.writeFloatLE(navigationDistance(inserted.position,after.points[other].position),4);outgoing.push(record);
+  }
+  const offset=8+added.index*POINT_SIZE;bytes[offset+28]=bytes[offset+29]=outgoing.length;
+  const records=[];
+  for(const point of after.points) {
+    if(point.index===added.index)records.push(...outgoing);
+    for(const link of point.links){
+      let record=bytes.subarray(start+link.index*LINK_SIZE,start+(link.index+1)*LINK_SIZE);
+      if(point.index===first&&link.target===last||point.index===last&&link.target===first){record=Buffer.from(record);record.writeUInt16LE(added.index);record.writeFloatLE(navigationDistance(point.position,inserted.position),4);}
+      records.push(record);
+    }
+  }
+  const result=Buffer.concat([bytes.subarray(0,start),...records]);parseNavigation(result);
+  return {...added,data:result};
 }
 
 export function editNavigation(source, changes) {

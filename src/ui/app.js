@@ -626,7 +626,7 @@ function renderNavigation(main, file, previous) {
   const addPoint=element('button','Přidat bod…'),deletePoint=element('button','Odstranit bod');deletePoint.disabled=!file.points.length;tools.append(addPoint,deletePoint);
   async function changePoint(request){
     if(state.texts.size)throw new Error('Před změnou bodů uložte nebo zahoďte rozepsané vlastnosti.');
-    const result=await api.changeNavigationPoint(file.path,request,file.sha256);state.file=result.file;state.navigationIndex=Math.max(0,result.index);await refresh();renderDetail();status('Navigační body a odkazy segmentů uložené společně se zálohou a undo.');
+    const result=await api.changeNavigationPoint(file.path,request,file.sha256);state.file=result.file;state.navigationIndex=Math.max(0,result.index);view.selectedPoint=state.navigationIndex;await refresh();renderDetail();status('Navigační body a odkazy segmentů uložené společně se zálohou a undo.');
   }
   addPoint.onclick=()=>run(async()=>{
     if(state.texts.size)throw new Error('Před přidáním bodu uložte nebo zahoďte rozepsané vlastnosti.');
@@ -655,8 +655,19 @@ function renderNavigation(main, file, previous) {
     const point = file.points[frame.navigationIndex]; number.value = String(point.index); state.navigationIndex = point.index;
     const pane=inspector.querySelector(':scope>.inspector-content')??inspector; pane.replaceChildren();
     if(target.value===''||Number(target.value)===point.index)target.value=String(point.links[0]?.target??(point.index+1)%file.points.length);
-    const connections=element('div',undefined,'tools'),connect=element('button','Propojit body'),disconnect=element('button','Odpojit body');
-    connections.append(target,pickTarget,direction,connect,disconnect);
+    const connections=element('div',undefined,'tools'),connect=element('button','Propojit body'),disconnect=element('button','Odpojit body'),insert=element('button','Vložit bod do spojení…');
+    connections.append(target,pickTarget,direction,connect,disconnect,insert);
+    const insertionAvailable=()=>{const other=Number(target.value);insert.disabled=target.value===''||!Number.isInteger(other)||!file.points[other]||other===point.index||!(point.links.some(link=>link.target===other)||file.points[other].links.some(link=>link.target===point.index));};
+    target.oninput=insertionAvailable;insertionAvailable();
+    insert.onclick=()=>run(async()=>{
+      if(state.texts.size)throw new Error('Před vložením bodu uložte nebo zahoďte rozepsané vlastnosti.');
+      const other=file.points[Number(target.value)];if(!other||insert.disabled)return;
+      const dialog=element('dialog',undefined,'navigation-insert-dialog'),form=element('form',undefined,'mission-form'),fields=element('div',undefined,'mission-fields'),message=element('p',undefined,'notice'),save=element('button','Vložit bod','primary'),cancel=element('button','Zrušit'),actions=element('div',undefined,'tools');cancel.type='button';save.type='submit';
+      const xyz=['X','Y','Z'].map((axis,i)=>{const label=element('label',`Pozice ${axis}`),input=element('input');input.type='number';input.step='any';input.required=true;input.value=String((point.position[i]+other.position[i])/2);input.setAttribute('aria-label',`Vložený navigační bod ${axis}`);label.append(input);fields.append(label);return input;});
+      actions.append(cancel,save);form.append(fields,element('p',`Spojení bodů ${point.index} a ${other.index}. Nový bod převezme kategorii ${point.type} prvního bodu; směry i příznaky uložených vazeb zůstanou zachované. Pozice se automaticky nepřichytává k povrchu, průchodnost ověřte ve hře. Členství nového bodu v krytech AI nastavte zvlášť.`, 'notice'),message,actions);dialog.append(element('h3','Vložit bod do navigačního spojení'),form);cancel.onclick=()=>dialog.close();
+      form.onsubmit=event=>{event.preventDefault();if(state.busy||!form.reportValidity())return;run(async()=>{save.disabled=cancel.disabled=true;fields.inert=true;try{await changePoint({action:'insert',from:point.index,to:other.index,position:xyz.map(input=>Number(input.value))});dialog.close();}catch(error){message.textContent=error.message;throw error;}finally{save.disabled=cancel.disabled=false;fields.inert=false;}});};
+      dialog.addEventListener('cancel',event=>{if(state.busy)event.preventDefault();});dialog.addEventListener('close',()=>dialog.remove(),{once:true});document.body.append(dialog);dialog.showModal();xyz[0].focus();
+    });
     pane.append(element('h3',`Spojení bodu ${point.index}`),connections,element('p','Nové spojení respektuje kategorie bodů a vzdálenost. Jednosměrná cesta uloží i protější blokovanou vazbu; odpojení odstraní oba směry.','notice'));
     for(const [button,action] of [[connect,'connect'],[disconnect,'disconnect']])button.onclick=()=>run(async()=>{
       if(state.texts.size)throw new Error('Před změnou spojení uložte nebo zahoďte rozepsané vlastnosti.');

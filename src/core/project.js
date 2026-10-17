@@ -968,7 +968,7 @@ export class ModProject {
     const before=await this.read(name);if(hash(before)!==expectedHash)throw new Error('Soubor se od otevření změnil. Otevřete jej znovu.');
     const changed=changeNavigationPoint(before,request),files=[{path:name,data:changed.data,expectedHash}],segment=this.index.get(key(name.replace(/check\.bin$/i,'clusters.seg')));
     if(segment){const source=await this.read(segment.path);files.push({path:segment.path,data:remapSegments(source,changed.mapping,changed.pointCount),expectedHash:hash(source)});}
-    await this.changeBatch(files,request?.action==='add'?'Přidání navigačního bodu':'Odstranění navigačního bodu');
+    await this.changeBatch(files,request?.action==='insert'?'Vložení bodu do navigačního spojení':request?.action==='add'?'Přidání navigačního bodu':'Odstranění navigačního bodu');
     return changed.index;
   }
   async changeSegments(name,request,expectedHash,navigationHash){
