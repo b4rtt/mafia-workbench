@@ -23,6 +23,7 @@ import { Playtest } from '../core/playtest.js';
 import { readEmptyMissionZip } from '../core/mission.js';
 import { downloadOsm } from '../plugins/osm/download.js';
 import { osmSource, osmRoadPlan } from '../plugins/osm/area.js';
+import {readOsmMergeFiles,osmMergeInfo} from '../plugins/osm/merge.js';
 import { createOsmMission } from '../plugins/osm/mission.js';
 import { osmTerrainSurface } from '../plugins/osm/terrain.js';
 import { osmTerrainRoadPlan } from '../plugins/osm/navigation-elevation.js';
@@ -283,9 +284,15 @@ app.whenReady().then(async () => {
     const asset=current().asset(settings?.groundTexture);parseBmp(await current().read(asset.path));
     return downloadOsmElevation(osmImport.area,{groundTexture:asset.path,groundTileSize:settings?.groundTileSize},{cacheRoot:path.resolve(directory,'../../local/osm-elevation-cache')});
   }));
-  handle('osm:open', area => operation(async () => {
-    const active=current(),result=await dialog.showOpenDialog(window,{title:'Podklad OpenStreetMap (Overpass JSON nebo osm-source.json)',properties:['openFile'],filters:[{name:'OpenStreetMap JSON',extensions:['json']}]});
+  handle('osm:open', (area,merge=false) => operation(async () => {
+    if(typeof merge!=='boolean')throw Error('OpenStreetMap: neplatný způsob otevření podkladu.');
+    const active=current(),result=await dialog.showOpenDialog(window,{title:merge?'Sloučit 2–16 podkladů OpenStreetMap':'Podklad OpenStreetMap (Overpass JSON nebo osm-source.json)',properties:merge?['openFile','multiSelections']:['openFile'],filters:[{name:'OpenStreetMap JSON',extensions:['json']}]});
     if(result.canceled)return null;
+    if(merge){
+      const combined=await readOsmMergeFiles(result.filePaths,area),token=randomUUID();
+      osmImport={project:active,token,data:combined.data,area:combined.source.area};
+      return {token,source:combined.source,merge:combined.merge,cached:true};
+    }
     const stat=await fs.stat(result.filePaths[0]);if(!stat.isFile()||stat.size>8*1024*1024)throw Error('Podklad přesahuje 8 MB.');
     const input=JSON.parse(await fs.readFile(result.filePaths[0],'utf8'));
     const saved=input?.format==='mafia-workbench-osm-source'&&input.version===1,data=saved?input.data:input,source=osmSource(data,saved?input.area:area),token=randomUUID();
@@ -314,7 +321,8 @@ app.whenReady().then(async () => {
         }
       }
     }
-    osmImport={project:active,token,data,area:source.area};return {token,source,cached:true,...(elevation?{elevation}:{}),...(saved?{collisions:input.collisions??null,walkways:input.walkways??null,crossingMarkings:input.crossingMarkings??null,ambient:input.ambient??null,pedestrians:input.pedestrians??null,traffic:input.traffic??null,props:input.props??null,green:input.green??null,selected:input.selected,...(Object.hasOwn(input,'surface')?{surface:input.surface}:{}),...(Object.hasOwn(input,'buildings')?{buildings:input.buildings}:{})}:{})};
+    const mergeInfo=osmMergeInfo(data);
+    osmImport={project:active,token,data,area:source.area};return {token,source,cached:true,...(mergeInfo?{merge:mergeInfo}:{}),...(elevation?{elevation}:{}),...(saved?{collisions:input.collisions??null,walkways:input.walkways??null,crossingMarkings:input.crossingMarkings??null,ambient:input.ambient??null,pedestrians:input.pedestrians??null,traffic:input.traffic??null,props:input.props??null,green:input.green??null,selected:input.selected,...(Object.hasOwn(input,'surface')?{surface:input.surface}:{}),...(Object.hasOwn(input,'buildings')?{buildings:input.buildings}:{})}:{})};
   }));
   handle('osm:ambient-sounds', sounds => operation(() => loadOsmAmbientSounds(current(),sounds)));
   handle('osm:pedestrian-models', () => operation(async () => {const {models,warnings}=await loadOsmPedestrianModels(current());return {models,warnings};}));

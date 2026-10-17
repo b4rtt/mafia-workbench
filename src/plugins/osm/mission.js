@@ -246,7 +246,7 @@ export async function createOsmMission(project,zip,data,area,selected,options){
     provenance.limitations=provenance.limitations.map(s=>s.replace('no crossing paint, signals','no signals').replace('; no markings','; crossing paint only').replace('no road markings or exact landmarks','no other road markings or exact landmarks'));
     provenance.limitations.push('Uncontrolled zebra crossings only, explicit OSM pattern or manually enabled fallback; white 0.5m bars/gaps and 0.25m road-edge inset are approximations; independent editable models 0.012m above actual road triangles, no paint collisions, signals, islands, ramps, traffic priority or automatic pedestrian navigation');
   }
-  const sourceBytes=Buffer.from(JSON.stringify(provenance));if(elevation&&sourceBytes.length>8*1024*1024)throw Error('OpenStreetMap · terén: uložený podklad přesahuje 8 MB; zmenšete oblast nebo rastr.');
+  const sourceBytes=Buffer.from(JSON.stringify(provenance));if((elevation||data.workbench_merge)&&sourceBytes.length>8*1024*1024)throw Error(`OpenStreetMap · ${elevation?'terén':'sloučení'}: uložený podklad přesahuje 8 MB; zmenšete oblast nebo rastr.`);
   files.set('osm-source.json',sourceBytes);
   files.set('OSM-ATTRIBUTION.txt',Buffer.from(osmAttribution+'\n'+(elevation?osmElevationCredit(elevation):'')+'Source snapshot and import settings: osm-source.json\n'));
   const checkedDependencies=[...new Map(dependencies.map(d=>[d.path.toLowerCase(),d])).values()];
