@@ -502,3 +502,17 @@ Interní read-only pomocník ve v14 nevytvořil žádný záznam řidiče. **To 
 Dva skriptované běhy používají skutečný samostatný model `airflFor00.4ds` a jeho vlastní obálku; běžný provoz používá `airflFor10.4ds`. NPC projíždí tři body pomocí `enemy_car_moveto … stop`; speciální AI může používat i protější AI-only vazby a mění trasu u zastávek. Tyto výsledky proto nejsou párovým měřením vlivu samotného poloměru ani záměnou za řidiče běžného provozu. Oba mají výjezdy a R=6 m samo o sobě není obecná oprava.
 
 Všech pět vlastních běhů bylo ukončeno, klon vrácen přes undo na historii 38, zdraví hráče ve všech uložených checkpointech 100. Připravené road/check/KLZ odpovídaly testovanému projektu. Původní EXE a oba chráněné projekty zůstaly hashově stejné. Evidence zůstává v `local/osm-provider-vQHlcF`, opakované sestavení v `local/osm-space-r6-reproduction.json`. Produkční generátor, formát podkladu a nasazená aplikace se nemění. Další implementace potřebuje prostorově proveditelné vedení pro konkrétní vozidla, zachování skutečných rozměrů města a samostatnou kontrolu běžného i skriptovaného provozu. Celkový goal pokračuje.
+
+### Plynulý okruh v původních rozměrech (17. října 2026)
+
+Další soukromá kontrola zachovává původní rozměry malého trojúhelníku, vozovku 6 m a chodníky 2 m; používá existující produkční zaoblení vnitřních rohů 2 m. Pouze navigace je ručně nahrazená kruhem R=6,5 m kolem středu X=100,37520145 / Z=−55,48557218, se čtyřmi čtvrtkruhovými cestami a příjezdem. Původní OSM cesty jsou obousměrné; tento experiment testuje vždy jen jednu orientaci a nesmí se automaticky vydávat za jejich skutečnou jednosměrnost nebo za řešení protijedoucích aut.
+
+| Soukromý běh | Napojení příjezdu | Viditelné atomické polohy | Součet úseků XZ | Středy / obálky mimo asfalt |
+| --- | --- | ---: | ---: | ---: |
+| `junction-tight-circle-fillets-forward-v18` | Severozápadní čtvrtina, úhel počátku 135° | 192 | 382,092 m | 0 / 0 |
+| `junction-tight-circle-fillets-reverse-v18` | Stejné napojení při opačném oběhu, prudký obrat při vstupu | 174 | 369,344 m | 52 / 85 |
+| `junction-tight-circle-fillets-reverse-entry-v19` | Opačný oběh, napojení přes severovýchodní čtvrtinu 45° | 134 | 302,330 m | 0 / 0 |
+
+Všechny tři běhy mají 36 čerstvých checkpointů, stále stejné držené viditelné auto `airflFor10.4ds` a zdraví hráče 100. Vyhodnocuje se celá obdélníková obálka modelu ze společné atomicky uložené polohy a rotace, ne přesný collider ani každý snímek. Geometrická kontrola 360 tečných poloh karoserie kolem stejného středu ukázala, proč samotný malý kruh osy nestačí: bez zaoblení povrchu má kruh karoserie R=5,5 m přesah až 0,0718 m², s vnitřním zaoblením 2 m zde žádný. Kruhy R=5–6,5 m prošly touto geometrickou kontrolou zaobleného povrchu; to není dynamická garance pro tato nastavení.
+
+Dva úspěšné samostatné oběhy potvrzují proveditelnou trasu v tomto původním uličním pásu. Nejde o obecný generátor odbočení, souběžné obousměrné vedení, výškový test ani párové měření stejného náhodného řidiče. Neúspěšný opačný nájezd je zachovaný v evidenci. Vlastní Wine byly ukončené, projekt vrácen přes undo na historii 38 a chráněné soubory hashově stejné. Ruční kruhová kalibrace zůstává pouze v ignorovaném `local`; produkční import se na ni nemigruje.
