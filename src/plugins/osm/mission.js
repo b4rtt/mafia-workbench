@@ -13,7 +13,7 @@ import {hash} from '../../core/files.js';
 import {osmSurfaceModel} from './surface.js';
 import {osmTerrainSurface} from './terrain.js';
 import {osmTerrainRoadPlan} from './navigation-elevation.js';
-import {osmElevationSource} from './elevation-source.js';
+import {osmElevationSource,osmElevationCredit} from './elevation-source.js';
 import {osmBuildingFoundation} from './building-terrain.js';
 import {writeSurfaceModel} from '../../core/surface-model.js';
 import {Vector3} from 'three';
@@ -171,7 +171,7 @@ export async function createOsmMission(project,zip,data,area,selected,options){
   ];
   const sourceBytes=Buffer.from(JSON.stringify(provenance));if(elevation&&sourceBytes.length>8*1024*1024)throw Error('OpenStreetMap · terén: uložený podklad přesahuje 8 MB; zmenšete oblast nebo rastr.');
   files.set('osm-source.json',sourceBytes);
-  files.set('OSM-ATTRIBUTION.txt',Buffer.from(osmAttribution+'\n'+(elevation?`Elevation: ${elevation.source.name}\n${elevation.source.attribution}\nDatum: ${elevation.source.verticalDatum}; resolution: ${elevation.source.resolution}m; acquired: ${elevation.source.acquiredAt}\nSnapshot SHA-256: ${elevation.sha256}\n`:'')+'Source snapshot and import settings: osm-source.json\n'));
+  files.set('OSM-ATTRIBUTION.txt',Buffer.from(osmAttribution+'\n'+(elevation?osmElevationCredit(elevation):'')+'Source snapshot and import settings: osm-source.json\n'));
   const checkedDependencies=[...new Map(dependencies.map(d=>[d.path.toLowerCase(),d])).values()];
   await project.createFiles([...files].map(([path,data])=>({path:folder+path,data})).concat(extra),`OpenStreetMap: ${pedestrians?'chodci · ':''}${traffic?'automobilový provoz · ':''}${props?'osazené město s kolizemi':green?'ulice, zeleň'+(buildings?' a domy':'')+' s kolizemi':buildings?'ulice a budovy s kolizemi':surface?'ulice s kolizemi':'síť ulic'} ${name}`,checkedDependencies,'OpenStreetMap · nová mise',ownership);
   return {...(elevation?{elevation}:{}),path:folder+(surface||buildings?'scene2.bin':'road.bin'),network:folder+'road.bin',scene:folder+'scene2.bin',crossings:plan.crossings.length,roads:plan.roads.length,surface,buildings,...(traffic?{traffic}:{}),...(pedestrians?{pedestrians}:{}),...(green?{green:greenResult}:{}),...(props?{props}:{}),...(ambient?{ambient}:{})};

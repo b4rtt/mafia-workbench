@@ -2,6 +2,14 @@
 
 Aktualizace: 17. října 2026. Vývoj pokračuje; komplexní editor není dokončený. Implementace, datové testy, ověření UI a ověření ve hře jsou různé úrovně dokončení; neoznačovat jednu za druhou. Podrobnosti existujících funkcí a jejich omezení jsou v README.md a research/formats.md. Původní hra se nemění, úpravy mají kontrolu verze, zálohu, export a undo. Herní data a soukromé reference nepatří do veřejného repozitáře.
 
+## Stažení výšek pro OSM (2026-10-17)
+
+- Dialog nyní nabízí Terrain Tiles EU-DEM, původní PNG cache a výslovné přepnutí do roviny. Sdílený rastr stále používají všechny vrstvy; změna textury/UV vyžaduje nové sestavení z cache. Export uchovává atribuci, jednotlivé otisky a skutečné datum stažení oddělené od stáří dlaždice.
+- Pevné URL, pouze rozpoznané EU-DEM hlavičky, nejvýše 16×1 MB a 60 s. Numerický PNG dekodér s CRC a limitem inflate; testy zahrnují švy, RGB/RGBA, pět filtrů, poškození, NoData, velké odpovědi, offline cache a obnovu poškozené dlaždice. Krok 10 m není přesnost: zdroj je nominálně 30 m, historický, výškový systém neověřený. Ostatní zdroje zatím nejsou podporované.
+- Skutečná pražská dlaždice stažena; formulář vytvořil kompletní testovací misi přes offline cache. Původní engine na staženém reliéfu ověřil hráče, osm kotev, tři kolizní paprsky a přesné road/check/KLZ. Původní hra a chráněné projekty hashově stejné, vlastní test ukončen a undo dokončené.
+- Skutečný pražský výřez 200 m prošel produkčním importem: 13 domů, 19 ploch zeleně, 27 objektů, 17 zvuků, 6 automobilových úseků a 3 464 pěších bodů. 300 m překročilo bezpečný limit pěší sítě; odmítnutí bez zápisu. Větší výřez má datový audit, ne nativní průchod.
+- Podrobné výsledky, místní důkazy a limity: research/osm-elevation.md, oddíl Poskytovatel. Další práce má ověřovat souvislý provoz a průchod skutečnou oblastí; nepovažovat DEM za vyřešené mosty, schody a ruční úpravy výšek.
+
 ## Společný výškový import a kontrola názvu OSM (2026-10-17)
 
 - Schválená kontrola názvu nyní sdílí jeden UnicodeSets pattern mezi HTML polem OSM a hostem. Doslovná pomlčka používá hex escape; přijímá 1–48 ASCII znaků, odmítá zakázané cesty, diakritiku i rezervované názvy v různých velikostech písmen. Pole má vysvětlující title. Ve skutečném Electron formuláři ověřeno blokování neplatného submitu a přijetí platných názvů bez chyb v konzoli.

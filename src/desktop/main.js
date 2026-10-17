@@ -9,6 +9,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import fs from 'node:fs/promises';
 import { Worker } from 'node:worker_threads';
 import { ModProject } from '../core/project.js';
+import { parseBmp } from '../core/bmp.js';
 import { parseTextDb } from '../core/textdb.js';
 import { prepareDialogueWav } from '../core/dialogue-audio.js';
 import { prepareModelImport } from '../core/model-import.js';
@@ -24,6 +25,7 @@ import { createOsmMission } from '../plugins/osm/mission.js';
 import { osmTerrainSurface } from '../plugins/osm/terrain.js';
 import { osmTerrainRoadPlan } from '../plugins/osm/navigation-elevation.js';
 import { osmElevationSource } from '../plugins/osm/elevation-source.js';
+import { downloadOsmElevation } from '../plugins/osm/elevation-download.js';
 import {osmShellPlan} from '../plugins/osm/building-shells.js';
 import {loadOsmShellStyles} from '../plugins/osm/building-shell-assets.js';
 import { osmSurfaceModel } from '../plugins/osm/surface.js';
@@ -272,6 +274,11 @@ app.whenReady().then(async () => {
     const source=osmSource(result.data,area),token=randomUUID();
     osmImport={project:active,token,data:result.data,area:source.area};
     return {token,source,cached:result.cached};
+  }));
+  handle('osm:elevation', (token,settings) => operation(async () => {
+    if(!osmImport||osmImport.project!==current()||osmImport.token!==token)throw Error('Nejdřív načtěte oblast OpenStreetMap pro tento projekt.');
+    const asset=current().asset(settings?.groundTexture);parseBmp(await current().read(asset.path));
+    return downloadOsmElevation(osmImport.area,{groundTexture:asset.path,groundTileSize:settings?.groundTileSize},{cacheRoot:path.resolve(directory,'../../local/osm-elevation-cache')});
   }));
   handle('osm:open', area => operation(async () => {
     const active=current(),result=await dialog.showOpenDialog(window,{title:'Podklad OpenStreetMap (Overpass JSON nebo osm-source.json)',properties:['openFile'],filters:[{name:'OpenStreetMap JSON',extensions:['json']}]});

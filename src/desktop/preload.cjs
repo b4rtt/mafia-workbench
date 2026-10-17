@@ -29,6 +29,7 @@ contextBridge.exposeInMainWorld('workbench', {
   missionTemplate: () => invoke('mission:template'),
   createMission: options => invoke('mission:create', options),
   osmArea: (area,provider) => invoke('osm:area',area,provider),
+  osmElevation: (token,settings) => invoke('osm:elevation',token,settings),
   openOsm: area => invoke('osm:open',area),
   osmAmbientSounds: sounds => invoke('osm:ambient-sounds',sounds),
   osmPedestrianModels: () => invoke('osm:pedestrian-models'),
