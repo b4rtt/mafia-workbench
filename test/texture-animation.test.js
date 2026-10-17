@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { parseFourDs, editFourDs } from '../src/core/fourds.js';
-import { textureSequence, textureFrame } from '../src/ui/texture-animation.js';
+import { textureSequence, textureFrame } from '../src/shared/texture-animation.js';
 import { ParticleViewport } from '../src/ui/particle-preview.js';
 import { materialTransparency } from '../src/ui/materials.js';
 

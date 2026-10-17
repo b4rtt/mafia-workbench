@@ -175,7 +175,11 @@ function texturedModel({texture='WALL.BMP',alpha='MASK.BMP',environment='REFLECT
   const header=Buffer.alloc(16);header.write('4DS\0');header.writeUInt16LE(29,4);header.writeUInt16LE(1,14);
   const values=Buffer.alloc(44);values.writeUInt32LE((alpha?0x40000000:0)|(environment?0x80000:0)|(animated?0x4000000:0));values.writeFloatLE(1,40);
   const text=value=>Buffer.concat([Buffer.from([Buffer.byteLength(value)]),Buffer.from(value)]);
-  return Buffer.concat([header,values,...(environment?[Buffer.alloc(4),text(environment)]:[]),text(texture),...(alpha?[text(alpha)]:[]),...(animated?[Buffer.alloc(18)]:[]),Buffer.alloc(3)]);
+  const animation=Buffer.alloc(18);
+  if(typeof animated==='object'){
+    animation.writeUInt32LE(animated.frames??3);animation.writeUInt16LE(animated.unknown??0,4);animation.writeUInt32LE(animated.delay??100,6);animation.writeUInt32LE(animated.unknown2??0,10);animation.writeUInt32LE(animated.unknown3??0,14);
+  }
+  return Buffer.concat([header,values,...(environment?[Buffer.alloc(4),text(environment)]:[]),text(texture),...(alpha?[text(alpha)]:[]),...(animated?[animation]:[]),Buffer.alloc(3)]);
 }
 test('mission assets include scene materials, direct models and every diffuse, alpha and reflection dependency without mutations',async t=>{
   const {project,root}=await fixture(t),modelName='models/Human.4ds';
@@ -199,6 +203,36 @@ test('model failures point to owning scene, unsafe references never escape asset
   await project.change('models/Human.4ds',Buffer.from('broken'),'Damaged model');let report=await project.checkMission(scenePath),issues=errors(report).filter(i=>i.code==='model');assert.equal(issues.length,1);assert(issues[0].message.includes('Tommy, Companion'));await project.undo();
   await project.change('models/Human.4ds',texturedModel({texture:'../outside.bmp',alpha:'',environment:'',animated:true}),'Animated material');report=await project.checkMission(scenePath);assert(errors(report).some(i=>i.code==='texture'&&i.path==='models/Human.4ds'));assert.equal(report.issues.filter(i=>i.code==='texture-animation').length,1);
   await project.undo();assert.deepEqual(errors(await project.checkMission(scenePath)),[]);
+});
+
+test('mission check follows every supported animation frame, deduplicates shared reads and preserves static alpha/reflection names',async t=>{
+  const {project,root}=await fixture(t),model='models/Human.4ds';
+  await project.change(model,texturedModel({texture:'fire007.bmp',alpha:'MASK007.BMP',environment:'REFLECT007.BMP',animated:{}}),'Animated model');
+  await project.change('missions/Test/scene.4ds',texturedModel({texture:'maps/FIRE007.BMP',alpha:'',environment:'',animated:{}}),'Same sequence in scene');
+  await project.createFiles(['FIRE007.bmp','fire009.BMP','mask007.bmp','reflect007.bmp'].map(name=>({path:'MAPS/'+name,data:Buffer.from('image payload')})));
+  const before=await fs.readFile(root+'/workbench.json'),history=project.manifest.history.length;
+  let report=await project.checkMission(scenePath),missing=errors(report).filter(i=>i.code==='texture');
+  assert.equal(missing.length,2);assert(missing.every(i=>/fire008\.bmp/i.test(i.message)&&i.message.includes('materiály 1')));assert(missing.some(i=>i.path===model));assert(missing.some(i=>/SCENE.4DS$/.test(i.path)));
+  assert.equal(report.textures,5);assert.equal(report.files.filter(f=>/^MAPS\//.test(f.path)).length,4);assert(!report.issues.some(i=>i.code==='texture-animation'));assert.equal(project.manifest.history.length,history);assert.deepEqual(await fs.readFile(root+'/workbench.json'),before);
+  await project.createFiles([{path:'maps/Fire008.bmp',data:Buffer.from('middle frame')}]);
+  const snapshot=await fs.readFile(root+'/workbench.json');report=await project.checkMission(scenePath);assert.deepEqual(errors(report),[]);assert.equal(report.textures,5);assert.equal(report.files.filter(f=>/^maps\//i.test(f.path)).length,5);
+  assert.deepEqual((await(await ModProject.open(root)).checkMission(scenePath)),report);assert.deepEqual(await fs.readFile(root+'/workbench.json'),snapshot);
+  await project.undo();assert.equal(errors(await project.checkMission(scenePath)).filter(i=>i.code==='texture').length,2);
+});
+
+test('later animation frames participate in revision guards; unsupported metadata never guesses dependencies',async t=>{
+  const {project}=await fixture(t),model='models/Human.4ds';
+  await project.change(model,texturedModel({texture:'fire007.bmp',alpha:'',environment:'',animated:{}}),'Animated model');
+  await project.createFiles([7,8,9].map(i=>({path:`maps/fire00${i}.bmp`,data:Buffer.from('frame '+i)})));
+  const read=project.read.bind(project),history=project.manifest.history.length;let count=0;
+  project.read=async name=>{const bytes=await read(name);return name==='maps/fire009.bmp'&&++count===2?Buffer.concat([bytes,Buffer.from([0])]):bytes;};
+  await assert.rejects(project.checkMission(scenePath),/během kontroly změnila/);assert.equal(project.manifest.history.length,history);project.read=read;
+  for(const animated of [{unknown:1},{unknown2:1},{unknown3:1},{frames:129},{frames:0},{delay:0}]){
+    await project.change(model,texturedModel({texture:'fire007.bmp',alpha:'',environment:'',animated}),'Unsupported sequence');
+    const report=await project.checkMission(scenePath),issue=report.issues.find(i=>i.code==='texture-animation');assert(issue);assert.equal(issue.severity,'info');assert.equal(issue.path,model);assert.match(issue.message,/Materiál 1/);assert.match(issue.message,/nelze ověřit/);assert.equal(report.textures,1);assert(!report.files.some(f=>/fire00[89]/.test(f.path)));await project.undo();
+  }
+  await project.change(model,texturedModel({texture:'../escape007.bmp',alpha:'',environment:'',animated:{}}),'Unsafe sequence');
+  const reads=[];project.read=async name=>{reads.push(name);return read(name);};const report=await project.checkMission(scenePath);assert.equal(errors(report).filter(i=>i.code==='texture').length,3);assert(!reads.some(n=>n.includes('escape')));assert.equal(report.textures,0);
 });
 
 test('attack checks validate saved gates, human targets, weapon definitions and models without writes', async t => {

@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { EffectModelViewport } from './effect-model-preview.js';
 import { ParticleSimulation } from './particle-simulation.js';
 import { materialTransparency } from './materials.js';
-import { textureSequence, textureFrame } from './texture-animation.js';
+import { textureSequence, textureFrame } from '../shared/texture-animation.js';
 
 // Reuse the model reader and texture/mask loader; duplicate only the selected
 // visual's geometry, never its helpers, descendants or source-frame placement.

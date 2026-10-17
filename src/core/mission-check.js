@@ -16,6 +16,7 @@ import { resolveHumanFollowing } from '../shared/human-following.js';
 import { parseNavigation } from './navigation.js';
 import { resolveHumanDriving } from '../shared/human-driving.js';
 import { parseRoads } from './roads.js';
+import { textureSequence } from '../shared/texture-animation.js';
 
 const key = name => name.replaceAll('\\', '/').normalize('NFC').toLowerCase();
 
@@ -48,10 +49,17 @@ export async function checkMission(project, name, textDb = null) {
   const models = new Set(), textures = new Set();
   async function materialFiles(model, modelPath) {
     const references = new Map();
+    function reference(name, index) {
+      const uses = references.get(key(name)) ?? { name, materials: [] };
+      uses.materials.push(index + 1); references.set(key(name), uses);
+    }
     for (const [index, material] of model.materials.entries()) {
-      for (const field of ['texture', 'alphaTexture', 'environmentTexture']) if (material[field]) {
-        const name = material[field], uses = references.get(key(name)) ?? { name, materials: [] };
-        uses.materials.push(index + 1); references.set(key(name), uses);
+      for (const field of ['texture', 'alphaTexture', 'environmentTexture']) if (material[field]) reference(material[field], index);
+      try {
+        const sequence = textureSequence(material);
+        for (const name of sequence?.names ?? []) reference(name, index);
+      } catch (error) {
+        issue('info', 'texture-animation', `Materiál ${index + 1}: ${error.message}. Kontrola zahrnuje pouze uložený základní název; další snímky této sekvence nelze ověřit.`, { path: modelPath });
       }
     }
     for (const { name, materials } of references.values()) {
@@ -60,7 +68,6 @@ export async function checkMission(project, name, textDb = null) {
         textures.add(key(path)); await read(path);
       } catch (error) { issue('error', 'texture', `Textura ${name} · materiály ${[...new Set(materials)].join(', ')}: ${error.message}`, { path: modelPath }); }
     }
-    if (model.materials.some(material => material.flags & 0x04000000)) issue('info', 'texture-animation', 'Animované textury: kontrola zahrnuje pouze uložený základní název, další snímky sekvence se nekontrolují.', { path: modelPath });
   }
   if (geometry) await materialFiles(geometry, assets.get(key(`${folder}/scene.4ds`)).path);
   if (rawScene) {
