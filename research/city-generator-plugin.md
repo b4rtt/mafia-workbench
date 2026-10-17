@@ -1,4 +1,4 @@
-# Navazující projekt: AI plugin pro generování města
+# Navazující projekt: mapový generátor města
 
 Požadavek uživatele, uložený 13. října 2026. Modul zůstává oddělený od editoru; celý generátor města dosud není hotový.
 
@@ -17,7 +17,7 @@ Uživatel vybere část skutečného města na mapě. Modul z mapových podklad�
 - Živý svět: automobilový provoz, chodci, jejich navigace a vazby na prostředí.
 - Herní funkčnost: kolize, silniční i pěší sítě, sektory/portály a potřebné soubory mise; export a ověřené spuštění v enginu, ne pouze náhled v editoru.
 - Kvalita: souvislé ulice, přirozené křižovatky, chodníky, osazení rekvizit a výškové napojení; výsledky musí být kontrolovatelné a ručně opravitelné v editoru.
-- AI: více zapojit Codex, případně Claude; uživatel uvedl konkrétně „Claude opus 5.5“. Dostupný model, integrační rozhraní, autorizace a cena se ověří až při návrhu modulu. Záznam není tvrzením, že uvedená verze existuje či je dostupná.
+- Generování bez AI: upřesnění uživatele 17. října 2026 nahrazuje původní představu AI generátoru. Import mapy a sestavení města nesmějí vyžadovat model, účet ani volání AI služby. Codex/Claude mohou pomáhat při vývoji pravidel a assetů; nejsou závislostí následného importu.
 
 ## Oddělení modulu
 
@@ -31,4 +31,15 @@ Při zahájení navrhnout úzké verzované rozhraní pro katalog assetů, tvorb
 
 ## Zadání příštího goalu
 
-Vytvořit oddělený AI plugin/modul pro Mafia Workbench, který z uživatelem vybrané reálné oblasti města a vhodných dostupných mapových/výškových dat sestaví vizuálně propracované, hratelné město z herních assetů: terén, budovy, silnice a chodníky, parky, lampy a vybavení, zvuky, kolize, dopravu i chodce a jejich navigaci. Výsledek musí jít dále editovat, exportovat a ověřit v původní hře. Vyhodnotit zapojení Codexu/Claude a vhodné poskytovatele dat. Zahájit po dokončení schopnosti editoru tvořit celou vlastní misi; neoznačovat hrubou generovanou mapu za hotový plugin.
+Vytvořit oddělený deterministický plugin/modul pro Mafia Workbench, který z uživatelem vybrané reálné oblasti města a vhodných dostupných mapových/výškových dat sestaví vizuálně propracované, hratelné město z herních assetů: terén, budovy, silnice a chodníky, parky, lampy a vybavení, zvuky, kolize, dopravu i chodce a jejich navigaci. Výsledek musí jít dále editovat, exportovat a ověřit v původní hře. Generování musí fungovat bez AI, se znovupoužitelnými pravidly a katalogem assetů. Vyhodnotit vhodné poskytovatele mapových a výškových dat. Zahájit po dokončení schopnosti editoru tvořit celou vlastní misi; neoznačovat hrubou generovanou mapu za hotový plugin.
+
+
+## Upřesnění uživatele 17. října 2026: celé město a vzhled
+
+- Cílem je vybrat i **celé město**, nejen současný výřez do 450 m. Současné limity ukázky nejsou cílové omezení produktu. Vstup lze sestavit po částech, ale výsledek musí být souvislý: společné OSM identity, přesné hrany terénu, průběžné ulice/chodníky, kolize, pěší i automobilová navigace bez duplicit a umělých slepých konců na hranici částí.
+- Shodný uložený podklad, ověřený katalog a verze pravidel musejí vytvořit stejný výsledek bez AI a bez sítě. Případná variace má stabilní seed; závislosti, verze a původ dat se ukládají. AI není požadavkem spuštění/importu.
+- Větší město potřebuje skutečné prostorové rozdělení a rozpočty. Ověřit využití nativních sektorů/portálů, LOD a instancí/cache; geometrii i kolize dělit podle doložených limitů enginu, ne zvyšováním bezpečnostních limitů naslepo. Samostatně měřit editor (načítání, výběr, paměť) a hru (snímkování, paměť, přechody oblastí, doprava). Negarantovat plynulost jen podle počtu trojúhelníků nebo syntetického náhledu.
+- Priorita vzhledu: zamezit ořezaným oknům a dveřím, nekonzistentnímu měřítku fasád a nápadnému opakování stejného domu. Vycházet z původních herních fasád a domů, s respektováním jejich skutečných UV/pater/střech, materiálů a kolizí. Vhodné původní modely lze umístit například do odpovídajících půdorysů rodinných domů; nenatahovat model přes libovolný pozemek.
+- Různorodost nesmí přebít mapový půdorys, výšku, návaznost ulice nebo bezpečné rozměry. Výběr podle typu/rozměrů stavby a stabilní obměna jsou součástí algoritmu, ne ručního promptu při každém importu.
+
+Tyto požadavky nejsou dosud splněné. První navazující práce po dokončení rozpracované kontroly mise: prohlédnout původní fasády/UV a odstranit příčinu useknutých fasádních modulů; následně rozšířit vhodný katalog původních domů. Celé město a prostorové členění zůstávají dalšími většími bloky.

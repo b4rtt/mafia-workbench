@@ -23,10 +23,11 @@
   ],
   "progressFile": "DEVELOPMENT.md",
   "nextGoal": {
-    "title": "Samostatný AI plugin pro generování města",
-    "status": "waiting-for-complete-mission-authoring",
+    "title": "Samostatný mapový generátor celého města bez AI",
+    "status": "in-progress-osm-foundation",
     "prerequisite": "Editor umožní vytvořit, exportovat a v původní hře ověřit celou vlastní hratelnou misi.",
     "specificationFile": "research/city-generator-plugin.md",
-    "activation": "Po splnění předpokladu založit samostatný goal podle uloženého zadání. Nenahrazovat aktivní goal editoru ani nyní zahajovat plugin."
+    "activation": "Uživatel 16. října 2026 výslovně přesunul prioritu na OSM integraci. Pokračovat v odděleném modulu v rámci aktivního goalu editoru; první výřez nepovažovat za splnění generátoru celého města.",
+    "generation": "Deterministický import bez AI při běhu: celé souvislé město, navazující sítě, optimalizace nativními možnostmi enginu a kvalitní různé domy podle upřesnění 17. října 2026."
   }
 }
