@@ -15,8 +15,7 @@ import {roadConnections} from '../../shared/roads.js';
 import {readEmptyMissionZip,configureEmptyMission,missionName} from '../../core/mission.js';
 import {parseFourDs} from '../../core/fourds.js';
 import {hash} from '../../core/files.js';
-import {osmSurfaceModel} from './surface.js';
-import {osmTerrainSurface} from './terrain.js';
+import {osmCitySurface} from './city-surface.js';
 import {osmTerrainRoadPlan} from './navigation-elevation.js';
 import {osmElevationSource,osmElevationCredit} from './elevation-source.js';
 import {osmBuildingFoundation} from './building-terrain.js';
@@ -80,14 +79,14 @@ export async function createOsmMission(project,zip,data,area,selected,options){
   };
   const reservedVertices=()=>options.collisions?osmCollisionUsage(collisions).vertices:collisions.reduce((n,c)=>n+c.positions.length/3,0);
   if(options.surface!==undefined&&options.surface!==null){
-    generated=elevation?osmTerrainSurface(plan,source.area,options.surface,elevation):osmSurfaceModel(plan,source.area,options.surface);
+    generated=osmCitySurface(plan,source.area,options.surface,elevation);
     if(elevation){roadPlan=osmTerrainRoadPlan(plan,generated);files.set('road.bin',osmRoadBytes(roadPlan));const player=inspectScene(files.get('scene2.bin')).objects.find(o=>o.name==='Tommy');if(!player)throw Error('OpenStreetMap · terén: šablona nemá hráče Tommy.');const point=roadPlan.roads[0].positions[0];files.set('scene2.bin',editScene(files.get('scene2.bin'),player.fields.position,[point[0],Math.fround(point[1]+1),point[2]]));}
     const modelName=`WB_OSM_${name}`,modelPath=`models/${modelName}.4ds`,bytes=writeSurfaceModel(generated.model);
     if(project.manifest.assets.some(a=>a.path.toLowerCase()===modelPath.toLowerCase()))throw Error('Model povrchu tohoto názvu již existuje. Zvolte jiný název mise.');
     for(const path of [options.surface.roadTexture,options.surface.sidewalkTexture,options.surface.curbTexture,...(elevation?[elevation.groundTexture]:[])]){const asset=project.asset(path),texture=await project.read(asset.path);parseBmp(texture);dependencies.push({path:asset.path,expectedHash:hash(texture)});}
     const {scene,object}=add('OSM_STREETS',modelName+'.i3d',[0,0,0],[1,0,0,0],[1,1,1]);
     const collisionTriangles=collide(parseFourDs(bytes,true),object,scene);
-    extra.push({path:modelPath,data:bytes});surface={model:modelPath,triangles:generated.triangles,collisionTriangles,profiles:generated.profiles,...(generated.corners?{corners:generated.corners}:{})};
+    extra.push({path:modelPath,data:bytes});surface={model:modelPath,triangles:generated.triangles,collisionTriangles,profiles:generated.profiles,...(generated.corners?{corners:generated.corners}:{}),...(generated.spatial?{spatial:generated.spatial}:{})};
   }
   if(options.traffic!==undefined&&options.traffic!==null){
     const catalog=await loadOsmTrafficModels(project,options.traffic);traffic=osmTrafficPlan(roadPlan,generated,options.traffic);

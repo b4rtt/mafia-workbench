@@ -25,13 +25,12 @@ import { downloadOsm } from '../plugins/osm/download.js';
 import { osmSource, osmRoadPlan } from '../plugins/osm/area.js';
 import {readOsmMergeFiles,osmMergeInfo} from '../plugins/osm/merge.js';
 import { createOsmMission } from '../plugins/osm/mission.js';
-import { osmTerrainSurface } from '../plugins/osm/terrain.js';
+import {osmCitySurface} from '../plugins/osm/city-surface.js';
 import { osmTerrainRoadPlan } from '../plugins/osm/navigation-elevation.js';
 import { osmElevationSource } from '../plugins/osm/elevation-source.js';
 import { downloadOsmElevation } from '../plugins/osm/elevation-download.js';
 import {osmShellPlan} from '../plugins/osm/building-shells.js';
 import {loadOsmShellStyles} from '../plugins/osm/building-shell-assets.js';
-import { osmSurfaceModel } from '../plugins/osm/surface.js';
 import {loadOsmBuildingModels} from '../plugins/osm/building-assets.js';
 import {osmBuildingPlan} from '../plugins/osm/buildings.js';
 import {loadOsmPropModels} from '../plugins/osm/prop-assets.js';
@@ -304,7 +303,7 @@ app.whenReady().then(async () => {
       if(input.green!==undefined&&input.green!==null){await loadOsmGreenTextures(active,input.green);if(!input.surface)throw Error('OpenStreetMap · zeleň: chybí povrchy ulic.');}
       if(input.walkways!==undefined&&input.walkways!==null){await loadOsmWalkwayTexture(active,input.walkways);if(!input.surface)throw Error('OpenStreetMap · pěší cesty: chybí povrchy ulic.');}
       if(input.ambient!==undefined&&input.ambient!==null){validateOsmAmbient(input.ambient);if(!input.surface||input.ambient.green&&!input.green)throw Error('OpenStreetMap · zvuky: chybí povrchy nebo zeleň.');await loadOsmAmbientSounds(active,[input.ambient.streets,input.ambient.green].filter(Boolean).map(l=>l.sound));}
-      const plan=osmRoadPlan(source,input.selected),surface=Object.hasOwn(input,'surface')&&input.surface!==null?(elevation?osmTerrainSurface(plan,source.area,input.surface,elevation):osmSurfaceModel(plan,source.area,input.surface)):null;
+      const plan=osmRoadPlan(source,input.selected),surface=Object.hasOwn(input,'surface')&&input.surface!==null?osmCitySurface(plan,source.area,input.surface,elevation):null;
       if(input.pedestrians!==undefined&&input.pedestrians!==null){await loadOsmPedestrianModels(active,input.pedestrians);if(!surface)throw Error('OpenStreetMap · chodci: chybí povrchy ulic.');if(input.pedestrians.walkways&&!input.walkways)throw Error('OpenStreetMap · chodci: chybí samostatné pěší cesty.');if(input.pedestrians.parkPaths&&!input.green)throw Error('OpenStreetMap · chodci: chybí zeleň pro parkové cesty.');}
       if(input.traffic!==undefined&&input.traffic!==null){await loadOsmTrafficModels(active,input.traffic);osmTrafficPlan(elevation?osmTerrainRoadPlan(plan,surface):plan,surface,input.traffic);}
       if(Object.hasOwn(input,'buildings')&&input.buildings!==null){
