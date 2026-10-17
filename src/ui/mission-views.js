@@ -18,6 +18,7 @@ export class MissionViews {
     } else if (view.navigationPath || view.roadPath) {
       path=view.navigationPath??view.roadPath;type=view.navigationPath?'navigation':'roads';value={selectedPoint:view.selectedPoint,geometry:view.navigationGeometryWanted??view.roadGeometryWanted};
       if(view.roadPath)value.lanes=view.roadLanesVisible;
+      if(view.navigationPath)value.route=view.navigationRoute;
     } else if (view.segmentsPath) {
       path=view.segmentsPath;type='segments';value={index:view.segmentIndex,special:view.segmentSpecial,selectedPoint:view.selectedPoint,geometry:view.segmentGeometryWanted};
     } else if (view.effectsPath) {

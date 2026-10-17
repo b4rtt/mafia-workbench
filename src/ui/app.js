@@ -55,6 +55,7 @@ import { renderAnimationTimeline } from './animation-timeline.js';
 import { toLs3dRotation } from './transforms.js';
 import { renderSegments } from './segments.js';
 import { NavigationViewport } from './navigation.js';
+import { navigationRouteControls } from './navigation-route.js';
 import { TrackViewport, companionAnimation } from './track.js';
 import { CutsceneViewport, CutsceneAudio, activeCutsceneAudio } from './cutscene.js';
 import { Group } from 'three';
@@ -241,7 +242,7 @@ function renderDetail() {
   const roadView = file.type === 'roads' && previous?.roadPath === file.path && previous.projectRoot === state.project.root
     ? {camera:previous.captureCamera(),geometry:previous.roadGeometryWanted,selectedPoint:previous.selectedPoint,lanes:previous.roadLanesVisible} : remembered;
   const navigationView = file.type === 'navigation' && previous?.navigationPath === file.path && previous.projectRoot === state.project.root
-    ? {camera:previous.captureCamera(),geometry:previous.navigationGeometryWanted,selectedPoint:previous.selectedPoint} : remembered;
+    ? {camera:previous.captureCamera(),geometry:previous.navigationGeometryWanted,selectedPoint:previous.selectedPoint,route:previous.navigationRoute} : remembered;
   const segmentView=file.type==='segments'&&previous?.segmentsPath===file.path&&previous.projectRoot===state.project.root?{camera:previous.captureCamera(),index:previous.segmentIndex,special:previous.segmentSpecial,selectedPoint:previous.selectedPoint,geometry:previous.segmentGeometryWanted}:remembered;
   const collisionView=file.type==='collision'&&previous?.collisionPath===file.path&&previous.projectRoot===state.project.root?{camera:previous.captureCamera(),selectedId:previous.selectedId,search:previous.collisionSearch,type:previous.collisionType,mode:previous.gizmo.mode,geometry:previous.collisionGeometryWanted}:remembered;
   const animationView=file.type==='animation'&&previous?.animationPath===file.path&&previous.projectRoot===state.project.root?{camera:previous.captureCamera(),model:previous.animationModel,...previous.animationState()}:file.type==='animation'&&state.nextAnimationModel?{model:state.nextAnimationModel}:null;
@@ -667,6 +668,7 @@ function renderNavigation(main, file, previous) {
       if (section === 'points' && key === 'position' && Array.isArray(value) && value.length === 3 && value.every(n=>typeof n==='number'&&Number.isFinite(n))) view.updatePoint(Number(index),value);
       if (section === 'points' && key === 'type' && Number.isInteger(value) && value>=0 && value<=65535) view.setType(Number(index),value);
       if (section === 'links' && key === 'target' && Number.isInteger(value) && value>=0 && value<file.points.length) view.updateTarget(Number(index),value);
+      if (section === 'links' && key === 'type') view.updateLinkType(Number(index),value);
     });
   }, (frame,values) => {
     const id = `points/${frame.navigationIndex}/position`, original = file.points[frame.navigationIndex].position;
@@ -675,6 +677,7 @@ function renderNavigation(main, file, previous) {
   });
   state.viewport = view; view.navigationPath=file.path; view.projectRoot=state.project.root; view.focusOnSelect=true; view.loadNavigation(file);
   if (previous) view.restoreCamera(previous.camera);
+  navigationRouteControls(center,tools,view,file,previous?.route);
   jump.onclick = () => { const index = Number(number.value); if (number.value !== '' && Number.isInteger(index) && index>=0 && index<file.points.length) view.select(String(index)); else status('Číslo bodu je mimo rozsah.',true); };
   fit.onclick = () => view.fit(view.markers); focus.onclick = () => { if (view.selectedPoint !== null) view.fit(view.proxy); };
   let geometry, geometryLoading;

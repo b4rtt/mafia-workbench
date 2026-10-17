@@ -1,17 +1,20 @@
 import * as THREE from 'three';
 import { Viewport } from './viewport.js';
+import { Line2 } from 'three/addons/lines/Line2.js';
+import { LineGeometry } from 'three/addons/lines/LineGeometry.js';
+import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 
 export class NavigationViewport extends Viewport {
   loadNavigation(file) {
     this.navigationEditable = file.editable !== false;
-    this.positions = file.points.map(point => [...point.position]); this.edges = []; this.incident = file.points.map(() => []); this.selectedPoint = null;
+    this.positions = file.points.map(point => [...point.position]); this.edges = []; this.linkTypes = []; this.incident = file.points.map(() => []); this.selectedPoint = null;
     const material = new THREE.MeshBasicMaterial(), geometry = new THREE.SphereGeometry(.35, 8, 6);
     this.markers = new THREE.InstancedMesh(geometry, material, file.points.length); this.markers.userData.navigation = true;
     this.root.add(this.markers); this.materials.add(material);
     const matrix = new THREE.Matrix4();
     for (const point of file.points) {
       this.markers.setMatrixAt(point.index, matrix.makeTranslation(...point.position)); this.setType(point.index, point.type);
-      for (const link of point.links) { const index = this.edges.length; this.edges.push([point.index, link.target]); this.incident[point.index].push(index); if (point.index !== link.target) this.incident[link.target].push(index); }
+      for (const link of point.links) { const index = this.edges.length; this.edges.push([point.index, link.target]); this.linkTypes.push(link.type); this.incident[point.index].push(index); if (point.index !== link.target) this.incident[link.target].push(index); }
     }
     const vertices = new Float32Array(this.edges.length * 6);
     this.edges.forEach(([source,target],i) => { vertices.set(this.positions[source],i*6); vertices.set(this.positions[target],i*6+3); });
@@ -51,6 +54,7 @@ export class NavigationViewport extends Viewport {
     attribute.needsUpdate = true;
     if (this.selectedPoint === index) this.proxy.position.fromArray(position);
     this.drawHighlight();
+    this.onNavigationChange?.();
   }
   updateTarget(index, target) {
     const edge = this.edges[index]; if (!edge || !this.positions[target]) return;
@@ -59,5 +63,27 @@ export class NavigationViewport extends Viewport {
     this.incident[source] = this.incident[source].filter(i=>i!==index); this.incident[source].push(index);
     if (target !== source) this.incident[target].push(index);
     edge[1] = target; const attribute = this.lines.geometry.getAttribute('position'); attribute.array.set(this.positions[target],index*6+3); attribute.needsUpdate = true; this.drawHighlight();
+    this.onNavigationChange?.();
+  }
+  updateLinkType(index, type) {
+    if (!this.edges[index] || !Number.isInteger(type) || type < 0 || type > 65535) return;
+    this.linkTypes[index] = type; this.onNavigationChange?.();
+  }
+  showRoute(indices) {
+    if (!this.routeOverlay) {
+      this.routeOverlay = new THREE.Group(); this.root.add(this.routeOverlay);
+      // Screen-space extrusion keeps its winding when the Mafia Z axis is flipped.
+      const line = new LineMaterial({ color: 0xffbd45, linewidth: 3, side: THREE.DoubleSide, depthTest: false, depthWrite: false }); this.materials.add(line);
+      this.routeLine = new Line2(new LineGeometry(), line); this.routeLine.raycast = () => {}; this.routeLine.renderOrder = 10; this.routeOverlay.add(this.routeLine);
+      this.routeEnds = [0x50e6a1, 0xff76c9].map(color => {
+        const material = new THREE.MeshBasicMaterial({ color, depthTest: false, depthWrite: false }); this.materials.add(material);
+        const marker = new THREE.Mesh(new THREE.SphereGeometry(.65, 12, 8), material); marker.raycast = () => {}; marker.renderOrder = 11; this.routeOverlay.add(marker); return marker;
+      });
+    }
+    this.routeOverlay.visible = indices.length > 0;
+    this.routeLine.geometry.dispose(); this.routeLine.geometry = new LineGeometry(); this.routeLine.visible = indices.length > 1;
+    const points = indices.length ? indices.flatMap(index => this.positions[index]) : [0, 0, 0];
+    this.routeLine.geometry.setPositions(points.length === 3 ? [...points, ...points] : points);
+    if (indices.length) this.routeEnds.forEach((marker, i) => marker.position.fromArray(this.positions[i ? indices.at(-1) : indices[0]]));
   }
 }
