@@ -1,3 +1,4 @@
+import {osmCollisionBudget} from './collision-policy.js';
 import clipping from 'polygon-clipping';
 import {ShapeUtils,Vector2} from 'three';
 import {osmRing,osmMultipolygon,osmBuildingFootprints} from './footprints.js';
@@ -48,7 +49,8 @@ export function osmGreenPathFootprints(source,o){
 }
 const vertexCount=model=>new Set(model.meshes.flatMap(m=>{const p=m.lods[0].positions;return Array.from({length:p.length/3},(_,i)=>p.slice(i*3,i*3+3).map(Math.fround).join('/'));})).size;
 export function osmGreenReservation(surface,buildings,catalog=[]){return (surface?vertexCount(surface.model):0)+(buildings?.placements??[]).reduce((sum,b)=>sum+(b.style?vertexCount(osmShellModel(b)):(catalog.find(m=>m.path===b.model)?.vertices??60000)+(b.support?osmFoundationVertices(b.support):0)),0);}
-export function osmGreenPlan(source,surface,o,reservedVertices=surface?vertexCount(surface.model):0){
+export function osmGreenPlan(source,surface,o,reservedVertices=surface?vertexCount(surface.model):0,collisions){
+  const budget=osmCollisionBudget(collisions);
   validateOsmGreenOptions(o);if(!Number.isFinite(source?.area?.size)||source.area.size<50||source.area.size>450)fail('neplatná oblast.');
   if(!Number.isSafeInteger(reservedVertices)||reservedVertices<0)fail('neplatný rozpočet kolizí.');
   const terrain=osmNavigationElevation(surface),field=terrain?.field;
@@ -67,7 +69,7 @@ export function osmGreenPlan(source,surface,o,reservedVertices=surface?vertexCou
     if(area(available)<1){skip('Po ořezu hranicí, ulicemi, budovami a ostatní zelení nezbyla plocha alespoň 1 m².');continue;}
     const native=polygons=>field?polygons.map(p=>p.map(r=>r.map(v=>v.map(elevationCoordinate)))):polygons;
     const item={id,name:`OSM_GREEN_${String(id).replaceAll('/','_')}`,label:f.tags.name??`Zeleň ${id}`,kind:f.kind,grass:native(grass),paths:native(walks),height:o.height,tileSize:o.tileSize,pathTileSize:o.pathTileSize,texture:o.texture,pathTexture:o.pathTexture,area:area(available),notes:f.kind==='park'?['Travnatý podklad parku/zahrady je ručně povolený odhad, nikoli přesný povrch z OSM.']:[],...(f.relation?{relation:f.relation,component:f.component}:{}),...(field?{elevated:true}:{})},model=osmGreenModel(item,field),count=vertexCount(model);
-    if(vertices+count>60000){skip('Plocha by překročila sdílený bezpečný limit vrcholů kolizí.');continue;}vertices+=count;item.triangles=model.meshes.reduce((s,m)=>s+m.lods[0].faces.reduce((n,f)=>n+f.indices.length/3,0),0);placements.push(item);occupied.push(...available);
+    if(vertices+count>budget.vertices){skip('Plocha by překročila sdílený bezpečný limit vrcholů kolizí.');continue;}vertices+=count;item.triangles=model.meshes.reduce((s,m)=>s+m.lods[0].faces.reduce((n,f)=>n+f.indices.length/3,0),0);placements.push(item);occupied.push(...available);
   }
   return {placements,skipped,pathProfiles:paths.profiles,...(field?{elevation:field}:{})};
 }

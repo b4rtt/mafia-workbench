@@ -1,3 +1,5 @@
+import {osmCollisionBudget} from '../plugins/osm/collision-policy.js';
+import {osmHybridPlan} from '../plugins/osm/building-hybrid.js';
 import {loadOsmAmbientSounds} from '../plugins/osm/ambient-assets.js';
 import {validateOsmAmbient} from '../plugins/osm/ambient.js';
 import {loadOsmPedestrianModels} from '../plugins/osm/pedestrian-assets.js';
@@ -290,6 +292,7 @@ app.whenReady().then(async () => {
     const elevation=saved&&input.elevation!=null?osmElevationSource(input.elevation,source.area):null;
     if(elevation&&!input.surface)throw Error('OpenStreetMap · terén: výškový rastr vyžaduje povrchy ulic.');
     if(saved){
+      osmCollisionBudget(input.collisions);
       if(input.props!==undefined&&input.props!==null){validateOsmPropOptions(input.props);await loadOsmPropModels(active,input.props.models);if(!input.surface||input.props.selected.some(id=>!source.props.some(p=>p.id===id)))throw Error('OpenStreetMap · osazení: chybí povrchy nebo mapované body.');}
       if(input.green!==undefined&&input.green!==null){await loadOsmGreenTextures(active,input.green);if(!input.surface)throw Error('OpenStreetMap · zeleň: chybí povrchy ulic.');}
       if(input.walkways!==undefined&&input.walkways!==null){await loadOsmWalkwayTexture(active,input.walkways);if(!input.surface)throw Error('OpenStreetMap · pěší cesty: chybí povrchy ulic.');}
@@ -300,17 +303,18 @@ app.whenReady().then(async () => {
       if(Object.hasOwn(input,'buildings')&&input.buildings!==null){
         if(input.buildings.mode==='footprint'){
           if(!Array.isArray(input.buildings.styles))throw Error('OpenStreetMap · půdorysné domy: neplatné uložené styly.');
-          const {styles}=await loadOsmShellStyles(active,input.buildings.styles);osmShellPlan(source,plan,surface,{...input.buildings,styles});
+          const {styles}=await loadOsmShellStyles(active,input.buildings.styles);osmShellPlan(source,plan,surface,{...input.buildings,styles},undefined,input.collisions);
         }else{
-          if(input.buildings.mode!==undefined&&input.buildings.mode!=='original')throw Error('OpenStreetMap · budovy: neznámý způsob generování.');
+          if(input.buildings.mode!==undefined&&!['original','hybrid'].includes(input.buildings.mode))throw Error('OpenStreetMap · budovy: neznámý způsob generování.');
           if(!Array.isArray(input.buildings?.models))throw Error('OpenStreetMap · budovy: neplatný uložený katalog.');
           const {models,warnings}=await loadOsmBuildingModels(active,input.buildings.models.map(m=>m?.path));
           if(warnings.length||models.some(m=>input.buildings.models.find(w=>w?.path?.toLowerCase()===m.path.toLowerCase())?.sha256!==m.sha256))throw Error('OpenStreetMap · budovy: uložené modely se změnily nebo nejsou dostupné v tomto projektu.');
-          osmBuildingPlan(source,plan,surface,models,input.buildings);
+          if(input.buildings.mode==='hybrid'){const {styles}=await loadOsmShellStyles(active,input.buildings.styles);osmHybridPlan(source,plan,surface,models,{...input.buildings,styles},input.collisions);}
+          else osmBuildingPlan(source,plan,surface,models,input.buildings,input.collisions);
         }
       }
     }
-    osmImport={project:active,token,data,area:source.area};return {token,source,cached:true,...(elevation?{elevation}:{}),...(saved?{walkways:input.walkways??null,crossingMarkings:input.crossingMarkings??null,ambient:input.ambient??null,pedestrians:input.pedestrians??null,traffic:input.traffic??null,props:input.props??null,green:input.green??null,selected:input.selected,...(Object.hasOwn(input,'surface')?{surface:input.surface}:{}),...(Object.hasOwn(input,'buildings')?{buildings:input.buildings}:{})}:{})};
+    osmImport={project:active,token,data,area:source.area};return {token,source,cached:true,...(elevation?{elevation}:{}),...(saved?{collisions:input.collisions??null,walkways:input.walkways??null,crossingMarkings:input.crossingMarkings??null,ambient:input.ambient??null,pedestrians:input.pedestrians??null,traffic:input.traffic??null,props:input.props??null,green:input.green??null,selected:input.selected,...(Object.hasOwn(input,'surface')?{surface:input.surface}:{}),...(Object.hasOwn(input,'buildings')?{buildings:input.buildings}:{})}:{})};
   }));
   handle('osm:ambient-sounds', sounds => operation(() => loadOsmAmbientSounds(current(),sounds)));
   handle('osm:pedestrian-models', () => operation(async () => {const {models,warnings}=await loadOsmPedestrianModels(current());return {models,warnings};}));

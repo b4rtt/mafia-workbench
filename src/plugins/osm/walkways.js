@@ -1,3 +1,4 @@
+import {osmCollisionBudget} from './collision-policy.js';
 import clipping from 'polygon-clipping';
 import {osmGreenPathFootprints,osmGreenModel} from './green-areas.js';
 import {osmBuildingFootprints} from './footprints.js';
@@ -14,7 +15,8 @@ export function validateOsmWalkways(o){
   if(o.textureHash!==undefined&&!/^[a-f0-9]{64}$/.test(o.textureHash))fail('neplatný kontrolní součet textury.');
 }
 const area=polys=>polys.reduce((s,p)=>s+p.reduce((s,r,i)=>s+(i?-1:1)*Math.abs(r.slice(1).reduce((s,b,j)=>s+r[j][0]*b[1]-b[0]*r[j][1],0)/2),0),0);
-export function osmWalkwayPlan(source,surface,green,o,reservedVertices=0){
+export function osmWalkwayPlan(source,surface,green,o,reservedVertices=0,collisions){
+  const budget=osmCollisionBudget(collisions);
   validateOsmWalkways(o);if(!surface?.footprints||!source?.area||!Number.isSafeInteger(reservedVertices)||reservedVertices<0)fail('zapněte povrchy ulic a ověřte rozpočet kolizí.');
   const terrain=osmNavigationElevation(surface),field=terrain?.field;
   if(field&&['latitude','longitude','size'].some(k=>field.area[k]!==source.area[k])||green&&(field?green.elevation!==field:green.elevation))fail('cesty musí používat společný výškový podklad ulic a zeleně.');
@@ -35,7 +37,7 @@ export function osmWalkwayPlan(source,surface,green,o,reservedVertices=0){
   }
   if(!parts.length)return {placements:[],profiles,skipped,...(field?{elevation:field}:{})};
   const paths=boolean('union',...parts),item={name:'OSM_WALKWAYS',grass:[],paths,height:o.height,texture:o.texture,pathTexture:o.texture,tileSize:o.tileSize,pathTileSize:o.tileSize,area:area(paths),...(field?{elevated:true}:{})},model=osmGreenModel(item,field),vertices=new Set(model.meshes.flatMap(m=>{const p=m.lods[0].positions;return Array.from({length:p.length/3},(_,i)=>p.slice(i*3,i*3+3).join('/'));})).size;
-  if(reservedVertices+vertices>60000)fail('cesty překračují společný limit 60 000 kolizních vrcholů; zmenšete výběr.');
+  if(reservedVertices+vertices>budget.vertices)fail(`cesty překračují společný limit ${budget.vertices===60000?'60 000':'240 000'} kolizních vrcholů; zmenšete výběr.`);
   item.triangles=model.meshes.reduce((n,m)=>n+m.lods[0].faces.reduce((n,f)=>n+f.indices.length/3,0),0);
   return {placements:[item],profiles,skipped,vertices,...(field?{elevation:field}:{})};
 }

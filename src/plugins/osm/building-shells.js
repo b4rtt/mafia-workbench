@@ -1,3 +1,4 @@
+import {osmCollisionBudget} from './collision-policy.js';
 import clipping from 'polygon-clipping';
 import {ShapeUtils,Vector2} from 'three';
 import {osmBuildingFootprints} from './footprints.js';
@@ -95,12 +96,13 @@ export function osmShellModel(item){
   if(item.support){const foundation=osmBuildingFoundation(item.support,item.position);result.materials.push(...foundation.materials);result.meshes.push(...foundation.meshes.map(m=>({...m,id:2,lods:m.lods.map(l=>({...l,faces:l.faces.map(f=>({...f,material:textures.length+1}))}))})));}
   return result;
 }
-export function osmShellPlan(source,roads,surface,options,reserved={footprints:[],vertices:0,count:0}){
+export function osmShellPlan(source,roads,surface,options,reserved={footprints:[],vertices:0,count:0},collisions){
+  const limits=osmCollisionBudget(collisions);
   settings(options);if(!Number.isFinite(source?.area?.size)||source.area.size<50||source.area.size>450)fail('neplatná oblast.');
-  if(!Array.isArray(reserved?.footprints)||!Number.isSafeInteger(reserved.vertices)||reserved.vertices<0||reserved.vertices>60000||!Number.isSafeInteger(reserved.count)||reserved.count<0||reserved.count>64)fail('neplatná rezervace původních domů.');
+  if(!Array.isArray(reserved?.footprints)||!Number.isSafeInteger(reserved.vertices)||reserved.vertices<0||reserved.vertices>limits.vertices||!Number.isSafeInteger(reserved.count)||reserved.count<0||reserved.count>64)fail('neplatná rezervace původních domů.');
   surface??=osmSurfaceModel(roads,source.area,osmSurfaceDefaults);
   const buildings=osmBuildingFootprints(source),placements=[],skipped=[],occupied=[...reserved.footprints],half=source.area.size/2,exclusions=[...surface.footprints.road,...surface.footprints.sidewalk];
-  let budget=60000-reserved.vertices-new Set(surface.model.meshes.flatMap(m=>{const p=m.lods[0].positions;return Array.from({length:p.length/3},(_,i)=>p.slice(i*3,i*3+3).map(Math.fround).join('/'));})).size;
+  let budget=limits.vertices-reserved.vertices-new Set(surface.model.meshes.flatMap(m=>{const p=m.lods[0].positions;return Array.from({length:p.length/3},(_,i)=>p.slice(i*3,i*3+3).map(Math.fround).join('/'));})).size;
   for(const id of options.selected){
     const feature=buildings.find(b=>b.id===id);if(!feature||feature.suppressed)fail(`půdorys ${id} není v podkladu.`);
     const skip=reason=>skipped.push({way:id,name:feature.tags.name??String(id),reason});if(feature.reason){skip(feature.reason);continue;}

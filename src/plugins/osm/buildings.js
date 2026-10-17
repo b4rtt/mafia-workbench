@@ -1,3 +1,4 @@
+import {osmCollisionBudget} from './collision-policy.js';
 import clipping from 'polygon-clipping';
 import {osmSurfaceModel,osmSurfaceDefaults} from './surface.js';
 import {osmBuildingFootprints} from './footprints.js';
@@ -23,14 +24,15 @@ export function osmBuildingHeight(tags,fallback){
 }
 // The original model is a substitute, never a reconstruction of a landmark.
 // Its entire conservative XZ bounds must fit the actual closed OSM outline.
-export function osmBuildingPlan(source,roads,surface,catalog,options){
+export function osmBuildingPlan(source,roads,surface,catalog,options,collisions){
+  const budget=osmCollisionBudget(collisions);
   if(!source?.area||!Array.isArray(source.ways)||!Array.isArray(catalog)||!catalog.length||catalog.length>32||!options||options.version!==1||!Array.isArray(options.selected)||options.selected.length>128||new Set(options.selected).size!==options.selected.length||options.selected.some(id=>!(Number.isSafeInteger(id)&&id>0)&&!(typeof id==='string'&&/^relation\/[1-9]\d*\/[1-9]\d*$/.test(id)))||typeof options.adjustScale!=='boolean'||typeof options.minCoverage!=='number'||!Number.isFinite(options.minCoverage)||options.minCoverage<.25||options.minCoverage>.9||typeof options.fallbackHeight!=='number'||!Number.isFinite(options.fallbackHeight)||options.fallbackHeight<5||options.fallbackHeight>60||typeof options.ground!=='number'||!Number.isFinite(options.ground)||Math.abs(options.ground)>5)fail('neplatné nastavení nebo výběr.');
   validateOsmBuildingMatching(options.matching);
   for(const m of catalog)if(typeof m.path!=='string'||typeof m.sha256!=='string'||[m.min,m.max].some(a=>!Array.isArray(a)||a.length!==3||a.some(n=>!Number.isFinite(n)||Math.abs(n)>1000))||m.min.some((n,i)=>n>=m.max[i])||!Number.isSafeInteger(m.vertices)||m.vertices<3||m.vertices>60000)fail('neplatné rozměry modelu.');
   // Even a network-only import reserves the default road/pavement corridor.
   surface??=osmSurfaceModel(roads,source.area,osmSurfaceDefaults);
   const footprints=osmBuildingFootprints(source),placements=[],skipped=[],half=source.area.size/2,occupied=[],chains=roads.roads.map(r=>[roads.crossings[r.from].position,...r.positions,roads.crossings[r.to].position]);
-  const streetVertices=new Set(surface?.model.meshes.flatMap(m=>{const p=m.lods[0].positions;return Array.from({length:p.length/3},(_,i)=>p.slice(i*3,i*3+3).map(Math.fround).join('/'));})??[]);let vertexBudget=60000-streetVertices.size;
+  const streetVertices=new Set(surface?.model.meshes.flatMap(m=>{const p=m.lods[0].positions;return Array.from({length:p.length/3},(_,i)=>p.slice(i*3,i*3+3).map(Math.fround).join('/'));})??[]);let vertexBudget=budget.vertices-streetVertices.size;
   const exclusions=[...(surface?.footprints.road??[]),...(surface?.footprints.sidewalk??[])];
   for(const id of options.selected){
     const way=footprints.find(w=>w.id===id);if(!way?.tags.building&&!way?.relation)fail(`půdorys ${id} není v podkladu.`);

@@ -30,6 +30,21 @@ export function surfaceSignature(parsed, group) {
   if(group.storage==='frame')return hash(Buffer.concat([parsed.primitives.triangles.raw.subarray(group.triangleStart*32,(group.triangleStart+group.triangleCount)*32),...group.parts.map(part=>{const record=parsed.primitives.triangles.records[part.triangleStart];return parsed.links[record?.vertices[0].link]?.raw??Buffer.alloc(0);})]));
   return hash(Buffer.concat([parsed.primitives.triangles.raw.subarray(group.triangleStart*32,(group.triangleStart+group.triangleCount)*32),parsed.extraVertices.subarray(group.vertexStart*12,(group.vertexStart+group.vertexCount)*12)]));
 }
+// One editable owner can span several native LOD0 buffers.
+export function collisionSurfaceOwners(checked,groups,surfaces){
+  const owners=[];
+  for(let i=0;i<groups.length;i++){
+    const group=groups[i];let owner={...group,kind:'mesh'};
+    if(group.frame){
+      const parts=[];let count=0;
+      while(i<groups.length&&groups[i].name===group.name){const part=groups[i];parts.push({frame:part.frame,triangleStart:part.triangleStart,triangleCount:part.triangleCount,vertexCount:surfaces[i].positions.length/3});count+=part.triangleCount;i++;}i--;
+      const {frame,...base}=owner;owner={...base,storage:'frame',parts,triangleCount:count};
+    }
+    if(surfaces.find(s=>s.name===group.name)?.opaqueOnly)owner.opaqueOnly=true;
+    owners.push({...owner,signature:surfaceSignature(checked,owner)});
+  }
+  return owners;
+}
 export function ownedCollisionRecords(parsed, ownership) {
   const usedTriangles=new Set(),usedVertices=new Set();
   return ownership.map(owned=>{
@@ -111,15 +126,6 @@ export async function prepareSceneCollision(project, scenePath, before, after, o
   const boxed=appendCollisionBoxes(bytes,boxes,[...removed]),replacement=replaceCollisionSurfaces(boxed,surfaces,{removedIndices:owned.filter(r=>r.kind==='mesh').flatMap(r=>r.records.map(t=>t.index)),removedVertexIndices,resolveFrame:geometryCollisionResolver(scene,surfaces.length?await collisionGeometry(project,scene,geometry,parsed,dependencies,[...new Set(surfaces.filter(s=>s.frame).map(s=>s.name))]):geometry)}),result=replacement.bytes,checked=parseCollision(result),first=parsed.primitives.aabbs.count-removed.size;
   for(const owner of next)if(owner.kind==='aabb')owner.boxIndex-=[...removed].filter(index=>index<owner.boxIndex).length;
   boxes.forEach((box,i)=>next.push({name:box.name,kind:'aabb',boxIndex:first+i,signature:hash(checked.primitives.aabbs.records[first+i].raw)}));
-  for(let i=0;i<replacement.groups.length;i++){
-    const group=replacement.groups[i];let owner={...group,kind:'mesh'};
-    if(group.frame){
-      const parts=[];let count=0;
-      while(i<replacement.groups.length&&replacement.groups[i].name===group.name){const part=replacement.groups[i];parts.push({frame:part.frame,triangleStart:part.triangleStart,triangleCount:part.triangleCount,vertexCount:surfaces[i].positions.length/3});count+=part.triangleCount;i++;}i--;
-      const {frame,...base}=owner;owner={...base,storage:'frame',parts,triangleCount:count};
-    }
-    if(surfaces.find(s=>s.name===group.name)?.opaqueOnly)owner.opaqueOnly=true;
-    next.push({...owner,signature:surfaceSignature(checked,owner)});
-  }
+  next.push(...collisionSurfaceOwners(checked,replacement.groups,surfaces));
   return {files:[{path:klzPath,data:result,expectedHash},...[...dependencies].map(([path,data])=>({path,data,expectedHash:hash(data)}))],ownership:{path:project.asset(scenePath).path,objects:next}};
 }

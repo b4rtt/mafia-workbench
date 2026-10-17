@@ -1,3 +1,4 @@
+import {osmCollisionBudget} from './collision-policy.js';
 import clipping from 'polygon-clipping';
 import {Vector3} from 'three';
 import {frameMatrix} from '../../shared/scene-world.js';
@@ -42,7 +43,8 @@ function terrainSupport(terrain,polygon,level,kind){
   return {ground:Math.fround((minimum+maximum)/2),support:{minimum,maximum,relief,level}};
 }
 export function osmPropReservation(surface,buildings,catalog,green){return osmGreenReservation(surface,buildings,catalog)+(green?.placements??[]).reduce((s,item)=>{const model=osmGreenModel(item,green.elevation);return s+new Set(model.meshes.flatMap(m=>{const p=m.lods[0].positions;return Array.from({length:p.length/3},(_,i)=>p.slice(i*3,i*3+3).map(Math.fround).join('/'));})).size;},0);}
-export function osmPropPlan(source,surface,catalog,o,green=null,reservedVertices=0){
+export function osmPropPlan(source,surface,catalog,o,green=null,reservedVertices=0,collisions){
+  const budget=osmCollisionBudget(collisions);
   validateOsmPropOptions(o);if(!surface||!Number.isFinite(source?.area?.size)||!Number.isSafeInteger(reservedVertices)||reservedVertices<0)fail('nejdřív vytvořte platné povrchy ulic.');
   const terrain=osmNavigationElevation(surface);
   if(terrain&&['latitude','longitude','size'].some(k=>source.area[k]!==terrain.field.area[k]))fail('výškový podklad patří jiné oblasti.');
@@ -77,7 +79,7 @@ export function osmPropPlan(source,surface,catalog,o,green=null,reservedVertices
     else for(const lawn of green?.placements??[]){const region=[...lawn.grass,...lawn.paths];if(overlap(base,region)){if(!within(base,region)){skip('Objekt by stál přes hranu zeleně.');ground=null;break;}ground=lawn.height;groundSource='generovaná zeleň / pěší cesta';break;}}
     if(ground===null)continue;
     if(terrain){const result=terrainSupport(terrain,base[0],ground,f.kind);if(result.reason){skip(result.reason);continue;}ground=result.ground;support=result.support;notes.push('Původní model zůstává svislý; základna je usazena podle celého místního povrchu.');}
-    if(placements.length>=256||vertices+m.vertices>60000){skip('Limit 256 objektů nebo sdílený rozpočet kolizních vrcholů.');continue;}
+    if(placements.length>=256||vertices+m.vertices>budget.vertices){skip('Limit 256 objektů nebo sdílený rozpočet kolizních vrcholů.');continue;}
     position[1]=Math.fround(ground-anchor.y);const item={id,name:`OSM_PROP_${id}`,label:t.name??`${osmPropLabels[f.kind]} ${id}`,kind:f.kind,model:m.path,modelHash:m.sha256,position,rotation,scale:[scale,scale,scale].map(Math.fround),footprint:base[0],height:target,heightSource,direction:heading,directionSource,ground,groundSource,opaqueOnly:f.kind==='tree',notes};
     if(support)item.support=support;
     if(f.kind==='lamp'&&o.lights)item.light={name:`OSM_LIGHT_${id}`,position:[f.point[0],ground+target-.25*scale,f.point[2]].map(Math.fround),parameters:{type:1,color:[1,.88,.65],power:.8,range:[.5,12],mode:99,sectors:['Primary sector']}};
