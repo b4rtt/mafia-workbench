@@ -10,6 +10,21 @@ const recipes=Object.freeze({
   arched:{rows:[0,1/3,2/3,1],swatch:[.12,.34,.25,.36]},
   hotel:{rows:[0,1/3,2/3,1],swatch:[.005,.17,.025,.29]},
   'old-brick':{rows:[0,.5,1],swatch:[.02,.2,.06,.4]},
+  'grey-blocks':{rows:[0,.5,1],swatch:[.01,.05,.05,.2]},
+  'carved-stone':{rows:[0,1],swatch:[.02,.02,.15,.13]},
+  'tall-stone':{rows:[0,1],swatch:[.01,.1,.06,.28]},
+  sandstone:{rows:[0,.5,1],swatch:[.02,.08,.07,.24]},
+  terracotta:{rows:[0,1],swatch:[.01,.12,.06,.35]},
+  'dark-brick':{rows:[0,.5,1],swatch:[.02,.18,.05,.3]},
+  'red-brick':{rows:[0,.5,1],swatch:[.01,.08,.04,.25]},
+  'warm-brick':{rows:[0,.5,1],swatch:[.01,.08,.04,.25]},
+  'white-stone':{rows:[0,.5,1],swatch:[.01,.1,.06,.3]},
+  cream:{rows:[0,.5,1],swatch:[.01,.1,.08,.2]},
+  'green-ornate':{rows:[0,.5,1],swatch:[.02,.15,.08,.3]},
+  blue:{rows:[0,1],swatch:[.3,.12,.45,.23]},
+  charcoal:{rows:[0,1],swatch:[.3,.12,.45,.23]},
+  ochre:{rows:[0,1],swatch:[.3,.3,.6,.4]},
+  'arched-brick':{rows:[0,1],swatch:[.2,.03,.4,.1]},
 });
 export function validateOsmFacade(options){
   if(options===undefined)return;

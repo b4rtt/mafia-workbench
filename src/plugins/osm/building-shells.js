@@ -21,6 +21,21 @@ export const osmShellStyles=Object.freeze([
   {id:'arched',label:'Dům s obloukovými okny',source:'%radovk10.4ds',textures:['maps/VYLOH14.BMP','maps/%NR7FAS.BMP','maps/STRECH10.BMP','maps/35RIMSV.BMP'],width:5.49,upperHeight:10.6,groundWidth:2.35,groundHeight:2.89},
   {id:'hotel',label:'Červenohnědá fasáda s výkladci',source:'%hotelv4.4ds',textures:['maps/VYLOH25.BMP','maps/%HOFAS.BMP','maps/STRECH10.BMP','maps/%HORIMD.BMP'],width:6.3,upperHeight:8.43,groundWidth:3.44,groundHeight:2.91},
   {id:'old-brick',label:'Starší cihlový městský dům',source:'dum01.4ds',textures:['maps/03.BMP','maps/01.BMP','maps/3STRE1.BMP','maps/35RIMSV.BMP'],width:6.55,upperHeight:7.88,groundWidth:4.8,groundHeight:4.43},
+  {id:'grey-blocks',label:'Šedé kamenné kvádry',source:'3rad08.4ds',textures:['maps/3VYL2B.BMP','maps/3OKNA2A.BMP','maps/3STRE1.BMP','maps/35RIMSV.BMP'],width:5.07,upperHeight:6.94,groundWidth:4.55,groundHeight:3.55},
+  {id:'carved-stone',label:'Kamenná fasáda s ozdobnými překlady',source:'3rad02.4ds',textures:['maps/VYLOH14.BMP','maps/3OKNA3.BMP','maps/STRECH03.BMP','maps/35RIMSV.BMP'],width:2.57,upperHeight:3.54,groundWidth:2.35,groundHeight:2.89},
+  {id:'tall-stone',label:'Světlý kámen s vysokými okny',source:'3rad02.4ds',textures:['maps/VYLOH14.BMP','maps/3OKNA4.BMP','maps/STRECH03.BMP','maps/35RIMSV.BMP'],width:5.22,upperHeight:3.69,groundWidth:2.35,groundHeight:2.89},
+  {id:'sandstone',label:'Písková fasáda s tmavými okny',source:'3rad04.4ds',textures:['maps/3DVERE5.BMP','maps/3OKNA9.BMP','maps/0V1STRE.BMP','maps/35RIMSV.BMP'],width:5.38,upperHeight:6.02,groundWidth:3.45,groundHeight:3.17},
+  {id:'terracotta',label:'Terakotová omítka s vysokými okny',source:'3rad10.4ds',textures:['maps/3VYL01.BMP','maps/3OKNA6.BMP','maps/3STRE1.BMP','maps/35RIMSV.BMP'],width:5.57,upperHeight:3.03,groundWidth:2.54,groundHeight:3.48},
+  {id:'dark-brick',label:'Tmavá cihla s plochými překlady',source:'newdum1.4ds',textures:['maps/SPODEK08.BMP','maps/%ND6FAS.BMP','maps/3STRE1.BMP','maps/35RIMSV.BMP'],width:5.34,upperHeight:5.71,groundWidth:8.01,groundHeight:4},
+  {id:'red-brick',label:'Červená cihla se světlými rámy',source:'4build13.4ds',textures:['maps/VYLOH04.BMP','maps/5OKNA03.BMP','maps/STRECH05.BMP','maps/35RIMSV.BMP'],width:5.85,upperHeight:5.5,groundWidth:2.94,groundHeight:3.02},
+  {id:'warm-brick',label:'Teplá cihla s kamenným soklem',source:'4build20.4ds',textures:['maps/PDZKA13.BMP','maps/5OKNA06.BMP','maps/3STRE1.BMP','maps/35RIMSV.BMP'],width:4.39,upperHeight:5.09,groundWidth:2.46,groundHeight:1.35},
+  {id:'white-stone',label:'Bílý kámen se zdobenými římsami',source:'4build36.4ds',textures:['maps/5VYLOHA6.BMP','maps/5OKNA17.BMP','maps/STRECH01.BMP','maps/35RIMSV.BMP'],width:8.35,upperHeight:8.55,groundWidth:3.89,groundHeight:4.66},
+  {id:'cream',label:'Světlá omítka s tmavými rámy',source:'%radovk40.4ds',textures:['maps/%ND7SPD.BMP','maps/%ND7FAS.BMP','maps/STRECH10.BMP','maps/35RIMSV.BMP'],width:6,upperHeight:4.91,groundWidth:6,groundHeight:3},
+  {id:'green-ornate',label:'Zelená omítka se zdobenými okny',source:'%radovk25.4ds',textures:['maps/VYLOH20.BMP','maps/%FASDM6.BMP','maps/STRECH10.BMP','maps/35RIMSV.BMP'],width:3.28,upperHeight:7.88,groundWidth:3.69,groundHeight:2.94},
+  {id:'blue',label:'Modrá omítka s kamennými rámy',source:'%radovk26.4ds',textures:['maps/VYLOH16.BMP','maps/%FASDM7.BMP','maps/STRECH10.BMP','maps/35RIMSV.BMP'],width:3.27,upperHeight:3.85,groundWidth:4,groundHeight:3.63},
+  {id:'charcoal',label:'Tmavá omítka s kamennými rámy',source:'%radovk27.4ds',textures:['maps/VYLOH03.BMP','maps/%FASDM8.BMP','maps/STRECH10.BMP','maps/35RIMSV.BMP'],width:3.26,upperHeight:3.58,groundWidth:5,groundHeight:3.63},
+  {id:'ochre',label:'Okrová fasáda s obloukovým reliéfem',source:'9dum1.4ds',textures:['maps/VYLOH19.BMP','maps/%FASD_1.BMP','maps/STRECH10.BMP','maps/35RIMSV.BMP'],width:3,upperHeight:6.85,groundWidth:4.16,groundHeight:2.94},
+  {id:'arched-brick',label:'Cihlová fasáda s bílými oblouky',source:'9dum2.4ds',textures:['maps/VYLOH20.BMP','maps/%FADUM2.BMP','maps/STRECH10.BMP','maps/35RIMSV.BMP'],width:5.9,upperHeight:7.51,groundWidth:3.69,groundHeight:2.94},
 ]);
 const fail=message=>{throw Error(`OpenStreetMap · půdorysné domy: ${message}`);};
 const signed=r=>r.reduce((s,a,i)=>{const b=r[(i+1)%r.length];return s+a[0]*b[1]-b[0]*a[1];},0)/2;
