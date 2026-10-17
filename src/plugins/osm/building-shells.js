@@ -7,10 +7,18 @@ import {osmRoofPlan,osmRaisedRoof,validateOsmRoofOptions} from './building-roofs
 import {osmBuildingSupport,osmBuildingFoundation} from './building-terrain.js';
 
 // Recipes reference the user's original BMPs. No game pixels are distributed.
-// Tile sizes follow the facade UVs of 3rad03/newdum8, in native metres.
+// Tile sizes follow the source facade UVs, in native metres. Roof and trim
+// textures may be shared between recipes; these are not copies of whole houses.
 export const osmShellStyles=Object.freeze([
-  {id:'brick',label:'Cihlový činžovní dům',textures:['maps/D3PATRO1.BMP','maps/D3PATRO2.BMP','maps/3STRE1.BMP','maps/35RIMSV.BMP'],width:5.8,upperHeight:7.14,groundWidth:5.8,groundHeight:3.6},
-  {id:'shops',label:'Cihlový dům s obchody',textures:['maps/VYLOH34.BMP','maps/%ND5FAS.BMP','maps/3STRE1.BMP','maps/35RIMSV.BMP'],width:3.2,upperHeight:6.56,groundWidth:6.4,groundHeight:3.6},
+  {id:'brick',label:'Cihlový činžovní dům',source:'3rad03.4ds',textures:['maps/D3PATRO1.BMP','maps/D3PATRO2.BMP','maps/3STRE1.BMP','maps/35RIMSV.BMP'],width:5.8,upperHeight:7.14,groundWidth:5.8,groundHeight:3.6},
+  {id:'shops',label:'Cihlový dům s obchody',source:'newdum8.4ds',textures:['maps/VYLOH34.BMP','maps/%ND5FAS.BMP','maps/3STRE1.BMP','maps/35RIMSV.BMP'],width:3.2,upperHeight:6.56,groundWidth:6.4,groundHeight:3.6},
+  {id:'stone',label:'Kamenná fasáda s výkladci',source:'3rad02.4ds',textures:['maps/VYLOH14.BMP','maps/3OKNA5.BMP','maps/STRECH03.BMP','maps/35RIMSV.BMP'],width:6.24,upperHeight:8.01,groundWidth:2.35,groundHeight:2.89},
+  {id:'rose',label:'Růžová omítka s cihlovým přízemím',source:'3rad05.4ds',textures:['maps/3CIH.BMP','maps/3OKNA7.BMP','maps/STRECH09.BMP','maps/35RIMSV.BMP'],width:5.47,upperHeight:3.9,groundWidth:2.18,groundHeight:2.6},
+  {id:'ornate',label:'Zdobený městský dům',source:'%radovk5.4ds',textures:['maps/VYLOH18.BMP','maps/%NEFAS.BMP','maps/STRECH10.BMP','maps/35RIMSV.BMP'],width:7.32,upperHeight:14,groundWidth:3.44,groundHeight:3.03},
+  {id:'green-stone',label:'Zelený kamenný dům',source:'%radovk9.4ds',textures:['maps/VYLOH03.BMP','maps/%NR6FAS.BMP','maps/STRECH10.BMP','maps/35RIMSV.BMP'],width:6.52,upperHeight:10.02,groundWidth:2.7,groundHeight:2.85},
+  {id:'arched',label:'Dům s obloukovými okny',source:'%radovk10.4ds',textures:['maps/VYLOH14.BMP','maps/%NR7FAS.BMP','maps/STRECH10.BMP','maps/35RIMSV.BMP'],width:5.49,upperHeight:10.6,groundWidth:2.35,groundHeight:2.89},
+  {id:'hotel',label:'Červenohnědá fasáda s výkladci',source:'%hotelv4.4ds',textures:['maps/VYLOH25.BMP','maps/%HOFAS.BMP','maps/STRECH10.BMP','maps/%HORIMD.BMP'],width:6.3,upperHeight:8.43,groundWidth:3.44,groundHeight:2.91},
+  {id:'old-brick',label:'Starší cihlový městský dům',source:'dum01.4ds',textures:['maps/03.BMP','maps/01.BMP','maps/3STRE1.BMP','maps/35RIMSV.BMP'],width:6.55,upperHeight:7.88,groundWidth:4.8,groundHeight:4.43},
 ]);
 const fail=message=>{throw Error(`OpenStreetMap · půdorysné domy: ${message}`);};
 const signed=r=>r.reduce((s,a,i)=>{const b=r[(i+1)%r.length];return s+a[0]*b[1]-b[0]*a[1];},0)/2;

@@ -44,11 +44,24 @@ test('OSM heights and level estimates stay explicit; invalid modes, selections a
 });
 function bmp(){const b=Buffer.alloc(58);b.write('BM');b.writeUInt32LE(58,2);b.writeUInt32LE(54,10);b.writeUInt32LE(40,14);b.writeInt32LE(1,18);b.writeInt32LE(1,22);b.writeUInt16LE(1,26);b.writeUInt16LE(24,28);return b;}
 test('style catalog validates actual project BMPs and hashes, refuses changed saved textures and reports missing assets',async()=>{
-  const bytes=bmp(),project={asset:path=>({path}),read:async()=>bytes},catalog=await loadOsmShellStyles(project);assert.equal(catalog.styles.length,2);assert.equal(catalog.warnings.length,0);assert(catalog.styles.every(s=>s.textures.every(t=>t.sha256===hash(bytes))));assert.deepEqual(await loadOsmShellStyles(project,catalog.styles),catalog);
+  const bytes=bmp(),project={asset:path=>({path}),read:async()=>bytes},catalog=await loadOsmShellStyles(project);assert.equal(catalog.styles.length,osmShellStyles.length);assert.equal(catalog.warnings.length,0);assert(catalog.styles.every(s=>s.textures.every(t=>t.sha256===hash(bytes))));assert.deepEqual(await loadOsmShellStyles(project,catalog.styles),catalog);
   const changed=structuredClone(catalog.styles);changed[0].textures[0].sha256='0'.repeat(64);await assert.rejects(loadOsmShellStyles(project,changed),/změnily/);await assert.rejects(loadOsmShellStyles(project,[{id:'bad'}]),/neplatné/);
-  const absent=await loadOsmShellStyles({asset:()=>{throw Error('missing');}});assert.equal(absent.styles.length,0);assert.equal(absent.warnings.length,2);await assert.rejects(loadOsmShellStyles(project,[{id:'brick',textures:[]}]),/změnily/);
+  const absent=await loadOsmShellStyles({asset:()=>{throw Error('missing');}});assert.equal(absent.styles.length,0);assert.equal(absent.warnings.length,osmShellStyles.length);await assert.rejects(loadOsmShellStyles(project,[{id:'brick',textures:[]}]),/změnily/);
 });
 test('many small houses respect the import and shared native collision budgets without partially generating a house',()=>{
   const polygons=Array.from({length:65},(_,i)=>{const x=-55+i%9*12,z=-55+Math.floor(i/9)*12;return [[[x,z],[x+5,z],[x+5,z+5],[x,z+5]]];}),input=source(polygons),result=plan(input,{selected:input.buildings.map(b=>b.id)});assert.equal(result.placements.length,64);assert.match(result.skipped[0].reason,/64/);
   const dense={model:{meshes:[{lods:[{positions:Array.from({length:59970*3},(_,i)=>i%3===0?Math.floor(i/3)*.001:0)}]}]},footprints:{road:[],sidewalk:[]}},blocked=plan(source(),{},dense);assert.equal(blocked.placements.length,0);assert.match(blocked.skipped[0].reason,/vrcholů/);
+});
+test('all curated facade styles generate distinct native materials with matching collision and deterministic saved selection',async()=>{
+  const upper=new Set();
+  for(const style of osmShellStyles){
+    const options={styles:[{id:style.id}]},first=plan(source(),options),second=plan(source(),JSON.parse(JSON.stringify(options)));assert.deepEqual(first,second);
+    const item=first.placements[0],bytes=writeSurfaceModel(osmShellModel(item)),model=parseFourDs(bytes,'all');
+    assert.deepEqual(model.materials.map(m=>'maps/'+m.texture),style.textures);assert.equal(model.meshes[0].lods[0].faces.reduce((n,f)=>n+f.indices.length/3,0),item.triangles);
+    assert(hits(model,[30,5,.1],[-1,0,0]).length>0);assert.equal(hits(model,[.1,30,.2],[0,-1,0]).length,0);
+    assert(model.meshes[0].lods[0].uv.every(Number.isFinite));upper.add(style.textures[1]);assert.match(style.source,/\.4ds$/);
+  }
+  assert.equal(upper.size,osmShellStyles.length);
+  const project={asset:path=>({path}),read:async()=>bmp()},legacy=await loadOsmShellStyles(project,(await loadOsmShellStyles(project)).styles.slice(0,2));assert.deepEqual(legacy.styles.map(s=>s.id),['brick','shops']);
+  const unavailable=await loadOsmShellStyles({...project,asset:path=>{if(path==='maps/%HOFAS.BMP')throw Error('missing facade');return{path};}});assert.equal(unavailable.styles.length,osmShellStyles.length-1);assert.equal(unavailable.warnings.length,1);assert.match(unavailable.warnings[0],/Červenohnědá/);
 });

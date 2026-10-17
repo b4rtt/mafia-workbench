@@ -117,11 +117,21 @@ export function osmDialog({api,element,assets,onCreated,setBusy=()=>{}}){
     if(buildingMode.value==='footprint'){
       shellCatalog=await api.osmBuildingStyles();modelSelection=new Set(saved?.styles.map(s=>s.id)??shellCatalog.styles.map(s=>s.id));
       if(saved&&saved.styles.some(s=>!shellCatalog.styles.some(c=>c.id===s.id&&JSON.stringify(c.textures)===JSON.stringify(s.textures))))throw Error('Uložené textury fasád se změnily. Načtěte styly znovu.');
-      modelList.replaceChildren();for(const s of shellCatalog.styles){const row=element('label',undefined,'osm-way'),input=element('input');input.type='checkbox';input.checked=modelSelection.has(s.id);input.onchange=()=>{if(input.checked)modelSelection.add(s.id);else modelSelection.delete(s.id);update();};row.append(input,element('span',s.label));modelList.append(row);}for(const warning of shellCatalog.warnings)modelList.append(element('p',warning,'notice'));return;
+      modelList.classList.add('osm-facade-catalog');modelList.replaceChildren();for(const s of shellCatalog.styles){
+        const row=element('label',undefined,'osm-way osm-facade'),input=element('input'),text=element('span'),previews=element('span',undefined,'osm-facade-previews'),recipe=osmShellStyles.find(r=>r.id===s.id);
+        input.type='checkbox';input.checked=modelSelection.has(s.id);input.onchange=()=>{if(input.checked)modelSelection.add(s.id);else modelSelection.delete(s.id);update();};
+        text.append(element('strong',s.label),element('small',`Zdroj fasády: ${recipe.source}`),previews);
+        for(const[index,label]of [[1,'Fasáda'],[0,'Přízemí']]){
+          const path=s.textures[index].path,preview=element('span',undefined,'osm-facade-preview'),image=element('img');image.alt=`${label}: ${path.slice(5)}`;image.title=path;image.loading='lazy';preview.append(image,element('small',`${label} · ${path.slice(5)}`));previews.append(preview);
+          const unavailable=()=>{if(!closed&&preview.isConnected){image.remove();preview.classList.add('unavailable');preview.append(element('small','Náhled není dostupný.'));}};
+          image.onerror=unavailable;void Promise.resolve().then(()=>api.media(path)).then(url=>{if(!closed&&image.isConnected)image.src=url;}).catch(unavailable);
+        }
+        row.append(input,text);modelList.append(row);
+      }for(const warning of shellCatalog.warnings)modelList.append(element('p',warning,'notice'));return;
     }
     catalog=await api.osmBuildingModels();modelSelection=new Set(saved?.models.map(m=>m.path)??catalog.models.map(m=>m.path));
     if(saved&&saved.models.some(m=>!catalog.models.some(c=>c.path===m.path&&c.sha256===m.sha256)))throw Error('Uložené modely domů se změnily nebo nejsou v katalogu. Načtěte katalog znovu.');
-    modelList.replaceChildren();for(const m of catalog.models){const row=element('label',undefined,'osm-way'),input=element('input'),label=element('span',`${m.path.slice(7)} · ${(m.max[0]-m.min[0]).toFixed(1)} × ${(m.max[2]-m.min[2]).toFixed(1)} m · výška ${m.max[1].toFixed(1)} m`);input.type='checkbox';input.checked=modelSelection.has(m.path);input.onchange=()=>{if(input.checked)modelSelection.add(m.path);else modelSelection.delete(m.path);update();};row.append(input,label);modelList.append(row);}for(const warning of catalog.warnings)modelList.append(element('p',warning,'notice'));
+    modelList.classList.remove('osm-facade-catalog');modelList.replaceChildren();for(const m of catalog.models){const row=element('label',undefined,'osm-way'),input=element('input'),label=element('span',`${m.path.slice(7)} · ${(m.max[0]-m.min[0]).toFixed(1)} × ${(m.max[2]-m.min[2]).toFixed(1)} m · výška ${m.max[1].toFixed(1)} m`);input.type='checkbox';input.checked=modelSelection.has(m.path);input.onchange=()=>{if(input.checked)modelSelection.add(m.path);else modelSelection.delete(m.path);update();};row.append(input,label);modelList.append(row);}for(const warning of catalog.warnings)modelList.append(element('p',warning,'notice'));
   }
   async function accept(result){
     if(token)void api.cancelOsm(token).catch(()=>{});token=result.token;source=result.source;elevation=result.elevation??null;latitude.value=source.area.latitude;longitude.value=source.area.longitude;size.value=source.area.size;url.value='';
