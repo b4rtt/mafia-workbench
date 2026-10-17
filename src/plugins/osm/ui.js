@@ -1,3 +1,4 @@
+import {missionNamePattern,missionNameHint} from '../../shared/mission-name.js';
 import {osmAmbientControls} from './ambient-ui.js';
 import {osmPedestrianControls} from './pedestrian-ui.js';
 import {osmTrafficControls} from './traffic-ui.js';
@@ -21,7 +22,7 @@ export function osmDialog({api,element,assets,onCreated,setBusy=()=>{}}){
   const provider=element('select');for(const[id,item]of Object.entries(osmProviders)){const option=element('option',item.name);option.value=id;provider.append(option);}field('Server pro stažení podkladu',provider);
   const buttons=element('div',undefined,'tools'),load=element('button','Načíst oblast'),open=element('button','Otevřít uložený podklad…'),all=element('button','Vybrat ulice'),none=element('button','Zrušit výběr'),template=element('button','Vybrat Empty_Mission.zip…'),cancel=element('button','Zavřít'),create=element('button','Vytvořit misi se sítí ulic','primary');
   for(const button of [load,open,all,none,template,cancel])button.type='button';create.type='submit';controls.push(load,open,all,none,template,cancel);
-  const config=element('div',undefined,'osm-location'),name=element('input'),model=element('select');name.value='OSM_CITY';name.required=true;name.maxLength=48;name.pattern='[a-zA-Z0-9][a-zA-Z0-9_\\-]{0,47}';field('Název nové mise',name,config);field('Model hráče (s kostrou)',model,config);
+  const config=element('div',undefined,'osm-location'),name=element('input'),model=element('select');name.value='OSM_CITY';name.required=true;name.maxLength=48;name.pattern=missionNamePattern;name.title=missionNameHint;field('Název nové mise',name,config);field('Model hráče (s kostrou)',model,config);
   for(const asset of assets.filter(a=>/^models\/[^/]+\.4ds$/i.test(a.path))){const option=element('option',asset.path.slice(7));option.value=asset.path;model.append(option);}const tommy=[...model.options].find(o=>o.value.toLowerCase()==='models/tommy.4ds');if(tommy)model.value=tommy.value;
   const surfaceConfig=element('details'),surfaceTitle=element('summary','Povrchy ulic a kolize'),generate=element('input'),surfaceFields=element('div',undefined,'osm-location');generate.type='checkbox';field('Vytvořit vozovky, chodníky a přesné kolize',generate,surfaceConfig);
   const surfaceInputs={},defaults=osmSurfaceDefaults;

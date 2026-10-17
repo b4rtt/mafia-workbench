@@ -4,6 +4,7 @@ import { inspectScene, editScene } from './scene.js';
 import { parseFourDs } from './fourds.js';
 import { inspectCache } from './cache.js';
 import { configureMissionPopulation } from './mission-population.js';
+import { missionNamePattern, missionNameHint } from '../shared/mission-name.js';
 
 export const EMPTY_MISSION_SHA256 = '30e85b0f896de45945b445d83fe02a8f8405f832f4764c3cbb449ebe10e85e2e';
 const filenames = ['cache.bin', 'car_table.dat', 'check.bin', 'effects.bin', 'road.bin', 'scene.4ds', 'scene2.bin', 'tree.klz'];
@@ -34,8 +35,9 @@ export function readEmptyMissionZip(source) {
   return result;
 }
 
+const validMissionName = new RegExp('^(?:'+missionNamePattern+')$','v');
 export function missionName(value) {
-  if (typeof value !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,47}$/.test(value) || /^(?:wbtest|con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(value)) throw new Error('Název mise: 1–48 znaků, písmena bez diakritiky, číslice, pomlčka nebo podtržítko.');
+  if (typeof value !== 'string' || !validMissionName.test(value)) throw new Error(missionNameHint);
   return value;
 }
 export function configureEmptyMission(template, options) {
