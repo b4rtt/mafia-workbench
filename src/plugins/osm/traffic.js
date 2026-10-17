@@ -1,7 +1,9 @@
+import {osmCornerSpeeds} from './traffic-speeds.js';
 const fail=message=>{throw Error('OpenStreetMap · doprava: '+message);};
 export function validateOsmTraffic(options){
   if(!options||![1,2].includes(options.version)||!Number.isInteger(options.density)||options.density<1||options.density>100||!/^[a-f0-9]{64}$/.test(options.tableHash??'')||!Array.isArray(options.models)||!options.models.length||options.models.length>32||new Set(options.models.map(m=>m?.path?.toLowerCase())).size!==options.models.length||options.models.some(m=>typeof m?.path!=='string'||!/^models\/[a-zA-Z0-9_ -]+10\.4ds$/i.test(m.path)||typeof m.table!=='string'||!/^[a-zA-Z0-9_ -]{1,19}$/.test(m.table)||!/^[a-f0-9]{64}$/.test(m.sha256??'')||!Number.isFinite(m.width)||m.width<.5||m.width>5))fail('načtěte katalog aut a vyberte 1–32 rodin; hustota je 1–100.');
   if(options.speedKmh!==undefined&&(!Number.isFinite(options.speedKmh)||options.speedKmh<1||options.speedKmh>50))fail('rychlost musí být 1–50 km/h.');
+  if(options.cornerSpeedKmh!==undefined&&(!Number.isFinite(options.cornerSpeedKmh)||options.cornerSpeedKmh<1||options.cornerSpeedKmh>50))fail('rychlost v zatáčkách musí být 1–50 km/h.');
 }
 // One native traffic lane per permitted direction. Keep the legacy network
 // byte-exact when this explicit, versioned feature is absent.
@@ -22,5 +24,7 @@ export function osmTrafficPlan(plan,surface,options){
     return {index,way:road.way,width,positions,forward:road.forward,reverse:road.reverse,forwardLanes:lanes(),reverseLanes:lanes()};
   });
   if(roads.reduce((n,r)=>n+r.positions.length,0)>4096)fail('síť potřebuje více než 4096 jízdních bodů; zmenšete oblast nebo výběr ulic.');
-  return {density:options.density,...(options.speedKmh===undefined?{}:{speed:options.speedKmh/3.6}),clearance,roads,models:options.models.map(m=>m.table)};
+  let cornering=null,crossingSpeeds=null;
+  if(options.cornerSpeedKmh!==undefined){const result=osmCornerSpeeds(plan,roads,options.cornerSpeedKmh,(options.speedKmh??4.32)/3.6);cornering=result.cornering;crossingSpeeds=result.crossingSpeeds;roads.forEach((road,i)=>road.nodeSpeeds=result.nodeSpeeds[i]);}
+  return {...(cornering?{cornering,crossingSpeeds}:{}),density:options.density,...(options.speedKmh===undefined?{}:{speed:options.speedKmh/3.6}),clearance,roads,models:options.models.map(m=>m.table)};
 }
