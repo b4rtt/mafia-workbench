@@ -1,4 +1,5 @@
 import { parseCollision } from './collision.js';
+import iconv from 'iconv-lite';
 
 const fail=message=>{throw new Error(`KLZ: ${message}`);};
 const pad=n=>(4-n%4)%4;
@@ -36,6 +37,9 @@ export function collisionFace(points, indices, material, reverse) {
 
 // Replace only caller-owned triangle records and their exclusive vertices.
 // Native frame triangles, volume arrays, opaque headers, gaps and flags survive.
+// Optional surface.frame addresses one visual's LOD0: positions stay world-space
+// and in that buffer's original index order. The caller must protect the scene
+// and model dependencies used by resolveFrame in its publication transaction.
 export function replaceCollisionSurfaces(source, surfaces, options={}) {
   const parsed=parseCollision(source),removedIndices=options.removedIndices??[],vertexBase=options.vertexBase??parsed.vertexCount;
   if(!Array.isArray(surfaces)||surfaces.length>65536||!Array.isArray(removedIndices)||new Set(removedIndices).size!==removedIndices.length||removedIndices.some(i=>!Number.isInteger(i)||i<0||i>=parsed.primitives.triangles.count)||!Number.isInteger(vertexBase)||vertexBase<0||vertexBase>parsed.vertexCount)fail('neplatná evidence odstraňovaného povrchu.');
@@ -49,18 +53,38 @@ export function replaceCollisionSurfaces(source, surfaces, options={}) {
     if(t.vertices[0].link!==0x7fff||t.vertices.every(v=>vertexMap.get(v.index)===v.index))return t;
     const raw=Buffer.from(t.raw),vertices=t.vertices.map(v=>({...v,index:vertexMap.get(v.index)}));vertices.forEach((v,i)=>raw.writeUInt16LE(v.index,4+i*4));return {...t,raw,vertices};
   });
-  const records=[],vertexBlocks=[],groups=[];let vertexCount=vertexParts.length;
+  const records=[],vertexBlocks=[],groups=[],newLinks=[],byName=new Map();let vertexCount=vertexParts.length;
+  for(const link of parsed.links){const key=link.name.normalize('NFC').toLowerCase(),list=byName.get(key)??[];list.push(link);byName.set(key,list);}
+  const frameLink=name=>{
+    if(typeof name!=='string'||!name||name.includes('\0')||name.length>255)fail('neplatný název povrchového frame.');
+    const encoded=iconv.encode(name,'windows-1250');if(iconv.decode(encoded,'windows-1250')!==name)fail('název frame nelze zapsat ve Windows-1250.');
+    const key=name.normalize('NFC').toLowerCase(),matches=byName.get(key)??[];
+    if(matches.length>1)fail('nejednoznačný název povrchového frame.');
+    if(matches.length){if(![1,3].includes(matches[0].type)||matches[0].index>=0x7fff)fail('neplatný existující povrchový odkaz.');return matches[0].index;}
+    const index=parsed.links.length+newLinks.length;if(index>=0x7fff)fail('překročen limit povrchových odkazů.');
+    const raw=Buffer.alloc(4+encoded.length+1+pad(encoded.length+1));raw.writeUInt32LE(1);encoded.copy(raw,4);newLinks.push(raw);byName.set(key,[{index,type:1}]);return index;
+  };
   const {grid}=parsed;let minX=grid.minX,minZ=grid.minZ,maxX=grid.maxX,maxZ=grid.maxZ;
   for(const surface of surfaces){
     const positions=surface?.positions,indices=surface?.indices,material=surface?.material??0;
     if(!surface||typeof surface.name!=='string'||!surface.name||!Array.isArray(positions)||positions.length%3||!positions.length||positions.some(n=>!finite(n))||!Array.isArray(indices)||!indices.length||indices.length%3||indices.some(i=>!Number.isInteger(i)||i<0||i>=positions.length/3)||!Number.isInteger(material)||material<0||material>255||surface.doubleSided!==undefined&&typeof surface.doubleSided!=='boolean')fail('neplatný povrch nebo materiál modelu.');
-    if(vertexCount+positions.length/3>65536)fail('povrch přesahuje limit 65 536 světových vrcholů.');
-    const points=positions.map(Math.fround),block=Buffer.alloc(points.length*4);points.forEach((n,i)=>block.writeFloatLE(n,i*4));vertexBlocks.push(block);
-    const group={name:surface.name,triangleStart:retained.length+records.length,triangleCount:0,vertexStart:vertexCount,vertexCount:points.length/3,doubleSided:surface.doubleSided!==false};
+    // Frame indices address that visual's first LOD, not the shared world pool.
+    // Keep the supplied world coordinates for plane/grid calculations, and
+    // require a resolver to verify that they really match the addressed buffer.
+    const framed=surface.frame!==undefined,link=framed?frameLink(surface.frame):0x7fff,points=positions.map(Math.fround);
+    if(framed){
+      if(points.length/3>65536)fail('frame přesahuje limit 65 536 vrcholů.');
+      const used=[...new Set(indices)],resolved=options.resolveFrame?.(surface.frame,used);
+      if(!Array.isArray(resolved)||resolved.length!==used.length||resolved.some((p,i)=>!Array.isArray(p)||p.length!==3||p.some((n,axis)=>!finite(n)||Math.fround(n)!==points[used[i]*3+axis])))fail('vrcholy neodpovídají prvnímu LOD povrchového frame.');
+    }else{
+      if(vertexCount+points.length/3>65536)fail('povrch přesahuje limit 65 536 světových vrcholů.');
+      const block=Buffer.alloc(points.length*4);points.forEach((n,i)=>block.writeFloatLE(n,i*4));vertexBlocks.push(block);
+    }
+    const group={name:surface.name,triangleStart:retained.length+records.length,triangleCount:0,vertexStart:vertexCount,vertexCount:framed?0:points.length/3,doubleSided:surface.doubleSided!==false,...(framed?{frame:surface.frame}:{})};
     for(let i=0;i<indices.length;i+=3){
       const local=indices.slice(i,i+3),front=collisionFace(points,local,material,false);for(const record of group.doubleSided?[front,collisionFace(points,local,material,true)]:[front]){
-        // Local input indices become global pool indices after the plane math.
-        for(let j=0;j<3;j++)record.raw.writeUInt16LE(record.raw.readUInt16LE(4+j*4)+vertexCount,4+j*4);
+        // Frame indices remain local; world indices gain their pool offset.
+        for(let j=0;j<3;j++){if(!framed)record.raw.writeUInt16LE(record.raw.readUInt16LE(4+j*4)+vertexCount,4+j*4);record.raw.writeUInt16LE(link,6+j*4);}
         records.push(record);group.triangleCount++;minX=Math.min(minX,record.min[0]);minZ=Math.min(minZ,record.min[2]);maxX=Math.max(maxX,record.max[0]);maxZ=Math.max(maxZ,record.max[2]);
       }
     }
@@ -98,6 +122,13 @@ export function replaceCollisionSurfaces(source, surfaces, options={}) {
   }
   const gridRaw=Buffer.from(grid.raw);gridRaw.writeFloatLE(x[0],0);gridRaw.writeFloatLE(z[0],4);gridRaw.writeFloatLE(x.at(-1),8);gridRaw.writeFloatLE(z.at(-1),12);gridRaw.writeUInt32LE(width,24);gridRaw.writeUInt32LE(length,28);gridRaw.writeUInt32LE(retained.length+records.length,0x30);gridRaw.writeUInt32LE(vertexCount,0x60);
   const bounds=Buffer.alloc((x.length+z.length)*4);[...x,...z].forEach((n,i)=>bounds.writeFloatLE(n,i*4));
-  const bytes=Buffer.concat([parsed.bytes.subarray(0,parsed.gridOffset),gridRaw,bounds,parsed.separator,...Object.values(parsed.primitives).flatMap(a=>a.type===0?[...retained.map(t=>t.raw),...records.map(t=>t.raw)]:[a.raw]),...vertexParts,...vertexBlocks,parsed.cellSeparator,...cells,parsed.tail]);
+  let prefix=parsed.bytes.subarray(0,parsed.gridOffset);
+  if(newLinks.length){
+    const count=parsed.links.length+newLinks.length,header=Buffer.from(parsed.bytes.subarray(0,24)),offsets=Buffer.alloc(count*4),shift=newLinks.length*4;let offset=parsed.gridOffset+shift;
+    parsed.links.forEach((link,i)=>offsets.writeUInt32LE(link.offset+shift,i*4));newLinks.forEach((raw,i)=>{offsets.writeUInt32LE(offset,(parsed.links.length+i)*4);offset+=raw.length;});
+    header.writeUInt32LE(offset,8);header.writeUInt32LE(count,12);
+    prefix=Buffer.concat([header,offsets,parsed.bytes.subarray(24+parsed.links.length*4,parsed.gridOffset),...newLinks]);
+  }
+  const bytes=Buffer.concat([prefix,gridRaw,bounds,parsed.separator,...Object.values(parsed.primitives).flatMap(a=>a.type===0?[...retained.map(t=>t.raw),...records.map(t=>t.raw)]:[a.raw]),...vertexParts,...vertexBlocks,parsed.cellSeparator,...cells,parsed.tail]);
   parseCollision(bytes);return {bytes,groups};
 }
