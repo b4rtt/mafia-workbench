@@ -73,7 +73,7 @@ export async function createOsmMission(project,zip,data,area,selected,options){
     for(const path of [options.surface.roadTexture,options.surface.sidewalkTexture,options.surface.curbTexture,...(elevation?[elevation.groundTexture]:[])]){const asset=project.asset(path),texture=await project.read(asset.path);parseBmp(texture);dependencies.push({path:asset.path,expectedHash:hash(texture)});}
     const {scene,object}=add('OSM_STREETS',modelName+'.i3d',[0,0,0],[1,0,0,0],[1,1,1]);
     collisions.push({...modelCollisionSurface(parseFourDs(bytes,true),object,scene,geometry),doubleSided:false,material:0});
-    extra.push({path:modelPath,data:bytes});surface={model:modelPath,triangles:generated.triangles,collisionTriangles:collisions[0].indices.length/3,profiles:generated.profiles};
+    extra.push({path:modelPath,data:bytes});surface={model:modelPath,triangles:generated.triangles,collisionTriangles:collisions[0].indices.length/3,profiles:generated.profiles,...(generated.corners?{corners:generated.corners}:{})};
   }
   if(options.traffic!==undefined&&options.traffic!==null){
     const catalog=await loadOsmTrafficModels(project,options.traffic);traffic=osmTrafficPlan(roadPlan,generated,options.traffic);
@@ -184,6 +184,7 @@ export async function createOsmMission(project,zip,data,area,selected,options){
     ...(ambient?['Manually selected mono point sounds 1.5m above the common surfaces; no acoustic inference or occlusion']:[]),
     'Street profiles and model choices remain approximations; no road markings or exact landmarks'
   ];
+  if(generated?.corners)provenance.limitations.push('Requested inner road-corner radius is limited by adjacent edges and at least 0.5m clearance to the unchanged outer street boundary; may narrow sidewalks; islands and disconnected street components are preserved; native driving paths are unchanged and vehicle swept-body clearance is not guaranteed');
   const sourceBytes=Buffer.from(JSON.stringify(provenance));if(elevation&&sourceBytes.length>8*1024*1024)throw Error('OpenStreetMap · terén: uložený podklad přesahuje 8 MB; zmenšete oblast nebo rastr.');
   files.set('osm-source.json',sourceBytes);
   files.set('OSM-ATTRIBUTION.txt',Buffer.from(osmAttribution+'\n'+(elevation?osmElevationCredit(elevation):'')+'Source snapshot and import settings: osm-source.json\n'));

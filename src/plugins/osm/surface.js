@@ -1,6 +1,7 @@
 import clipping from 'polygon-clipping';
 import {ShapeUtils,Vector2} from 'three';
 import {osmProfileDefaults,osmRoadProfile} from './profiles.js';
+import {osmRoundedRoadCorners} from './surface-corners.js';
 
 // CHDNK01 includes an edge strip. Repeating it across a planar network puts
 // false curbs through the pavement; CHDNK02 contains only repeatable slabs.
@@ -12,6 +13,7 @@ const snap=n=>Math.round(n*1000)/1000;
 export function osmSurfaceModel(plan,area,options){
   if(!options||typeof options!=='object'||Array.isArray(options))fail('neplatné nastavení.');
   for(const[key,min,max]of [['width',2,20],['sidewalkWidth',.5,5],['curbHeight',.05,.4],['tileSize',.25,20],['sidewalkTileSize',.25,10]])if(typeof options[key]!=='number'||!Number.isFinite(options[key])||options[key]<min||options[key]>max)fail(`neplatný rozměr ${key}.`);
+  if(options.cornerRadius!==undefined&&(!Number.isFinite(options.cornerRadius)||options.cornerRadius<0||options.cornerRadius>6))fail('poloměr vnitřních rohů musí být 0–6 m.');
   for(const key of ['roadTexture','sidewalkTexture','curbTexture'])if(typeof options[key]!=='string'||!/^maps\/[\x20-\x7e]+\.bmp$/i.test(options[key])||/[\\/:*?"<>|]/.test(options[key].slice(5))||options[key].slice(5).length>120)fail('vyberte BMP textury z hlavní složky maps.');
   if(!plan?.flat||!Array.isArray(plan.roads)||!plan.roads.length||plan.roads.length>1024||!Array.isArray(plan.crossings)||!Number.isFinite(area?.size)||area.size<50||area.size>450)fail('neplatná rovinná síť.');
   const chains=plan.roads.map(road=>[plan.crossings[road.from]?.position,...road.positions,plan.crossings[road.to]?.position]);
@@ -46,8 +48,8 @@ export function osmSurfaceModel(plan,area,options){
     // boundaries for the road, raised sidewalk and collision triangles.
     return clipping.union(merged.map(poly=>poly.map(ring=>ring.map(p=>p.map(snap)))));
   }
-  let road,outer,sidewalk;
-  try{road=footprint(false);outer=footprint(true);sidewalk=clipping.difference(outer,road);}catch(error){if(error.message.startsWith('OpenStreetMap'))throw error;fail('půdorysy nelze spojit; zmenšete oblast nebo upravte výběr.');}
+  let road,outer,sidewalk,corners;
+  try{road=footprint(false);outer=footprint(true);if(options.cornerRadius){const rounded=osmRoundedRoadCorners(road,outer,options.cornerRadius);road=rounded.road;corners=rounded.corners;}sidewalk=clipping.difference(outer,road);}catch(error){if(error.message.startsWith('OpenStreetMap'))throw error;fail('půdorysy nelze spojit; zmenšete oblast nebo upravte výběr.');}
   if(!road.length)fail('ve výběru nevznikl úplný povrch ulice.');
   const meshes=[],base=.05,top=Math.fround(base+options.curbHeight),materials=[options.roadTexture,options.sidewalkTexture,options.curbTexture].map(path=>({flags:0x00840001,ambient:[1,1,1],diffuse:[1,1,1],emission:[0,0,0],opacity:1,texture:path.slice(5)}));
   let positions=[],normals=[],uv=[],faces=[1,2,3].map(material=>({material,indices:[]})),triangles=0;
@@ -74,5 +76,5 @@ export function osmSurfaceModel(plan,area,options){
     const points=[[a[0],base,a[1]],[b[0],base,b[1]],[a[0],top,a[1]],[b[0],top,b[1]]],tex=[[distance,0],[distance+length,0],[distance,1],[distance+length,1]];
     for(const ids of [[0,2,1],[1,2,3]])triangle(ids.map(i=>points[i]),ids.map(i=>tex[i]),3);distance+=length;
   }}
-  flush();return {model:{version:29,materials,meshes,animated:0},footprints:{road,sidewalk},triangles,profiles};
+  flush();return {model:{version:29,materials,meshes,animated:0},footprints:{road,sidewalk},triangles,profiles,...(corners?{corners}:{})};
 }

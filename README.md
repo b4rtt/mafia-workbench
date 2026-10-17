@@ -174,6 +174,8 @@ Volitelná sekce OSM **Zvukové prostředí** přidává upravitelné opakované
 
 Uložený OSM podklad může obnovit také ověřený místní číselný rastr výšek. Terén, domy/sokly, zeleň, objekty, světla, zvuky a obě navigační sítě pak vzniknou společně s jedním undo. Rastr musí mít úplná data, popis zdroje, deklarované rozlišení/výškový systém a správný kontrolní součet. V dialogu OSM otevřete **Výšky terénu → Načíst výšky · Terrain Tiles EU-DEM**. Zapněte povrchy ulic a vyberte BMP terénu. Další použití čte ověřenou místní cache; uložený osm-source.json obnoví stejný rastr i bez sítě. Podpora je omezená na dlaždice výhradně s EU-DEM. Historický podklad má nominálně 30 m, krok výstupní sítě nejvýše 10 m nezvyšuje přesnost; výškový systém není ověřen. **Použít rovinný podklad** výšky výslovně odebere. Členitý výřez může překročit limit pěší sítě; zmenšete oblast. [Formát, ověření a omezení](research/osm-elevation.md#uložený-zdroj-a-společná-transakce-17-10-2026).
 
+V OSM sekci **Povrchy ulic a kolize → Zaoblení vnitřních rohů vozovky** lze zadat požadovaný poloměr 0–6 m. Nula zachová původní povrch; starší uložený podklad se sám nemění. Zaoblení společně upraví asfalt, chodník, obrubníky i jejich přesné kolize, také na výškovém terénu. Vnější hranice uličního pásu zůstane stejná. Poloměr se omezí podle sousedních hran a odstupu alespoň 0,5 m od vnější hranice; roh bez místa se vynechá. Chodník se může zúžit, ostrůvky a oddělené ulice se zachovají. Souhrn ukazuje počty vytvořených, omezených a vynechaných rohů. Volba se uloží do podkladu pro opakovaný import a má společné undo celé mise. Nemění jízdní osy a sama nezaručuje bezpečný průjezd celé karoserie.
+
 ## Reference a rozsah
 
 - [Celé zadání](goal.json)
