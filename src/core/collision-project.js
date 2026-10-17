@@ -5,6 +5,7 @@ import { inspectScene } from './scene.js';
 import { parseFourDs } from './fourds.js';
 import { geometryCollisionResolver } from './model-collision.js';
 import { collisionGeometry, collisionOwnership, ownedCollisionRecords, surfaceSignature } from './scene-collision.js';
+import { collisionTriangleVertices } from './collision-surfaces.js';
 
 const key=name=>name.normalize('NFC').toLowerCase();
 function location(project,name){
@@ -58,7 +59,8 @@ export async function saveProjectCollision(project,name,operations,expectedHash,
   if(hash(before)!==expectedHash)throw new Error('Kolize se od otevření změnily. Otevřete je znovu.');
   const parsed=parseCollision(before),ownership=collisionOwnership(project.manifest,scenePath),owned=ownedCollisionRecords(parsed,ownership),files=[{path,data:null,expectedHash}];
   if(!Array.isArray(operations))throw new Error('Neplatný seznam změn kolizí.');
-  const needsContext=operations.some(op=>op?.kind!=='delete'&&(op?.kind==='add'||Object.keys(op?.changes??{}).some(k=>!['material','flags'].includes(k))));let ctx;
+  const framedTouched=options.detachGenerated===true&&ownership.some(owner=>owner.storage==='frame'&&operations.some(op=>op?.array==='triangles'&&op.kind!=='add'&&op.index>=owner.triangleStart&&op.index<owner.triangleStart+owner.triangleCount));
+  const needsContext=framedTouched||operations.some(op=>op?.kind!=='delete'&&(op?.kind==='add'||Object.keys(op?.changes??{}).some(k=>!['material','flags'].includes(k))));let ctx;
   if(needsContext){
     ctx=await context(project,folder,parsed);
     for(const [path,data] of ctx.dependencies){const expected=dependencyHashes?.[path];if(expected!==hash(data))throw new Error('Geometrie nebo scéna se od otevření kolizí změnila. Otevřete editor znovu.');files.push({path,data,expectedHash:expected});}
@@ -67,10 +69,27 @@ export async function saveProjectCollision(project,name,operations,expectedHash,
       if(op.kind==='add'||link!==parsed.primitives[op.array]?.records[op.index]?.link)if(!ctx.resolved[link])throw new Error('Kolize vyžaduje jednoznačný existující frame mise.');
     }
   }
-  const result=editCollision(before,operations,{resolveFrame:ctx?.resolver}),revised=parseCollision(result.bytes),next=[],detached=[];
+  let result=editCollision(before,operations,{resolveFrame:ctx?.resolver}),revised=parseCollision(result.bytes);
+  if(framedTouched){
+    // Once manually detached, every surviving triangle of this owner must be
+    // independent of its visual. Otherwise moving/renaming the model would
+    // leave old planes/grid cells addressing a moved or missing vertex buffer.
+    const freeze=owned.filter(owner=>owner.storage==='frame'&&operations.some(op=>op.array==='triangles'&&op.kind!=='add'&&op.index>=owner.triangleStart&&op.index<owner.triangleStart+owner.triangleCount)&&owner.records.some(record=>{const index=result.mappings.triangles[record.index];return index===null||!record.raw.equals(revised.primitives.triangles.records[index].raw);}));
+    if(freeze.length){
+      const amended=operations.map(op=>({...op,...(op.changes?{changes:{...op.changes}}:{})}));
+      const edits=new Map(amended.filter(op=>op.kind==='edit'&&op.array==='triangles').map(op=>[op.index,op]));
+      for(const owner of freeze)for(const record of owner.records){
+        const index=result.mappings.triangles[record.index];if(index===null||revised.primitives.triangles.records[index].vertices[0].link===0x7fff)continue;
+        const op=edits.get(record.index),points=collisionTriangleVertices(parsed,record,ctx.resolver);
+        if(op)op.changes.points=points;else amended.push({kind:'edit',array:'triangles',index:record.index,changes:{points}});
+      }
+      result=editCollision(before,amended,{resolveFrame:ctx.resolver});revised=parseCollision(result.bytes);
+    }
+  }
+  const next=[],detached=[];
   ownership.forEach((owner,i)=>{
     if(owner.kind==='mesh'){
-      const indices=owned[i].records.map(record=>result.mappings.triangles[record.index]),group={...owner,triangleStart:indices[0]};
+      const indices=owned[i].records.map(record=>result.mappings.triangles[record.index]),group={...owner,triangleStart:indices[0],...(owner.parts?{parts:owner.parts.map(part=>({...part,triangleStart:result.mappings.triangles[part.triangleStart]}))}:{})};
       if(indices.some((index,n)=>index===null||index!==indices[0]+n)||surfaceSignature(revised,group)!==owner.signature){detached.push(owner.name);return;}
       next.push(group);
     }else{

@@ -254,3 +254,63 @@ test('collision rebuild protects source geometry and rolls back failed publicati
  const batch=p.changeBatch;p.changeBatch=async function(...args){await this.change('models/crate.4ds',oldModel,'Independent geometry edit');return batch.apply(this,args);};
  await assert.rejects(p.rebuildSceneCollision(scenePath,map.sha256,map.collision.sha256),/od otevření/);assert.deepEqual(await p.read(klzPath),klz);assert.equal(p.manifest.history.length,history+1);assert.deepEqual(collisionOwnership(p.manifest,scenePath),owners);
 });
+
+async function frameModel(p,large=false){
+  const {writeSurfaceModel}=await import('../src/core/surface-model.js');
+  const meshes=[0,1].map(part=>{
+    const positions=[],indices=[];
+    for(let i=0;i<(large?12000:2);i++){const x=part*8+(i%100)/100,z=Math.floor(i/100)/100,at=positions.length/3;positions.push(x,4,z,x+.004,4,z,x,4,z+.004);indices.push(at,at+1,at+2);}
+    return {id:part+1,name:'Part'+part,type:1,visual:0,renderFlags:0,logicFlags:0x2a,culling:9,parent:0,position:[0,part,0],rotation:[1,0,0,0],scale:[1,1,1],lods:[{distance:0,vertices:positions.length/3,positions,normals:positions.map((_,i)=>i%3===1?1:0),uv:Array(positions.length/3*2).fill(0),faces:[{material:0,indices}]}]};
+  });
+  const bytes=writeSurfaceModel({materials:[],meshes});await p.change('models/Crate.4ds',bytes,'Frame fixture');return bytes;
+}
+const frameCollision={kind:'mesh',storage:'frame',material:9,doubleSided:false};
+
+test('native model owners group multiple visuals, preview, move, rename, duplicate, remove and undo with their scene',async t=>{
+  const {p,scene,root,klz}=await setup(t);await frameModel(p);await p.changeSceneObject(scenePath,{...operation,collision:frameCollision},hash(scene));
+  let map=await p.inspectMap(scenePath);assert.equal(map.collision.warning,undefined);assert.equal(map.collision.surfaces.length,1);assert.equal(map.collision.surfaces[0].storage,'frame');assert.equal(map.collision.surfaces[0].triangleCount,4);
+  let owners=collisionOwnership(p.manifest,scenePath);assert.deepEqual(owners[0].parts.map(p=>[p.frame,p.triangleCount,p.vertexCount]),[['WB_CRATE.Part0',2,6],['WB_CRATE.Part1',2,6]]);assert.equal(owners[0].vertexCount,0);assert.deepEqual(parseCollision(await p.read(klzPath)).extraVertices,parseCollision(klz).extraVertices);
+  const beforeScene=await p.read(scenePath),before=await p.read(klzPath),oldOwners=structuredClone(owners),originalPositions=map.collision.surfaces[0].positions;
+  await p.saveScene(scenePath,[{id:map.objects[0].fields.position,value:[15,2,5]},{id:map.objects[0].fields.name,value:'RENAMED'}],map.sha256);map=await p.inspectMap(scenePath);assert.equal(map.collision.warning,undefined);assert.deepEqual(map.collision.surfaces[0].positions,originalPositions.map((n,i)=>n+(i%3===0?10:i%3===1?2:0)));assert(collisionOwnership(p.manifest,scenePath)[0].parts.every(part=>part.frame.startsWith('RENAMED.')));
+  await p.changeSceneObject(scenePath,{kind:'duplicate',id:map.objects[0].id,name:'COPY'},map.sha256);map=await p.inspectMap(scenePath);assert.equal(map.collision.surfaces.length,2);assert(map.collision.surfaces.every(s=>s.storage==='frame'));assert.equal(parseCollision(await p.read(klzPath)).vertexCount,3);
+  await p.changeSceneObject(scenePath,{kind:'delete',id:map.objects.find(o=>o.name==='COPY').id},map.sha256);assert.equal((await p.inspectMap(scenePath)).collision.surfaces.length,1);
+  const opened=await ModProject.open(root);await opened.export(root+'/frame-export');assert.deepEqual(await fs.readFile(root+'/frame-export/'+klzPath),await p.read(klzPath));
+  await opened.undo();await opened.undo();await opened.undo();assert.deepEqual(await opened.read(scenePath),beforeScene);assert.deepEqual(await opened.read(klzPath),before);assert.deepEqual(collisionOwnership(opened.manifest,scenePath),oldOwners);
+  map=await opened.inspectMap(scenePath);await opened.changeSceneObject(scenePath,{kind:'collision',id:map.objects[0].id,collision:{kind:'mesh',storage:'world',material:9,doubleSided:false}},map.sha256);map=await opened.inspectMap(scenePath);assert.equal(parseCollision(await opened.read(klzPath)).vertexCount,15);map.collision.surfaces[0].positions.forEach((n,i)=>assert(Math.abs(n-originalPositions[i])<1e-6));
+  await opened.undo();map=await opened.inspectMap(scenePath);await opened.changeSceneObject(scenePath,{kind:'attach-physical',target:'WB_CRATE'},map.sha256);assert.equal(collisionOwnership(opened.manifest,scenePath).length,0);assert.equal(parseCollision(await opened.read(klzPath)).primitives.triangles.count,1);await opened.undo();assert.deepEqual(await opened.read(klzPath),before);
+});
+
+test('model generation handles more than 65536 used vertices across native visuals without a world-pool allocation',async t=>{
+  const {p,scene}=await setup(t);await frameModel(p,true);await p.changeSceneObject(scenePath,{...operation,position:[0,0,0],collision:frameCollision},hash(scene));
+  const parsed=parseCollision(await p.read(klzPath)),owner=collisionOwnership(p.manifest,scenePath)[0];assert.equal(parsed.vertexCount,3);assert.equal(owner.parts.reduce((n,p)=>n+p.vertexCount,0),72000);assert.equal(owner.triangleCount,24000);assert.equal((await p.inspectMap(scenePath)).collision.warning,undefined);
+  const old=await p.read(klzPath),map=await p.inspectMap(scenePath);await assert.rejects(p.changeSceneObject(scenePath,{kind:'collision',id:map.objects[0].id,collision:{...frameCollision,storage:'world'}},map.sha256),/65 536 světových/);assert.deepEqual(await p.read(klzPath),old);
+});
+
+test('manual native collision detachment freezes the complete owner, retains other owners, and guards source dependencies',async t=>{
+  const {p,scene}=await setup(t);await frameModel(p);await p.changeSceneObject(scenePath,{...operation,collision:frameCollision},hash(scene));await p.changeSceneObject(scenePath,{...operation,name:'OTHER',position:[15,0,5],collision:frameCollision},hash(await p.read(scenePath)));
+  let file=await p.inspect(klzPath);const before=await p.read(klzPath),owners=collisionOwnership(p.manifest,scenePath),op=[{kind:'delete',array:'triangles',index:0},{kind:'edit',array:'triangles',index:owners[0].triangleStart,changes:{material:21}}];
+  await assert.rejects(p.saveCollision(klzPath,op,file.sha256,file.dependencyHashes),/odpojí/);
+  await assert.rejects(p.saveCollision(klzPath,op,file.sha256,{}, {detachGenerated:true}),/Geometrie/);assert.deepEqual(await p.read(klzPath),before);
+  const result=await p.saveCollision(klzPath,op,file.sha256,file.dependencyHashes,{detachGenerated:true});assert.deepEqual(result.detached,['WB_CRATE']);const remaining=collisionOwnership(p.manifest,scenePath);assert.equal(remaining.length,1);assert.equal(remaining[0].name,'OTHER');assert.equal(remaining[0].parts[1].triangleStart,owners[1].parts[1].triangleStart-1);
+  file=await p.inspect(klzPath);assert.equal(file.ownershipWarning,undefined);assert(file.records.filter(r=>r.array==='triangles'&&!r.owner).every(r=>r.vertices.every(v=>v.link===32767)));const frozen=file.records.filter(r=>r.array==='triangles'&&!r.owner).map(r=>r.points);
+  let map=await p.inspectMap(scenePath);await p.saveScene(scenePath,[{id:map.objects.find(o=>o.name==='WB_CRATE').fields.name,value:'DETACHED'},{id:map.objects.find(o=>o.name==='WB_CRATE').fields.position,value:[25,0,5]}],map.sha256);map=await p.inspectMap(scenePath);assert.equal(map.collision.warning,undefined);assert.deepEqual((await p.inspect(klzPath)).records.filter(r=>r.array==='triangles'&&!r.owner).map(r=>r.points),frozen);
+  await p.undo();await p.undo();assert.deepEqual(await p.read(klzPath),before);assert.deepEqual(collisionOwnership(p.manifest,scenePath),owners);
+  file=await p.inspect(klzPath);const spatial=[{kind:'edit',array:'triangles',index:owners[0].triangleStart,changes:{points:[[1,0,0],[1,2,0],[1,0,2]]}}];await p.saveCollision(klzPath,spatial,file.sha256,file.dependencyHashes,{detachGenerated:true});file=await p.inspect(klzPath);assert.equal(file.ownershipWarning,undefined);assert.equal(file.records.filter(r=>r.owner==='WB_CRATE').length,0);assert(file.records.filter(r=>r.owner==='OTHER').every(r=>r.vertices.every(v=>v.link!==32767)));await p.undo();assert.deepEqual(await p.read(klzPath),before);
+});
+
+test('native owner rebuild follows edited model geometry, validates ownership/link signatures and rolls back publication failures',async t=>{
+  const {p,scene,root}=await setup(t);await p.changeSceneObject(scenePath,{...operation,collision:frameCollision},hash(scene));let map=await p.inspectMap(scenePath);const initial=await p.read(klzPath),save=p.saveManifest;
+  await p.saveGeometry('models/crate.4ds',{mesh:1,levels:[{lod:0,recomputeNormals:false,vertices:[{index:1,position:[4,2,0]}]}]},hash(await p.read('models/crate.4ds')));
+  p.saveManifest=async()=>{throw Error('frame publication failed');};await assert.rejects(p.rebuildSceneCollision(scenePath,map.sha256,map.collision.sha256),/publication failed/);p.saveManifest=save;assert.deepEqual(await p.read(klzPath),initial);
+  assert.deepEqual(await p.rebuildSceneCollision(scenePath,map.sha256,map.collision.sha256),{count:1,changed:true});map=await p.inspectMap(scenePath);assert.equal(map.collision.warning,undefined);assert(map.collision.surfaces[0].positions.some((n,i,a)=>i%3===0&&n===9&&a[i+1]===2));assert.equal(parseCollision(await p.read(klzPath)).vertexCount,3);
+  const snapshot=p.manifest.history.findLast(e=>e.collisionOwnership).collisionOwnership;const parts=structuredClone(snapshot.objects[0].parts);snapshot.objects[0].parts[0].triangleStart++;await assert.rejects(p.rebuildSceneCollision(scenePath,map.sha256,map.collision.sha256),/části/);snapshot.objects[0].parts=parts;
+  const bytes=await p.read(klzPath),parsed=parseCollision(bytes),link=parsed.links.find(l=>l.name==='WB_CRATE.crate');bytes[link.offset+4]='X'.charCodeAt(0);await writeSafe(root,p.asset(klzPath).overlay,bytes);assert.match((await p.inspectMap(scenePath)).collision.warning,/mimo editor/);await assert.rejects(p.saveScene(scenePath,[{id:map.objects[0].fields.position,value:[25,0,5]}],map.sha256),/mimo editor/);
+});
+
+test('native owner no-op rebuilds keep exact bytes/history and model hash races cannot publish collisions',async t=>{
+  const {p,scene}=await setup(t);await p.changeSceneObject(scenePath,{...operation,collision:frameCollision},hash(scene));const map=await p.inspectMap(scenePath),before=await p.read(klzPath),owners=collisionOwnership(p.manifest,scenePath),history=p.manifest.history.length;
+  assert.deepEqual(await p.rebuildSceneCollision(scenePath,map.sha256,map.collision.sha256),{count:1,changed:false});assert.equal(p.manifest.history.length,history);assert.deepEqual(await p.read(klzPath),before);
+  const file=await p.inspect(klzPath);await p.saveCollision(klzPath,[{kind:'edit',array:'triangles',index:owners[0].triangleStart,changes:{material:9}}],file.sha256,file.dependencyHashes,{detachGenerated:true});assert.equal(p.manifest.history.length,history);assert.deepEqual(await p.read(klzPath),before);
+  const batch=p.changeBatch,model=await p.read('models/crate.4ds');p.changeBatch=async function(files,...rest){p.changeBatch=batch;await p.change('models/crate.4ds',Buffer.concat([model,Buffer.from([0])]),'Concurrent model change');return batch.call(this,files,...rest);};
+  await assert.rejects(p.saveScene(scenePath,[{id:map.objects[0].fields.position,value:[10,0,0]}],map.sha256),/od otevření/);assert.deepEqual(await p.read(klzPath),before);assert.equal(p.manifest.history.length,history+1);assert.deepEqual(collisionOwnership(p.manifest,scenePath),owners);await p.undo();assert.deepEqual(await p.read('models/crate.4ds'),model);
+});

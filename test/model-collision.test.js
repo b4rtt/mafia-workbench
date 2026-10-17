@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { modelCollisionBox } from '../src/core/model-collision.js';
+import { modelCollisionFrameSurfaces } from '../src/core/model-collision.js';
 const identity={position:[0,0,0],rotation:[1,0,0,0],scale:[1,1,1]};
 const mesh=(id,extra={})=>({...identity,id,type:1,parent:0,culling:1,lods:[{positions:[0,0,0,2,0,0,0,4,3,999,999,999],faces:[{indices:[0,1,2]}]}],...extra});
 const object={...identity,id:'object',name:'crate',frameType:9,model:'crate.i3d',parent:'Primary sector'};
@@ -37,4 +38,12 @@ test('surface extraction uses transformed visible faces, reports degenerates and
   const geometry={meshes:[mesh(1,{name:'wall',position:[5,0,0]}),mesh(2,{name:'copy',position:[15,0,0],instance:1,lods:[]})]};
   const resolver=geometryCollisionResolver({objects:[]},geometry);assert.deepEqual(resolver('COPY',[0,1,2]),[[15,0,0],[17,0,0],[15,4,3]]);assert.throws(()=>resolver('missing',[0,1,2]),/jednoznačný/);
   const degenerate={meshes:[mesh(1,{lods:[{positions:[0,0,0,1,0,0,2,0,0],faces:[{indices:[0,1,2]}]}]})]};assert.throws(()=>modelCollisionSurface(degenerate,object,{objects:[object]},{meshes:[]}),/nedegenerovaný/);
+});
+
+test('native surface parts retain complete LOD indices, hierarchy, instances and opaque filtering',()=>{
+  const source=mesh(1,{name:'Source',renderFlags:0x40}),instance=mesh(2,{name:'Instance',instance:1,lods:[],position:[5,0,0]}),child=mesh(3,{name:'Child',parent:2,position:[0,2,0]}),hidden=mesh(4,{name:'Hidden',culling:0});
+  const parts=modelCollisionFrameSurfaces({meshes:[source,instance,child,hidden]},object,{objects:[object]},{meshes:[]});
+  assert.deepEqual(parts.map(p=>p.frame),['crate.Instance','crate.Child']);assert.deepEqual(parts[0].indices,[0,1,2]);assert.equal(parts[0].positions.length,12);assert.deepEqual(parts[0].positions.slice(9),[1004,999,999]);assert.deepEqual(parts[1].positions.slice(0,3),[5,2,0]);
+  const model={materials:[{flags:0,opacity:1},{flags:0x8000,opacity:1}],meshes:[mesh(1,{name:'Tree',lods:[{positions:[0,0,0,2,0,0,0,4,3,9,9,9],faces:[{material:1,indices:[2,0,1]},{material:2,indices:[0,2,3]}]}]})]};
+  assert.deepEqual(modelCollisionFrameSurfaces(model,object,{objects:[object]},{meshes:[]},{opaqueOnly:true})[0].indices,[2,0,1]);
 });

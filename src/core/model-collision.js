@@ -17,7 +17,7 @@ function modelCollisionGeometry(model, object, scene, geometry, surface, options
     enabled.set(mesh.id,(parent?enabled.get(parent.id):true)&&(mesh.culling===undefined||Boolean(mesh.culling&1)));return result;
   };
   const lod=(mesh,seen=new Set())=>{if(seen.has(mesh.id))throw new Error('Kolize: cyklická instance modelu.');seen.add(mesh.id);if(mesh.instance){const source=model.meshes[mesh.instance-1];if(!source)throw new Error('Kolize: chybějící instance modelu.');return lod(source,seen);}return mesh.lods?.[0];};
-  const bounds=new Box3(),point=new Vector3(),positions=[],faces=[],unique=new Map();let vertices=0,degenerate=0;
+  const bounds=new Box3(),point=new Vector3(),positions=[],faces=[],parts=[],unique=new Map();let vertices=0,degenerate=0;
   for(const mesh of model.meshes){
     const transform=meshWorld(mesh);if(mesh.type!==1||!enabled.get(mesh.id)||(mesh.renderFlags&0x40)||/(?:^|\s)SECT(?:\s|$)/i.test(mesh.properties??''))continue;
     if(mesh.skin?.length)throw new Error('Kolize: skinovaný model potřebuje dynamické kolize aktéra.');
@@ -32,14 +32,23 @@ function modelCollisionGeometry(model, object, scene, geometry, surface, options
     }
     if(surface){
       if(mesh.visual===2)throw new Error('Kolize: billboard potřebuje dynamické kolize aktéra.');
+      const localFaces=[];
       for(const face of selectedFaces){if(face.indices.length%3)throw new Error('Kolize: neplatné trojúhelníky modelu.');for(let i=0;i<face.indices.length;i+=3){
         const triangle=face.indices.slice(i,i+3).map(index=>mapped.get(index)),a=new Vector3().fromArray(positions,triangle[0]*3),b=new Vector3().fromArray(positions,triangle[1]*3).sub(a),c=new Vector3().fromArray(positions,triangle[2]*3).sub(a);
-        if(b.cross(c).length()<1e-8){degenerate++;continue;}faces.push(...triangle);
+        if(b.cross(c).length()<1e-8){degenerate++;continue;}faces.push(...triangle);if(surface==='frame')localFaces.push(...face.indices.slice(i,i+3));
       }}
+      if(surface==='frame'&&localFaces.length){
+        // Native links address LOD0 indices, including unused vertices and
+        // instances. Never compact or weld this buffer independently of 4DS.
+        if(data.positions.length%3||data.positions.length/3>65536)throw new Error('Kolize: neplatný vertex buffer frame.');
+        const worldPositions=[];
+        for(let i=0;i<data.positions.length;i+=3){const xyz=point.fromArray(data.positions,i).applyMatrix4(transform).toArray().map(Math.fround);if(xyz.some(n=>!Number.isFinite(n)))throw new Error('Kolize: neplatné světové souřadnice frame.');worldPositions.push(...xyz);}
+        parts.push({name:object.name,frame:object.name+'.'+mesh.name,positions:worldPositions,indices:localFaces});
+      }
     }
   }
   if(!vertices||bounds.isEmpty())throw new Error('Kolize: model nemá viditelný povrch pro generování.');
-  if(surface){if(!faces.length)throw new Error('Kolize: model nemá nedegenerovaný povrch.');return {name:object.name,positions,indices:faces,degenerate};}
+  if(surface){if(!faces.length)throw new Error('Kolize: model nemá nedegenerovaný povrch.');return surface==='frame'?parts:{name:object.name,positions,indices:faces,degenerate};}
   // Flat decorations need a nonzero collision thickness (2 cm).
   for(const axis of ['x','y','z'])if(bounds.max[axis]-bounds.min[axis]<.02){const center=(bounds.min[axis]+bounds.max[axis])/2;bounds.min[axis]=center-.01;bounds.max[axis]=center+.01;}
   return {name:object.name,min:bounds.min.toArray(),max:bounds.max.toArray()};
@@ -47,6 +56,7 @@ function modelCollisionGeometry(model, object, scene, geometry, surface, options
 
 export function modelCollisionBox(model, object, scene, geometry) { return modelCollisionGeometry(model,object,scene,geometry,false); }
 export function modelCollisionSurface(model, object, scene, geometry, options) { return modelCollisionGeometry(model,object,scene,geometry,true,options); }
+export function modelCollisionFrameSurfaces(model, object, scene, geometry, options) { return modelCollisionGeometry(model,object,scene,geometry,'frame',options); }
 
 // Existing KLZ frame triangles address the first LOD's vertex buffer. These
 // world coordinates are needed to merge new surfaces into the X-sorted cells.

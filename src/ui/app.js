@@ -1735,13 +1735,14 @@ function sceneObjectDialog(file, kind, object, cars = null, weapons = null, navi
   const name = element('input'); name.required = true; name.maxLength = 63;
   name.value = kind === 'duplicate' ? `${object.name.slice(0,55)}_copy` : kind==='add-human'?'WB_CHARACTER':kind==='add-car'?'WB_CAR':'WB_MODEL';
   if (!['delete','collision'].includes(kind)) field('Jedinečný název objektu', name);
-  let model, position, heading, scale, behavior, collisionMode, collisionMaterial, collisionSides, submitButton, behaviorValid=true;const parameters=new Map();
+  let model, position, heading, scale, behavior, collisionMode, collisionMaterial, collisionSides, collisionStorage, submitButton, behaviorValid=true;const parameters=new Map();
   function collisionFields(){
     const existing=[...(file.collision?.boxes??[]).map(box=>({...box,kind:'aabb'})),...(file.collision?.surfaces??[])].find(box=>box.name===object?.name);collisionMode=element('select');collisionMode.setAttribute('aria-label','Způsob kolize');
     for(const [value,label] of [['none',kind==='collision'?'Odstranit generovanou kolizi':'Bez generované kolize'],['aabb','Automatický box kolem modelu'],['mesh','Přesný povrch modelu (trojúhelníky)']]){const option=element('option',label);option.value=value;collisionMode.append(option);}collisionMode.value=existing?.kind??'none';field('Kolize',collisionMode);
     collisionMaterial=number('Materiál kolize (0–255)',existing?.material??0);collisionMaterial.min='0';collisionMaterial.max='255';collisionMaterial.step='1';
     collisionSides=element('input');collisionSides.type='checkbox';collisionSides.checked=existing?.doubleSided??true;field('Kolize povrchu z obou stran',collisionSides);
-    collisionMode.onchange=()=>{collisionMaterial.disabled=collisionMode.value==='none';collisionSides.disabled=collisionMode.value!=='mesh';};collisionMode.onchange();
+    collisionStorage=element('select');for(const [value,label]of [['frame','Vrcholy modelu · šetří prostor kolizí mise'],['world','Samostatné světové vrcholy · původní způsob']]){const option=element('option',label);option.value=value;collisionStorage.append(option);}collisionStorage.value=existing?.kind==='mesh'?(existing.storage??'world'):'frame';field('Uložení přesného povrchu',collisionStorage);
+    collisionMode.onchange=()=>{collisionMaterial.disabled=collisionMode.value==='none';collisionStorage.disabled=collisionSides.disabled=collisionMode.value!=='mesh';};collisionMode.onchange();
   }
   if (adding) {
     const search = element('input'); search.type = 'search'; search.placeholder = 'Hledat model…'; search.setAttribute('aria-label', 'Hledat vkládaný model'); field('Hledat model', search);
@@ -1775,7 +1776,7 @@ function sceneObjectDialog(file, kind, object, cars = null, weapons = null, navi
           if(cars)request.vehicleTableHash=cars.sha256;
           if(kind==='add-human'){request.parameters=Object.fromEntries([...parameters].map(([key,input])=>[key,Number(input.value)]));request.behavior=behavior.options();}
         }
-        if(collisionMode)request.collision={kind:collisionMode.value,material:Number(collisionMaterial.value),doubleSided:collisionSides.checked};
+        if(collisionMode)request.collision={kind:collisionMode.value,material:Number(collisionMaterial.value),doubleSided:collisionSides.checked,...(collisionMode.value==='mesh'?{storage:collisionStorage.value}:{})};
         request.collisionHash=file.collision?.sha256;
         state.file = await api.changeSceneObject(file.path, request, file.sha256); state.selectSceneName = kind === 'delete' ? null : kind==='collision'?object.name:name.value;
         dialog.close(); await refresh(); renderDetail(); status(`${labels[kind]}: uloženo do modu se zálohou.`);
