@@ -1,4 +1,5 @@
 import clipping from 'polygon-clipping';
+import {osmNavigationElevation,osmTerrainRoadPlan} from './navigation-elevation.js';
 
 const fail=m=>{throw Error('OpenStreetMap · oblouky dopravy: '+m);};
 const gap=(a,b)=>Math.hypot(b[0]-a[0],b[2]-a[2]);
@@ -6,7 +7,19 @@ const cross=(a,b)=>a[0]*b[2]-a[2]*b[0];
 const unit=(a,b)=>{const l=gap(a,b);if(l<.001)fail('body jsou příliš blízko.');return [(b[0]-a[0])/l,0,(b[2]-a[2])/l];};
 const mix=(a,b,t)=>a.map((v,i)=>v+(b[i]-v)*t);
 const area=polys=>polys.reduce((s,p)=>s+p.reduce((s,r,i)=>s+(i?-1:1)*Math.abs(r.slice(1).reduce((s,b,j)=>s+r[j][0]*b[1]-b[0]*r[j][1],0)/2),0),0);
-function simplified(chain){
+function simplified(chain,terrain){
+  if(terrain){
+    // Terrain cuts can be almost coincident after float32/micron rounding.
+    // Remove projected noise within 0.1 mm before constructing tangent rays;
+    // the new axes will be split again at every actual terrain seam below.
+    const keep=new Set([0,chain.length-1]),todo=[[0,chain.length-1]];
+    while(todo.length){
+      const [first,last]=todo.pop(),a=chain[first],b=chain[last],dx=b[0]-a[0],dz=b[2]-a[2],length=dx*dx+dz*dz;let worst=.0001,at=-1;
+      for(let i=first+1;i<last;i++){const p=chain[i],t=length?Math.max(0,Math.min(1,((p[0]-a[0])*dx+(p[2]-a[2])*dz)/length)):0,error=Math.hypot(p[0]-a[0]-dx*t,p[2]-a[2]-dz*t);if(error>worst){worst=error;at=i;}}
+      if(at!==-1){keep.add(at);todo.push([first,at],[at,last]);}
+    }
+    chain=chain.filter((_,i)=>keep.has(i));
+  }
   const result=[];for(const p of chain){result.push(p);while(result.length>2){const [a,b,c]=result.slice(-3),u=unit(a,b),v=unit(b,c);if(Math.abs(cross(u,v))>1e-6||u[0]*v[0]+u[2]*v[2]<0)break;result.splice(-2,1);}}return result;
 }
 function fillet(A,B,u,v,radius){
@@ -18,14 +31,15 @@ function fillet(A,B,u,v,radius){
 }
 // Separate directional axes and explicit tangent connectors. This edits only
 // native navigation; the mapped street surface is never enlarged to fit it.
-// Full-body containment is a sampled geometric gate, not steering simulation.
+// Plan-view body containment is a sampled geometric gate, not steering simulation.
 export function osmTrafficTurns(plan,surface,traffic,radius,envelopes){
-  if(!plan.flat||surface.elevation)fail('oblouky zatím vyžadují rovinný podklad.');
+  const terrain=osmNavigationElevation(surface);
+  if(terrain?!plan.elevated:!plan.flat)fail('očekávám rovinný plán nebo silnice na společném výškovém podkladu.');
   if(!surface.footprints?.road?.length||!Number.isFinite(radius)||radius<5||radius>12||!envelopes?.length)fail('chybí povrch, rozměry aut nebo poloměr 5–12 m.');
   const bounds={min:[Math.min(...envelopes.map(b=>b.min[0])),Math.min(...envelopes.map(b=>b.min[1]))],max:[Math.max(...envelopes.map(b=>b.max[0])),Math.max(...envelopes.map(b=>b.max[1]))]},corners=[[bounds.min[0],bounds.min[1]],[bounds.max[0],bounds.min[1]],[bounds.max[0],bounds.max[1]],[bounds.min[0],bounds.max[1]]];
   const legs=plan.crossings.map(()=>({incoming:[],outgoing:[]})),chains=[],turns=[],crossings=[],roads=[];
   for(const [i,r]of plan.roads.entries())for(const reverse of [false,true])if(reverse?r.reverse:r.forward){
-    const ordered=simplified([plan.crossings[r.from].position,...r.positions,plan.crossings[r.to].position]);if(reverse)ordered.reverse();
+    const ordered=simplified([plan.crossings[r.from].position,...r.positions,plan.crossings[r.to].position],terrain);if(reverse)ordered.reverse();
     const shift=r.forward&&r.reverse?surface.profiles[i].width/4:0;
     const offset=ordered.map((p,j)=>{
       const before=unit(ordered[Math.max(0,j-1)],ordered[j===0?1:j]),after=unit(ordered[j===ordered.length-1?j-1:j],ordered[Math.min(ordered.length-1,j+1)]),a=[p[0]+before[2]*shift,0,p[2]-before[0]*shift],b=[p[0]+after[2]*shift,0,p[2]-after[0]*shift],den=cross(before,after);
@@ -69,5 +83,12 @@ export function osmTrafficTurns(plan,surface,traffic,radius,envelopes){
       }
     }
   }
-  return {network:{flat:true,crossings,roads},turns:{radius,connectors:turns.length,axes:chains.length,bodyPoses:poses,bounds,sampleStep:.5}};
+  let network={flat:true,crossings,roads};
+  if(terrain){
+    // Offset axes and turn chords must meet the same terrain triangles as the
+    // street mesh/KLZ, including every cell edge and diagonal they cross.
+    network=osmTerrainRoadPlan(network,{...surface,profiles:roads.map(r=>surface.profiles[r.sourceRoad])});
+    for(const road of network.roads)road.cornerPaths=road.cornerPaths.map(curve=>curve.map(p=>terrain.point(p,terrain.levels.road)));
+  }
+  return {network,turns:{radius,connectors:turns.length,axes:chains.length,bodyPoses:poses,bounds,sampleStep:.5,...(terrain?{elevated:true}:{})}};
 }

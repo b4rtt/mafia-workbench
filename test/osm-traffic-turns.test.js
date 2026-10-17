@@ -43,9 +43,9 @@ test('interior mapped bends are rounded too, with finite float32 guidance and no
   const t=osmTrafficPlan(p,surface(p,12,4),options),n=parseRoads(osmRoadBytes(p,t));assert.deepEqual(n.warnings,[]);assert.equal(t.turns.axes,4);assert.equal(t.network.roads.filter(r=>r.sourceReverse).length,0);assert(n.nodes.every(r=>r.position.every(Number.isFinite)));
   assert(t.network.roads.find(r=>r.sourceRoad===0&&r.kind==='street').positions.length>20);
 });
-test('overlapping turns and unverified terrain stop before compilation; legacy options retain exact networks',()=>{
+test('overlapping turns and missing terrain stop before compilation; legacy options retain exact networks',()=>{
   const p=square(10);assert.throws(()=>osmTrafficPlan(p,surface(p),options),/nevejde mezi ohyby/);
-  const q=square(),s=surface(q);assert.throws(()=>osmTrafficPlan({...q,flat:false,elevated:true},{...s,elevation:{}},options),/rovinný/);
+  const q=square(),s=surface(q);assert.throws(()=>osmTrafficPlan({...q,flat:false,elevated:true},{...s,elevation:{}},options),/výškový podklad/);assert.throws(()=>osmTrafficPlan({...q,flat:false},s,options),/rovinný/);
   for(const version of [1,2,3]){const o={...options,version,turnRadius:undefined,continuous:false},a=osmTrafficPlan(q,s,o),b=osmTrafficPlan(q,s,{...o,models:o.models.map(({envelope,...m})=>m)});assert.deepEqual(a,b);assert.deepEqual(osmRoadBytes(q,a),osmRoadBytes(q,b));assert(!Object.hasOwn(a,'network'));}
   for(const patch of [{turnRadius:null},{turnRadius:'6'},{turnRadius:4.99},{turnRadius:12.01},{version:2,continuous:false},{models:[{...options.models[0],envelope:undefined}]},{models:[{...options.models[0],envelope:{min:[-1,-2],max:[1,2]}}]}])assert.throws(()=>validateOsmTraffic({...options,...patch}),/oblouky/);
 });
