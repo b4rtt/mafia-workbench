@@ -66,7 +66,7 @@ test('all curated facade styles generate distinct native materials with matching
   const unavailable=await loadOsmShellStyles({...project,asset:path=>{if(path==='maps/%HOFAS.BMP')throw Error('missing facade');return{path};}});assert.equal(unavailable.styles.length,osmShellStyles.length-1);assert.equal(unavailable.warnings.length,1);assert.match(unavailable.warnings[0],/Červenohnědá/);
 });
 
-for(const count of [24,30])test(`saved ${count}-style catalogues stay usable without the newly curated texture files`,async()=>{
+for(const count of [24,30,44])test(`saved ${count}-style catalogues stay usable without the newly curated texture files`,async()=>{
   const bytes=bmp(),complete={asset:path=>({path}),read:async()=>bytes},saved=(await loadOsmShellStyles(complete)).styles.slice(0,count),oldPaths=new Set(saved.flatMap(s=>s.textures.map(t=>t.path))),read=[];
   const oldProject={asset:path=>{assert(oldPaths.has(path),'legacy selection requested a new texture');return{path};},read:async path=>{read.push(path);return bytes;}};
   const restored=await loadOsmShellStyles(oldProject,saved);assert.deepEqual(restored,{styles:saved,warnings:[]});assert.equal(read.length,count*4);

@@ -57,6 +57,14 @@ export const osmShellStyles=Object.freeze([
   {id:'industrial-brick',label:'Starší cihla se zazděnými okny',source:'4build109.4ds',textures:['maps/0BTOV5.BMP','maps/5ZOKNA08.BMP','maps/3STRE1.BMP','maps/35RIMSV.BMP'],width:5.28,upperHeight:12.36,groundWidth:9.43,groundHeight:3.95},
   {id:'grey-pilasters',label:'Šedý kámen s vysokými pilastry',source:'4build159.4ds',textures:['maps/VYLOH21.BMP','maps/5ZOKNA09.BMP','maps/STRECH10.BMP','maps/35RIMSV.BMP'],width:4.33,upperHeight:8.28,groundWidth:8.11,groundHeight:4.02},
   {id:'weathered-cream',label:'Oprýskaná krémová dvorní fasáda',source:'%radovk18.4ds',textures:['maps/VYLOH03.BMP','maps/5ZOKNA07.BMP','maps/STRECH10.BMP','maps/35RIMSV.BMP'],width:5.01,upperHeight:7.19,groundWidth:2.7,groundHeight:2.85},
+  {id:'boarded-courtyard',label:'Dvorní omítka se zazděnými okny',source:'9hofmans.4ds',textures:['maps/VYLOH03.BMP','maps/5ZOKNA02.BMP','maps/STRECH10.BMP','maps/35RIMSV.BMP'],width:6.05,upperHeight:9.53,groundWidth:2.7,groundHeight:2.85},
+  {id:'pipe-courtyard',label:'Dvorní fasáda s odpadní rourou',source:'%radovk10.4ds',textures:['maps/VYLOH14.BMP','maps/5ZOKNA03.BMP','maps/STRECH10.BMP','maps/35RIMSV.BMP'],width:7.34,upperHeight:15.34,groundWidth:2.35,groundHeight:2.89},
+  {id:'grey-courtyard',label:'Šedá dvorní omítka s úzkými okny',source:'k_dum02.4ds',textures:['maps/VYLOH03.BMP','maps/5ZOKNA04.BMP','maps/STRECH10.BMP','maps/35RIMSV.BMP'],width:5.1,upperHeight:8.69,groundWidth:2.7,groundHeight:2.85},
+  {id:'worn-courtyard',label:'Oprýskaná dvorní omítka s reliéfem',source:'4build140.4ds',textures:['maps/SPODEK04.BMP','maps/5ZOKNA05.BMP','maps/STRECH10.BMP','maps/35RIMSV.BMP'],width:9.69,upperHeight:10.89,groundWidth:10.41,groundHeight:4.82},
+  {id:'sandstone-pairs',label:'Pískový kámen s dvojicí oken',source:'4build46.4ds',textures:['maps/VYLOH10.BMP','maps/5OKNA26.BMP','maps/STRECH10.BMP','maps/35RIMSV.BMP'],width:3.54,upperHeight:2.82,groundWidth:4.41,groundHeight:3.5},
+  {id:'sandstone-bands',label:'Pískový kámen s vodorovnými pásy',source:'4build46.4ds',textures:['maps/VYLOH10.BMP','maps/5OKNA27.BMP','maps/STRECH10.BMP','maps/35RIMSV.BMP'],width:4.11,upperHeight:7.06,groundWidth:4.41,groundHeight:3.5},
+  {id:'striped-brick',label:'Cihlová fasáda s kamennými pruhy',source:'4build51.4ds',textures:['maps/VYLOH31.BMP','maps/5OKNA31.BMP','maps/STRECH10.BMP','maps/35RIMSV.BMP'],width:5.13,upperHeight:3.53,groundWidth:8.96,groundHeight:4.16},
+  {id:'factory-grilles',label:'Tovární omítka s mřížovanými okny',source:'4build103rr.4ds',textures:['maps/PDZKA13.BMP','maps/%FASA3B.BMP','maps/STRECH10.BMP','maps/35RIMSV.BMP'],width:5.21,upperHeight:2.5,groundWidth:2.46,groundHeight:1.35},
 ]);
 const fail=message=>{throw Error(`OpenStreetMap · půdorysné domy: ${message}`);};
 const signed=r=>r.reduce((s,a,i)=>{const b=r[(i+1)%r.length];return s+a[0]*b[1]-b[0]*a[1];},0)/2;

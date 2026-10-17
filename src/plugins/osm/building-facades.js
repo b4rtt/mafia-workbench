@@ -45,6 +45,14 @@ const recipes=Object.freeze({
   'industrial-brick':{rows:[0,.22,.51,.75,1],swatch:[.87,.1,.95,.18]},
   'grey-pilasters':{rows:[0,1/3,2/3,1],swatch:[.015,.15,.05,.23]},
   'weathered-cream':{rows:[0,.36,.69,1],swatch:[.01,.15,.07,.25]},
+  'boarded-courtyard':{rows:[0,.5,1],swatch:[.03,.48,.35,.55]},
+  'pipe-courtyard':{rows:[0,.25,.5,.75,1],swatch:[.05,.1,.36,.35]},
+  'grey-courtyard':{rows:[0,.3,.73,1],swatch:[.02,.04,.06,.11]},
+  'worn-courtyard':{rows:[0,.33,.73,1],swatch:[.55,.32,.65,.4]},
+  'sandstone-pairs':{rows:[0,1],swatch:[.01,.12,.05,.3]},
+  'sandstone-bands':{rows:[0,.68,1],swatch:[.11,.05,.4,.2]},
+  'striped-brick':{rows:[0,1],swatch:[.01,.4,.05,.55]},
+  'factory-grilles':{rows:[0,1],swatch:[.07,.2,.2,.35]},
 });
 export function validateOsmFacade(options){
   if(options===undefined)return;
